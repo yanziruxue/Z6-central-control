@@ -1,0 +1,20 @@
+# 签名配置含口令，绝不入库
+android/keystore.properties
+
+# 构建中间产物（build.sh 用带时间戳的 C:/Users/yanzi/l6apk-build-<ts>，这里只是兜底）
+android/build/
+android/out/
+
+# 打包产物：只作为 GitHub Release 资产上传，不进 git
+dist/
+
+# WorkBuddy 会话数据 / 本地工具缓存（体积大且与源码无关）
+.workbuddy/
+._cache_adb.exe
+*.exe
+
+# Python / 编辑器
+__pycache__/
+*.pyc
+.vscode/
+.idea/
