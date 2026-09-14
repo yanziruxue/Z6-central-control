@@ -105,8 +105,9 @@ $NOTES"
 fi
 
 git tag -f "v$NEW_VER" >/dev/null 2>&1
-git push -q origin main 2>/dev/null || git push -q -u origin main
-git push -q -f origin "v$NEW_VER"
+l6_retry 5 4 "推送 main" -- git push -q origin main \
+  || l6_retry 5 4 "推送 main" -- git push -q -u origin main
+l6_retry 5 4 "推 tag" -- git push -q -f origin "v$NEW_VER"
 echo "    tag v$NEW_VER 已推送"
 
 if gh release view "v$NEW_VER" >/dev/null 2>&1; then

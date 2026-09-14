@@ -83,7 +83,21 @@ else
 fi
 
 # ---- 4. 对齐远端（含「无共同祖先」的首次推送）----
-if git fetch -q origin "+refs/heads/main:refs/remotes/origin/main" 2>/dev/null; then
+# 注意：fetch 失败 ≠ 远端没有 main。国内直连 github.com 时通时断，
+# 必须把「网络取不到」和「远端确实没有这个分支」分开报，否则会把网络故障误判成首次推送。
+if FETCH_LOG="$(l6_retry 3 3 "取远端" -- git fetch origin "+refs/heads/main:refs/remotes/origin/main")"; then
+  :
+else
+  if git rev-parse --verify -q refs/remotes/origin/main >/dev/null; then
+    echo "⚠ 取远端失败（网络不通），沿用本地记录的 origin/main $(git rev-parse --short refs/remotes/origin/main)"
+    echo "  推送若也失败，隔一会儿重跑即可（github.com 直连不稳）"
+  else
+    echo "⚠ 取远端失败（网络不通），且本地无 origin/main 记录 —— 将按首次推送处理"
+    printf '%s\n' "$FETCH_LOG" | tail -2 | sed 's/^/    /'
+  fi
+fi
+
+if git rev-parse --verify -q refs/remotes/origin/main >/dev/null; then
   if ! git merge-base HEAD origin/main >/dev/null 2>&1; then
     echo "· 远端 main 与本地无共同祖先（新建仓库的 stub commit）→ 合并历史"
     git merge --allow-unrelated-histories --no-edit origin/main >/dev/null \
@@ -98,19 +112,21 @@ if git fetch -q origin "+refs/heads/main:refs/remotes/origin/main" 2>/dev/null; 
     echo "· 远端无新提交"
   fi
 else
-  echo "· 远端暂无 main 分支，将首次推送"
+  echo "· 无 origin/main 记录，按首次推送处理"
 fi
 
-# ---- 5. 推送 ----
+# ---- 5. 推送（github.com 直连不稳 → 带重试）----
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" = "main" ] || { echo "· 当前分支 $BRANCH → 改名 main"; git branch -M main; BRANCH=main; }
 
-echo "· 推送 $BRANCH → origin"
-if push_out="$(git push -u origin "$BRANCH" 2>&1)"; then
+echo "· 推送 $BRANCH → origin（最多重试 5 次）"
+if push_out="$(l6_retry 5 4 "推送" -- git push -u origin "$BRANCH")"; then
   printf '%s\n' "$push_out" | sed 's/^/    /'
 else
   printf '%s\n' "$push_out" | sed 's/^/    /'
   echo "✗ 推送失败。常见原因："
+  echo "  · github.com 直连不稳（国内常见）→ 稍后重跑本脚本；或给 git 配代理："
+  echo "      git config --global http.https://github.com.proxy http://127.0.0.1:<端口>"
   echo "  · 未登录 → gh auth login，或配置 PAT 凭据"
   echo "  · 无写权限 / 仓库被保护"
   exit 1
@@ -119,8 +135,7 @@ fi
 # ---- 6. 可选：打 tag ----
 if [ -n "$TAG" ]; then
   git tag -f "v$TAG" >/dev/null
-  git push -q -f origin "v$TAG"
-  echo "· tag v$TAG 已推送"
+  l6_retry 5 4 "推 tag" -- git push -q -f origin "v$TAG" && echo "· tag v$TAG 已推送"
 fi
 
 echo

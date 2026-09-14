@@ -112,3 +112,18 @@ l6_prop() {   # $1=文件 $2=键
   [ -f "$1" ] || return 1
   grep -E "^[[:space:]]*$2[[:space:]]*=" "$1" | head -1 | cut -d= -f2- | tr -d ' \r'
 }
+
+# ---- 带重试执行（国内直连 github.com 时通时断，push/fetch 必须重试）----
+# 用法：l6_retry <次数> <间隔秒> <描述> -- <命令...>
+l6_retry() {
+  local n="$1" wait="$2" desc="$3"; shift 3
+  [ "${1:-}" = "--" ] && shift
+  local i=1 out
+  while :; do
+    out="$("$@" 2>&1)" && { printf '%s\n' "$out"; return 0; }
+    if [ "$i" -ge "$n" ]; then printf '%s\n' "$out"; return 1; fi
+    echo "· $desc 第 $i 次失败，$(printf '%s' "$out" | grep -oE 'Failed to connect[^"]*|Could not resolve host[^"]*' | head -1 || printf '%s' "$out" | tail -1 | cut -c1-90)"
+    echo "  ${wait}s 后重试（$((i+1))/$n）…"
+    sleep "$wait"; i=$((i+1))
+  done
+}
