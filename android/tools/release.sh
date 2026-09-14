@@ -14,6 +14,11 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+. "$HERE/lib.sh"
+# 环境守卫：cmd/PowerShell 里敲 `bash release.sh` 会落到 WSL 的 bash → 构建组件「找不到」
+l6_require_git_bash "$0" "$@" || exit 1
+
 ROOT="$(cd "$HERE/../.." && pwd)"            # 项目根目录（内容已上提到根）
 BUILD="$ROOT/android/build.sh"
 OTA_PROPS="$ROOT/android/assets/ota.properties"

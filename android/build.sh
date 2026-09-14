@@ -15,6 +15,16 @@
 # ============================================================
 set -euo pipefail
 
+# 环境守卫：必须在 Git Bash 下运行。若在 cmd/PowerShell 里敲 `bash build.sh`，
+# 实际会落到 WSL 的 bash（C:\Windows\System32\bash.exe），而 WSL 看不到 D:/... 路径，
+# 表现为「✗ 缺少构建组件: D:/.../aapt2.exe」（组件其实都在）。
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB="$SELF_DIR/tools/lib.sh"
+[ -f "$LIB" ] || { echo "✗ 缺少公共库: $LIB"; exit 1; }
+# shellcheck source=tools/lib.sh
+. "$LIB"
+l6_require_git_bash "$0" "$@" || exit 1
+
 SIGN="${SIGN:-release}"
 
 SDK="${ANDROID_SDK_ROOT:-D:/wenhaitao/Documents/sdk}"
