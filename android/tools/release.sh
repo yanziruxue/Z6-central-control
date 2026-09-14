@@ -113,12 +113,15 @@ l6_retry "$TRIES" "$WAIT" "推送 main" -- git -c http.connectTimeout=8 push -q 
 l6_retry "$TRIES" "$WAIT" "推 tag" -- git -c http.connectTimeout=8 push -q -f origin "v$NEW_VER"
 echo "    tag v$NEW_VER 已推送"
 
+# gh 是 Windows 程序，不认 MSYS 的 /d/... 路径（会报 no matches found），
+# 必须转成 Windows 形式（D:/...）再传给它。
+APK_GH="$(l6_to_win_slash "$APK")"
 if gh release view "v$NEW_VER" >/dev/null 2>&1; then
   echo "· Release v$NEW_VER 已存在，覆盖上传资产"
-  gh release upload "v$NEW_VER" "$APK" --clobber
+  gh release upload "v$NEW_VER" "$APK_GH" --clobber
   gh release edit "v$NEW_VER" --title "老六中控 v$NEW_VER" --notes "$FULL_NOTES"
 else
-  gh release create "v$NEW_VER" "$APK" \
+  gh release create "v$NEW_VER" "$APK_GH" \
     --title "老六中控 v$NEW_VER" \
     --notes "$FULL_NOTES"
 fi

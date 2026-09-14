@@ -36,6 +36,13 @@ l6_to_win() {
   echo "$1"
 }
 
+# ---- 本地路径 → Windows 路径（正斜杠形式，专供 gh 等 Windows 程序当参数使用）----
+# 不转换会报：no matches found for `/d/.../x.apk`（gh 是 Windows 程序，不认 MSYS 的 /d/ 路径）
+l6_to_win_slash() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; return; fi
+  echo "$1"
+}
+
 # ---- 定位 Git for Windows 的 bash.exe（输出 Windows 路径；失败返回 1）----
 l6_git_bash_win() {
   local mnt="/c" c
