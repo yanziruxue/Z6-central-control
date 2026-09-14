@@ -92,7 +92,7 @@ fi
 # ---- 4. 对齐远端（含「无共同祖先」的首次推送）----
 # 注意：fetch 失败 ≠ 远端没有 main。国内直连 github.com 时通时断，
 # 必须把「网络取不到」和「远端确实没有这个分支」分开报，否则会把网络故障误判成首次推送。
-if FETCH_LOG="$(l6_retry 3 3 "取远端" -- git fetch origin "+refs/heads/main:refs/remotes/origin/main")"; then
+if FETCH_LOG="$(l6_retry "$TRIES" "$WAIT" "取远端" -- git -c http.connectTimeout=8 fetch origin "+refs/heads/main:refs/remotes/origin/main")"; then
   :
 else
   if git rev-parse --verify -q refs/remotes/origin/main >/dev/null; then
@@ -126,8 +126,8 @@ fi
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 [ "$BRANCH" = "main" ] || { echo "· 当前分支 $BRANCH → 改名 main"; git branch -M main; BRANCH=main; }
 
-echo "· 推送 $BRANCH → origin（最多重试 5 次）"
-if push_out="$(l6_retry 5 4 "推送" -- git push -u origin "$BRANCH")"; then
+echo "· 推送 $BRANCH → origin（最多重试 $TRIES 次，每次连接超时 8s）"
+if push_out="$(l6_retry "$TRIES" "$WAIT" "推送" -- git -c http.connectTimeout=8 push -u origin "$BRANCH")"; then
   printf '%s\n' "$push_out" | sed 's/^/    /'
 else
   printf '%s\n' "$push_out" | sed 's/^/    /'
@@ -142,7 +142,7 @@ fi
 # ---- 6. 可选：打 tag ----
 if [ -n "$TAG" ]; then
   git tag -f "v$TAG" >/dev/null
-  l6_retry 5 4 "推 tag" -- git push -q -f origin "v$TAG" && echo "· tag v$TAG 已推送"
+  l6_retry "$TRIES" "$WAIT" "推 tag" -- git -c http.connectTimeout=8 push -q -f origin "v$TAG" && echo "· tag v$TAG 已推送"
 fi
 
 echo
