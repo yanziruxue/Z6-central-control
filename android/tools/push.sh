@@ -42,6 +42,13 @@ while [ $# -gt 0 ]; do
 done
 
 cd "$ROOT"
+
+# 国内直连 github.com 会丢 SYN：每次连接要耗满 ~21s 才失败。
+# 这里压短连接超时（8s）并多试几轮，比单次长超时更容易穿过。可用环境变量覆盖：
+#   L6_TRIES=20 L6_WAIT=3 bash android/tools/push.sh
+TRIES="${L6_TRIES:-12}"
+WAIT="${L6_WAIT:-5}"
+
 echo "==> 一键推送（$ROOT）"
 
 # ---- 1. 仓库 / 身份 / 远端 ----
