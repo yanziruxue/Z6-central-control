@@ -794,6 +794,13 @@ public class MainActivity extends Activity {
                     toast("未找到可启动的导航 App（车机未安装导航应用）");
                     return;
                 }
+                // 防呆：目标就是本应用时绝不能启动 —— 那会让界面「闪一下就回到老六中控」，
+                // 看起来像「导航打开后自动返回」（历史遗留的 navApp 值可能指向本应用包名）。
+                if (isSelfIntent(i)) {
+                    toast("导航源不能是「老六中控」自己，请在设置里重新选择车机已装的导航 App");
+                    navLaunching = false;
+                    return;
+                }
                 // 地图/导航是直接全屏盖住本界面的外部 App。返回主页有两条路：
                 //   ① 用户把本应用设为默认桌面后，按 HOME 键即回本界面（见「系统权限」卡片的「设为默认桌面」）；
                 //   ② 多数车机 ROM 锁死系统桌面、不让第三方应用设为默认桌面，此时挂一个
@@ -838,6 +845,10 @@ public class MainActivity extends Activity {
                     toast("未找到该音乐 App（车机未安装或未识别）");
                     return;
                 }
+                if (isSelfIntent(i)) {
+                    toast("音乐源不能是「老六中控」自己，请在设置里重新选择音乐 App");
+                    return;
+                }
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);   // 用户主动「启动/唤醒」→ 拉起该 App 成为活跃媒体会话
                 bringSelfToFront();  // 唤醒后立刻把仪表盘拉回前台：音乐 App 接管播放但留在后台
@@ -862,6 +873,10 @@ public class MainActivity extends Activity {
                     toast("未找到该应用（" + pkg + "）");
                     return;
                 }
+                if (isSelfIntent(i)) {
+                    toast("不能从 dock 启动「老六中控」自己");
+                    return;
+                }
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);
             } catch (Throwable e) {
@@ -884,6 +899,28 @@ public class MainActivity extends Activity {
         }
 
         /**
+         * 该 Intent 是不是指向本应用自己。
+         * 用于拦截「把自己当外部 App 启动」——那会表现为「界面闪一下就回到老六中控」，
+         * 用户看到的现象就是「打开导航后自动返回」（历史遗留的 navApp / musicSrc 值可能指向本应用）。
+         */
+        private boolean isSelfIntent(Intent i) {
+            try {
+                if (i == null) {
+                    return false;
+                }
+                if (i.getComponent() != null && i.getComponent().getPackageName() != null) {
+                    return getPackageName().equals(i.getComponent().getPackageName());
+                }
+                if (i.getPackage() != null) {
+                    return getPackageName().equals(i.getPackage());
+                }
+                return false;
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+
+        /**
          * 找第一个可用的导航 App：**先白名单，再按名称/包名关键词动态识别**。
          * 之前只扫白名单，车机装了车机版/定制版导航（如 com.baidu.naviauto）时永远返回 null。
          */
@@ -892,6 +929,9 @@ public class MainActivity extends Activity {
             try {
                 PackageManager pm = getPackageManager();
                 for (ApplicationInfo ai : pm.getInstalledApplications(0)) {
+                    if (ai.packageName == null || ai.packageName.equals(getPackageName())) {
+                        continue;   // 兜底时也绝不把自己当导航 App
+                    }
                     Intent li = pm.getLaunchIntentForPackage(ai.packageName);
                     if (li == null) {
                         continue;

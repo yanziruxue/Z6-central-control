@@ -24,8 +24,10 @@ const HTML = path.resolve(ROOT, '..', 'apk-dashboard-prototype.html');
 const errs = [];
 const vc = new VirtualConsole();
 vc.on('jsdomError', e => {
-  // jsdom 未实现 HTMLMediaElement.play()，会在起视频壁纸时报这个，不算页面错误
+  // jsdom 未实现 HTMLMediaElement.play() / canvas getContext()，
+  // 这两类只在起视频壁纸、压缩大图时报，属环境限制，不算页面错误
   if (/play\(\) method/.test(e.message || '')) return;
+  if (/getContext\(\) method/.test(e.message || '')) return;
   errs.push('jsdomError: ' + e.message);
 });
 vc.on('error', e => errs.push('console.error: ' + e));
@@ -110,9 +112,42 @@ setTimeout(() => {
   ok('再开启恢复显示', ws.style.display === 'block', ws.style.display);
   ok('再开启按钮文案为「● 开启」', /开启/.test(dimBtn ? dimBtn.textContent : ''), dimBtn && dimBtn.textContent);
 
-  console.log('\n== 运行时错误 ==');
-  ok('全程 0 运行时错误', errs.length === 0, errs.join(' | '));
+  console.log('\n== ⑥ 壁纸上传自动归档（图片 → 静态 / 视频 → 动态）==');
+  const upInput = d.getElementById('wallUploadAny');
+  ok('单一上传入口存在（旧的两个已移除）', !!upInput
+    && !d.getElementById('wallUploadStatic') && !d.getElementById('wallUploadDyn'));
+  ok('wallFileIsVid：MIME 缺失时按扩展名判视频', ev('wallFileIsVid({type:"",name:"b.mp4"})') === true);
+  ok('wallFileIsVid：图片判为非视频', ev('wallFileIsVid({type:"image/jpeg",name:"a.jpg"})') === false);
 
-  console.log('\n结果: ' + (fail === 0 ? '全部通过' : '失败 ' + fail + ' 项'));
-  process.exit(fail === 0 ? 0 : 2);
+  const finish = () => {
+    console.log('\n== 运行时错误 ==');
+    ok('全程 0 运行时错误', errs.length === 0, errs.join(' | '));
+    console.log('\n结果: ' + (fail === 0 ? '全部通过' : '失败 ' + fail + ' 项'));
+    process.exit(fail === 0 ? 0 : 2);
+  };
+
+  if (!upInput) {
+    finish();
+    return;
+  }
+  // jsdom 不会真正解码图片 → 注入「立即 onload」的 Image 桩，
+  // 让 shrinkWall 的图片分支（小图直接回落原图）能跑通；视频分支本就同步回落。
+  ev('window.Image=function(){var s=this;this.width=8;this.height=8;'
+    + 'this.naturalWidth=8;this.naturalHeight=8;setTimeout(function(){s.onload&&s.onload();},0);};');
+  const feed = (name, type, cb) => {
+    const file = new w.File(['x'], name, { type });
+    Object.defineProperty(upInput, 'files', { value: [file], configurable: true });
+    upInput.dispatchEvent(new w.Event('change'));
+    setTimeout(cb, 90);
+  };
+  feed('photo.jpg', 'image/jpeg', () => {
+    ok('图片自动归入「静态壁纸」', ev('settings.wallList.static.some(i=>i.name==="photo.jpg")'));
+    ok('上传后自动切到静态视图', ev('settings.wall') === 'static', ev('settings.wall'));
+    feed('clip.mp4', 'video/mp4', () => {
+      ok('视频自动归入「动态壁纸」', ev('settings.wallList.dynamic.some(i=>i.name==="clip.mp4")'));
+      ok('上传后自动切到动态视图', ev('settings.wall') === 'dynamic', ev('settings.wall'));
+      ok('新上传项已被选中', ev('settings.pick[settings.wall]===settings.wallList[settings.wall].filter(i=>i.id!=="preset").slice(-1)[0].id'));
+      finish();
+    });
+  });
 }, 400);

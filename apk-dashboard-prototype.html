@@ -290,11 +290,14 @@
   .set-cur .src-ic{font-size:16px;line-height:1}
   .set-cur b{color:var(--txt);font-weight:700}
   .set-opt.pick{background:rgba(255,255,255,.08);border:1px dashed var(--acc);color:var(--acc)}
-  /* 源卡片一行两栏：左「当前源」撑满，右「选择应用」按钮紧随其后 */
-  .src-row{display:flex;align-items:center;gap:8px;margin:8px 0 2px}
-  .src-row .set-cur{flex:1 1 auto;min-width:0;margin:0}
+  /* 源卡片一行排列：本地源按钮（U盘/蓝牙）· 当前源（图标+名称）·「选择应用」靠右。
+     与旧版「两栏」的区别：本地源按钮也在同一行内，故按钮改小一号，极窄屏才换行。 */
+  .src-row{display:flex;align-items:center;gap:8px;margin:8px 0 2px;flex-wrap:wrap}
+  .src-row .set-opts{flex:0 0 auto;gap:8px}
+  .src-row .set-opt{font-size:13px;padding:8px 12px}
+  .src-row .set-cur{flex:0 1 auto;min-width:0;margin:0}
   .src-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .src-row .set-opt.pick{flex:0 0 auto;white-space:nowrap}
+  .src-row .set-opt.pick{flex:0 0 auto;white-space:nowrap;margin-left:auto}
   /* 真实应用图标（原生 getAppIcon 返回 PNG data URL）；取不到时回落 emoji 占位 */
   .app-ic{width:20px;height:20px;border-radius:5px;object-fit:contain;display:inline-block;
     vertical-align:middle;background:rgba(255,255,255,.06)}
@@ -413,12 +416,12 @@
           <div class="set-scroll">
             <div class="set-sec">
               <div class="set-label">音乐源</div>
-              <!-- 一行两栏：左「当前源」（图标+名称），右「选择应用」（点按开安卓抽屉选已装音乐 App） -->
+              <!-- 一行排列：U盘 / 蓝牙（本地源）· 当前音乐源（图标+名称）· 选择应用 -->
               <div class="src-row">
+                <div class="set-opts" id="setMusicSrc"><!-- 车机本地源（U盘/蓝牙） --></div>
                 <div class="set-cur" id="musicSrcCur"></div>
                 <button class="set-opt pick" id="musicPickApp">📂 选择应用</button>
               </div>
-              <div class="set-opts" id="setMusicSrc"><!-- 车机本地源（U盘/蓝牙） --></div>
               <div class="set-hint">车机本地源（U盘 / 蓝牙）直接点选；要选具体音乐 App 请点右侧「选择应用」。</div>
             </div>
             <div class="set-sec">
@@ -433,23 +436,23 @@
             <div class="set-sec">
               <div class="set-label">壁纸</div>
               <!-- 上传按钮固定在「动态壁纸」右侧；两个按钮各自绑定类型，不再依赖当前选中的页签 -->
+              <!-- 单一上传入口：按文件自身类型自动归档（图片 → 静态壁纸，视频 → 动态壁纸） -->
               <div class="wall-bar">
                 <div class="set-opts" id="setWall">
                   <button class="set-opt on" data-v="static">🖼️ 静态壁纸</button>
                   <button class="set-opt" data-v="dynamic">🌈 动态壁纸</button>
                 </div>
-                <label class="up-btn" id="wallUpStatic">⬆️ 上传静态壁纸<input type="file" id="wallUploadStatic" accept="image/*" hidden></label>
-                <label class="up-btn" id="wallUpDyn">⬆️ 上传动态壁纸<input type="file" id="wallUploadDyn" accept="image/*,video/*" hidden></label>
+                <label class="up-btn" id="wallUpAny">⬆️ 上传壁纸<input type="file" id="wallUploadAny" accept="image/*,video/*" hidden></label>
               </div>
               <!-- 点击上方「静态/动态」即切换这里显示的壁纸列表 -->
               <div class="wall-grid" id="wallList"></div>
-              <div class="set-hint" id="upName">上传位置：静态 → Download/L6/壁纸/静态　动态 → Download/L6/壁纸/动态</div>
+              <div class="set-hint" id="upName">上传后自动归档：图片 → Download/L6/壁纸/静态　视频 → Download/L6/壁纸/动态</div>
               <!-- 壁纸压暗层开关：默认开（亮照片上文字更清楚）；嫌壁纸被压暗/发白可关掉 → 壁纸原图显示 -->
               <div class="ota-row">
                 <span class="ota-cur">壁纸压暗层（关闭后壁纸原图显示）</span>
                 <button class="set-opt" id="wallDimBtn">● 开启</button>
               </div>
-              <div class="set-hint">「上传静态壁纸」只收图片，「上传动态壁纸」可收动图/视频，上传后自动选中并入库到对应类型。壁纸<b>仅在主页（车辆状态 + 音乐）生效</b>，导航页/设置页保持深色底。</div>
+              <div class="set-hint">「⬆️ 上传壁纸」自动识别文件类型：<b>图片</b>归入静态壁纸、<b>视频</b>归入动态壁纸，上传后自动切到该类型并选中。壁纸<b>仅在主页（车辆状态 + 音乐）生效</b>，导航页/设置页保持深色底。</div>
             </div>
             <div class="set-sec">
               <div class="set-label">启动后自动播放音乐</div>
@@ -892,7 +895,8 @@ function musicSrcItem(){
 function renderMusicSrcCur(){
   const el=$("#musicSrcCur"); if(!el)return;
   const it=musicSrcItem();
-  el.innerHTML='当前音乐源：'+iconHTML(it.pkg,it.icon,'src-ic')+'<b>'+it.name+'</b>';
+  el.title="当前音乐源："+it.name;   // 前缀移入 title：与 U盘/蓝牙/选择应用 同处一行，容不下长前缀
+  el.innerHTML=iconHTML(it.pkg,it.icon,'src-ic')+'<b>'+it.name+'</b>';
 }
 // 导航源：点「选择应用」从已装导航 App 中选取（安卓抽屉式），显示当前源
 function buildNavApp(){
@@ -915,8 +919,9 @@ function buildNavApp(){
 function renderNavSrcCur(){
   const el=$("#navSrcCur"); if(!el)return;
   const a=NAV_APPS.filter(x=>(x.key||x.pkg)===settings.navApp)[0];
-  if(!a){ el.textContent="未选择导航应用"; return; }
-  el.innerHTML='当前导航源：'+iconHTML(a.pkg,a.icon||"🧭",'src-ic')+'<b>'+a.name+'</b>';
+  if(!a){ el.textContent="未选择导航应用"; el.title=""; return; }
+  el.title="当前导航源："+a.name;   // 前缀移入 title：与「选择应用」同处一行，容不下长前缀
+  el.innerHTML=iconHTML(a.pkg,a.icon||"🧭",'src-ic')+'<b>'+a.name+'</b>';
 }
 buildMusicSrc();buildNavApp();buildDockApps();
 loadTrack();startLyrics();
@@ -1072,8 +1077,7 @@ function openAppList(){ openAppPicker(null, function(a){ launchAppPkg(a.pkg); })
 /* ===== 壁纸：静态 / 动态 两个列表 + 上传（合并为一个模块） ===== */
 const WALL_DIR={static:"Download/L6/壁纸/静态",dynamic:"Download/L6/壁纸/动态"};
 const upName=document.getElementById("upName");
-const wallUploadStatic=document.getElementById("wallUploadStatic");
-const wallUploadDyn=document.getElementById("wallUploadDyn");
+const wallUploadAny=document.getElementById("wallUploadAny");
 // 点击「静态壁纸 / 动态壁纸」→ 切换下方列表内容（仅是列表视图切换，不影响上传按钮的归属类型）
 document.querySelectorAll("#setWall .set-opt").forEach(b=>b.onclick=()=>{
   settings.wall=b.dataset.v;
@@ -1131,9 +1135,8 @@ function saveWallpaper(type,dataUrl,filename){
   const base64=(dataUrl.split(",")[1]||"");
   try{if(window.L6Native&&typeof window.L6Native.saveWallpaper==="function"){window.L6Native.saveWallpaper(type,base64,filename);}}catch(_){}
 }
-// 两个上传按钮各自绑定类型：静态只收图片，动态可收图片/视频。
-// 上传后入库到「按钮对应的类型」，并把该类型切为当前视图 + 选中新项。
-// 图片上传前压缩（最长边 1920 + JPEG 0.82），显著降体积、避免 localStorage 配额超限；视频原样
+// 图片上传前压缩（最长边 1920 + JPEG 0.82），显著降体积、避免 localStorage 配额超限；
+// 已经够小的图**原样入库**（不重编码 → 顺带保住 PNG 的透明通道）；视频原样。
 function shrinkWall(dataUrl,isVid,cb){
   if(isVid||!/^data:image\//.test(dataUrl||"")){ cb(dataUrl); return; }
   try{
@@ -1141,6 +1144,7 @@ function shrinkWall(dataUrl,isVid,cb){
     img.onload=function(){
       try{
         var maxSide=1920, w=img.naturalWidth||img.width||0, h=img.naturalHeight||img.height||0;
+        if(w>0&&h>0&&w<=maxSide&&h<=maxSide){ cb(dataUrl); return; }   // 小图免重编码
         var sc=Math.min(1, maxSide/Math.max(w||maxSide,h||maxSide));
         var c=document.createElement("canvas");
         c.width=Math.max(1,Math.round((w||maxSide)*sc)); c.height=Math.max(1,Math.round((h||maxSide)*sc));
@@ -1154,16 +1158,22 @@ function shrinkWall(dataUrl,isVid,cb){
     img.src=dataUrl;
   }catch(_){ cb(dataUrl); }
 }
-function bindWallUpload(input,kind){
+// 上传文件是不是视频：MIME 与扩展名双判（部分车机文件选择器不返回 f.type，只看 MIME 会把 mp4 当图片）
+function wallFileIsVid(f){
+  return (((f&&f.type)||"").indexOf("video")>=0)
+      || /\.(mp4|webm|m4v|mov|mkv|avi|3gp|ts)$/i.test((f&&f.name)||"");
+}
+/**
+ * 上传壁纸（单一入口，自动归档）：按文件自身类型决定归入哪个列表 ——
+ *   视频 → 动态壁纸（dynamic，Download/L6/壁纸/动态）
+ *   图片 → 静态壁纸（static，Download/L6/壁纸/静态）
+ */
+function bindWallUploadAuto(input){
   if(!input)return;
   input.addEventListener("change",function(){
     const f=this.files&&this.files[0];if(!f)return;
-    // 兼容部分车机文件选择器不返回 MIME（f.type 为空）的情况 → 再按扩展名判断，否则 mp4 会被当图片
-    const isVid=(f.type||"").indexOf("video")>=0 || /\.(mp4|webm|m4v|mov|mkv|avi|3gp|ts)$/i.test(f.name||"");
-    if(kind==="static"&&isVid){
-      upName.textContent="静态壁纸只支持图片；视频请用右侧「上传动态壁纸」";
-      input.value="";return;
-    }
+    const isVid=wallFileIsVid(f);
+    const kind=isVid?"dynamic":"static";          // 自动归档的目标类型
     const r=new FileReader();
     r.onload=function(){
       // 压缩（仅图片）后再入库 + 持久化，避免大图撑爆 localStorage 配额
@@ -1176,15 +1186,14 @@ function bindWallUpload(input,kind){
         saveWallpaper(kind,src,f.name);
         if(typeof saveSettings==="function")saveSettings();   // 持久化「上传项 + 类型 + 选中项」
         renderWallList();setWallForPage(idx===0);
-        upName.textContent="已上传 → "+WALL_DIR[kind]+"/"+f.name;
+        upName.textContent="已上传"+(isVid?"（视频 → 动态）":"（图片 → 静态）")+" → "+WALL_DIR[kind]+"/"+f.name;
         input.value="";
       });
     };
     r.readAsDataURL(f);
   });
 }
-bindWallUpload(wallUploadStatic,"static");
-bindWallUpload(wallUploadDyn,"dynamic");
+bindWallUploadAuto(wallUploadAny);
 
 // 初始：按已保存的「静态/动态」还原开关选中态，再应用壁纸（导航源异步渲染）
 document.querySelectorAll("#setWall .set-opt").forEach(x=>x.classList.toggle("on",x.dataset.v===settings.wall));

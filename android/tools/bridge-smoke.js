@@ -99,13 +99,14 @@ setTimeout(() => {
   if (dockNav) dockNav.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const launched = NativeRaw.calls.filter(c => c[0] === 'launchApp').pop();
 
-  // 「布局和显示」模块已整块移除；壁纸改为列表式（#wallList + 两个独立上传按钮）
+  // 「布局和显示」模块已整块移除；壁纸改为列表式（#wallList + 单一「上传壁纸」入口，按文件类型自动归档）
   const layoutGone = !d.getElementById('setModules');
   const wallListOk = !!d.getElementById('wallList') && d.querySelectorAll('#wallList .wall-item').length >= 1;
-  const wallUpOk = !!d.getElementById('wallUploadStatic') && !!d.getElementById('wallUploadDyn');
+  const wallUpOk = !!d.getElementById('wallUploadAny')
+    && !d.getElementById('wallUploadStatic') && !d.getElementById('wallUploadDyn');
   const bar = d.getElementById('setWall') && d.getElementById('setWall').parentElement;
   const barSeq = bar ? [...bar.children].map(e => e.id || e.className) : [];
-  const barOk = barSeq[0] === 'setWall' && barSeq[1] === 'wallUpStatic' && barSeq[2] === 'wallUpDyn';
+  const barOk = barSeq[0] === 'setWall' && barSeq[1] === 'wallUpAny' && barSeq.length === 2;
 
   // 「系统权限」合并卡片：通知使用权 + 悬浮窗权限 + 默认桌面 三项都在
   // （悬浮窗权限的手动刷新已并入卡片内的「刷新」按钮 #sysRefresh，不再单列 #ovRefresh）
@@ -124,13 +125,19 @@ setTimeout(() => {
 
   // 「🔄 重新识别应用」按钮已移除（v1.4.9）→ 断言它确实不在了；「启动后自动播放」+ 默认桌面桥接
   const rescanGone = !d.getElementById('rescanApps');
-  // 源卡片新布局：一行两栏 —— 左「当前源」、紧右「📂 选择应用」按钮
-  const srcRowOk = ['musicSrcCur', 'navSrcCur'].every(id => {
-    const el = d.getElementById(id); if (!el) return false;
-    const row = el.closest('.src-row'); if (!row) return false;
-    const btn = row.querySelector('.set-opt.pick');
-    return !!btn && row.firstElementChild === el && el.nextElementSibling === btn;
-  });
+  // 源卡片新布局（v1.4.11）：一行排完 ——
+  //   音乐源：[U盘/蓝牙] [当前音乐源] [📂 选择应用]
+  //   导航源：[当前导航源] [📂 选择应用]
+  const srcRowOk = (() => {
+    const rowOf = id => { const el = d.getElementById(id); return el ? el.closest('.src-row') : null; };
+    const mRow = rowOf('musicSrcCur'), nRow = rowOf('navSrcCur');
+    if (!mRow || !nRow) return false;
+    const mKids = [...mRow.children].map(e => e.id || e.className);
+    const nKids = [...nRow.children].map(e => e.id || e.className);
+    return mKids.length === 3
+      && mKids[0] === 'setMusicSrc' && mKids[1] === 'musicSrcCur' && mKids[2] === 'musicPickApp'
+      && nKids.length === 2 && nKids[0] === 'navSrcCur' && nKids[1] === 'navPickApp';
+  })();
   const autoPlayBtn = d.getElementById('autoPlayBtn');
   const autoPlayOk = !!autoPlayBtn;
   const autoPlayBefore = autoPlayBtn ? autoPlayBtn.textContent : '';
@@ -227,11 +234,11 @@ setTimeout(() => {
   console.log('导航源只列已装 ->', navOnlyInstalled);
   console.log('导航页已移除 ->', navPageGone);
   console.log('布局/显示模块已移除 ->', layoutGone);
-  console.log('壁纸列表 + 双上传按钮 ->', wallListOk, '/', wallUpOk);
-  console.log('上传按钮位置(动态右侧) ->', barOk, '(' + barSeq.join(' | ') + ')');
+  console.log('壁纸列表 + 单一上传入口(自动归档) ->', wallListOk, '/', wallUpOk);
+  console.log('上传入口位置(类型切换右侧) ->', barOk, '(' + barSeq.join(' | ') + ')');
   console.log('系统权限卡: 通知/悬浮窗/默认桌面 ->', sysAccOk, '/', ovOk, '/', homeOk);
   console.log('重新识别应用按钮已移除 ->', rescanGone);
-  console.log('源卡片布局(当前源在左 / 选择应用在右) ->', srcRowOk);
+  console.log('源卡片一行布局(U盘/蓝牙·当前源·选择应用) ->', srcRowOk);
   console.log('真实图标: 桥 ->', iconBridgeOk, '| 取到 PNG ->', iconDataOk, '| 抽屉 data-pkg 占位 ->', iconSlotsOk, '| 当前源显图标 ->', srcIconOk);
   console.log('启动后自动播放按钮 ->', autoPlayOk, '(', autoPlayBefore, '→', autoPlayAfter, ')');
   console.log('默认桌面桥接 openHomeSettings ->', homeBridgeOk);
