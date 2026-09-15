@@ -114,6 +114,8 @@ public class MainActivity extends Activity {
             "hasOverlay:function(){try{return !!R.hasOverlayPermission();}catch(e){return false;}}," +
             "openOverlay:function(){try{R.openOverlaySettings();}catch(e){}}," +
             "openHomeSettings:function(){try{R.openHomeSettings();}catch(e){}}," +
+            "isDefaultHome:function(){try{return !!R.isDefaultHome();}catch(e){return false;}}," +
+            "isNightMode:function(){try{return !!R.isNightMode();}catch(e){return true;}}," +
             "goHome:function(){try{R.goHome();}catch(e){}}" +
             "};" +
             "try{buildMusicSrc();buildNavApp();}catch(e){}" +
@@ -265,6 +267,17 @@ public class MainActivity extends Activity {
                             + ");}catch(e){}})()", null);
         } catch (Throwable ignored) {
         }
+        // 用户可能刚从系统「默认应用」设置页把本应用设为默认桌面 → 回推状态，
+        // 否则设置页「默认桌面」会一直停在「未设置」。
+        try {
+            boolean home = isDefaultHomeOf(this);
+            web.evaluateJavascript(
+                    "(function(){try{if(window.L6HomeEvent)window.L6HomeEvent(" + home
+                            + ");}catch(e){}})()", null);
+        } catch (Throwable ignored) {
+        }
+        // 回到本界面时同步一次日夜模式（用户可能刚在系统设置里改过显示模式）
+        pushTheme();
     }
 
     @Override
@@ -279,6 +292,28 @@ public class MainActivity extends Activity {
                 toast("未授予悬浮窗权限：返回主页请到设置页「系统权限 → 悬浮窗」授权，或把本应用设为默认桌面");
             }
         }
+    }
+
+    /** 把当前日夜模式回推页面：window.L6ThemeEvent(isDark)。 */
+    private void pushTheme() {
+        try {
+            if (web == null) return;
+            boolean dark = isNightModeOf(this);
+            web.evaluateJavascript(
+                    "(function(){try{if(window.L6ThemeEvent)window.L6ThemeEvent(" + dark
+                            + ");}catch(e){}})()", null);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 车机日夜模式切换（系统 UI_MODE_NIGHT）→ 立即回推页面切主题。
+     * 依赖 manifest 里 activity 的 configChanges 含 uiMode（已声明），否则会重建 Activity。
+     */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        pushTheme();
     }
 
     @Override
@@ -362,6 +397,39 @@ public class MainActivity extends Activity {
 
     private void toast(final String msg) {
         runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+    }
+
+    /**
+     * 静态判据：系统当前默认桌面（HOME）是否为本应用。
+     * 供 onResume 回推 与 Bridge.isDefaultHome() 共用
+     * —— Bridge 是内嵌类，外层 onResume 调不到它的实例方法，所以逻辑放这里。
+     */
+    static boolean isDefaultHomeOf(android.content.Context ctx) {
+        try {
+            Intent i = new Intent(Intent.ACTION_MAIN);
+            i.addCategory(Intent.CATEGORY_HOME);
+            android.content.pm.ResolveInfo r = ctx.getPackageManager()
+                    .resolveActivity(i, PackageManager.MATCH_DEFAULT_ONLY);
+            return r != null && r.activityInfo != null
+                    && ctx.getPackageName().equals(r.activityInfo.packageName);
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    /**
+     * 静态判据：系统当前是否处于深色（夜间）模式。
+     * 车机日/夜切换会回调 onConfigurationChanged(uiMode)，与 onResume 一并向页面回推；
+     * 与 Bridge.isNightMode() 共用（Bridge 是内嵌类，外层调不到它的实例方法）。
+     */
+    static boolean isNightModeOf(android.content.Context ctx) {
+        try {
+            int m = ctx.getResources().getConfiguration().uiMode
+                    & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
+            return m == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable e) {
+            return true;                       // 车机默认深色主题
+        }
     }
 
     /* ==================== 原生桥接 ==================== */
@@ -812,6 +880,26 @@ public class MainActivity extends Activity {
                 try { moveTaskToBack(true); } catch (Throwable ignored) {
                 }
             }
+        }
+
+        /**
+         * 本应用当前是否已是系统默认桌面（HOME）。
+         * 设置页「系统权限」卡用它显示「默认桌面：已设置 / 未设置」——
+         * 之前页面只写了静态「未设置」，没有任何读取逻辑，导致设为默认桌面后仍显示未设置。
+         * 逻辑落在外层静态方法 isDefaultHomeOf()，本方法只做委托（Bridge 是内嵌类）。
+         */
+        @JavascriptInterface
+        public boolean isDefaultHome() {
+            return isDefaultHomeOf(MainActivity.this);
+        }
+
+        /**
+         * 系统当前是否深色（夜间）模式。页面据此切换浅色 / 深色主题（跟随系统，不自行按时间判断）。
+         * 逻辑落在外层静态方法 isNightModeOf()，本方法只做委托（Bridge 是内嵌类）。
+         */
+        @JavascriptInterface
+        public boolean isNightMode() {
+            return isNightModeOf(MainActivity.this);
         }
 
         /* ==================== 真实系统数据（音乐 / 导航） ==================== */

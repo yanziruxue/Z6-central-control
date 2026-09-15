@@ -52,6 +52,10 @@ const NativeRaw = {
   launchMusic(k) { this.calls.push(['launchMusic', k]); },
   launchPkg(p) { this.calls.push(['launchPkg', p]); },
   goHome() { this.calls.push(['goHome']); },
+  defaultHome: false,
+  isDefaultHome() { return this.defaultHome === true; },
+  nightMode: true,
+  isNightMode() { return this.nightMode === true; },
 };
 
 const errs = [];
@@ -105,6 +109,15 @@ setTimeout(() => {
   // （悬浮窗权限的手动刷新已并入卡片内的「刷新」按钮 #sysRefresh，不再单列 #ovRefresh）
   const ovOk = !!(d.getElementById('ovAcc') && d.getElementById('ovAccBtn'));
   const homeOk = !!(d.getElementById('homeState') && d.getElementById('homeBtn'));
+  // 默认桌面状态读取：原生 isDefaultHome() 报 true 时必须显示「已设置」（修「设为默认桌面后仍显示未设置」）
+  const homeStateBridgeOk = typeof window.L6Native.isDefaultHome === 'function';
+  let homeStateSet = false, homeStateUnset = false;
+  if (typeof window.readHomeState === 'function') {
+    NativeRaw.defaultHome = true;  window.readHomeState();
+    homeStateSet = (d.getElementById('homeState').textContent || '').indexOf('已设置') >= 0;
+    NativeRaw.defaultHome = false; window.readHomeState();
+    homeStateUnset = (d.getElementById('homeState').textContent || '').indexOf('未设置') >= 0;
+  }
   const sysAccOk = !!(d.getElementById('sysAcc') && d.getElementById('sysAccBtn'));
 
   // 「重新识别应用」按钮 + 「启动后自动播放」按钮 + 默认桌面桥接
@@ -117,25 +130,49 @@ setTimeout(() => {
   const autoPlayToggle = autoPlayBefore !== autoPlayAfter;
   const homeBridgeOk = typeof window.L6Native.openHomeSettings === 'function';
 
-  // 音乐源「启动/唤醒」：点「选择应用」→ 抽屉只列 2 个音乐 App（不含游戏）→ 选酷狗 → 点唤醒 → launchMusic('kugou')
-  const musicLaunchBtn = d.getElementById('musicLaunchBtn');
-  const musicLaunchBtnOk = !!musicLaunchBtn;
+  // 音乐源：点「选择应用」→ 抽屉只列 2 个音乐 App（不含游戏）→ 选酷狗 → 按播放键自动后台拉起它接管
+  const musicLaunchBtnGone = !d.getElementById('musicLaunchBtn');   // 独立「启动/唤醒」按钮已移除（并入播放键）
   const launchMusicBridgeOk = typeof window.L6Native.launchMusic === 'function';
   if (musicPick) musicPick.onclick();
   const musicItems = appListEl ? [...appListEl.querySelectorAll('.al-item')].map(e => e.textContent) : [];
   const musicOnlyMusic = musicItems.length === 2 && musicItems.some(x => x.includes('酷狗音乐')) && !musicItems.some(x => x.includes('和平精英'));
-  const kugouItem = appListEl && [...appListEl.querySelectorAll('.al-item')].find(el => el.textContent.includes('酷狗音乐'));
-  if (kugouItem) kugouItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));  // 选中酷狗 → settings.musicSrc='kugou'
-  if (musicLaunchBtn) musicLaunchBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  // 抽屉每项都应绑定长按（用于钉入 dock 快捷方式）
+  const drawerItems = appListEl ? [...appListEl.querySelectorAll('.al-item')] : [];
+  const lpBound = drawerItems.length > 0 && drawerItems.every(el => el.__lp === true);
+  const kugouItem = drawerItems.find(el => el.textContent.includes('酷狗音乐'));
+  if (kugouItem) kugouItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));  // → settings.musicSrc='kugou'
+  const playBtn = d.getElementById('play');
+  if (playBtn) playBtn.onclick();                     // 播放键：无活跃会话 → 自动拉起选中的音乐 App
   const launchedMusic = NativeRaw.calls.filter(c => c[0] === 'launchMusic').pop();
-  const musicLaunchCall = launchedMusic && launchedMusic[1] === 'kugou';
+  const musicLaunchCall = !!(launchedMusic && launchedMusic[1] === 'kugou');
+  // 本地源（U盘/蓝牙）没有可代拉的 App → 按播放不应再触发 launchMusic
+  let localNoLaunch = false;
+  const usbBtn = [...d.querySelectorAll('#setMusicSrc .set-opt')].find(b => (b.dataset.v || '') === 'usb');
+  if (usbBtn) {
+    usbBtn.onclick();
+    const before = NativeRaw.calls.filter(c => c[0] === 'launchMusic').length;
+    if (playBtn) playBtn.onclick();
+    localNoLaunch = NativeRaw.calls.filter(c => c[0] === 'launchMusic').length === before;
+  }
 
-  // dock 右侧应用快捷方式：设置页钉入 + dock 渲染 + 应用列表抽屉 + launchPkg 桥
-  if (typeof window.buildDockAppsSetting === 'function') window.buildDockAppsSetting();
+  // dock 右侧应用快捷方式：设置页勾选分区已移除 → 改为「抽屉长按钉入 / dock 长按移除」+ dock 渲染 + launchPkg 桥
   if (typeof window.buildDockApps === 'function') window.buildDockApps();
-  const dockSetWrap = d.getElementById('setDockApps');
-  const dockSetOk = !!dockSetWrap && dockSetWrap.querySelectorAll('.set-opt').length >= 4; // 桩返回 4 个 App
+  const dockSetGone = !d.getElementById('setDockApps');
   const dockAppsBox = d.getElementById('dockApps');
+  const toggleOk = typeof window.toggleDockPin === 'function';
+  let pinAddOk = false, pinRemoveOk = false;
+  if (toggleOk) {
+    window.toggleDockPin('com.kugou.android');
+    pinAddOk = !!(dockAppsBox && [...dockAppsBox.querySelectorAll('.dock-app')].some(b => (b.title || '').indexOf('酷狗音乐') >= 0));
+    window.toggleDockPin('com.kugou.android');
+    pinRemoveOk = !(dockAppsBox && [...dockAppsBox.querySelectorAll('.dock-app')].some(b => (b.title || '').indexOf('酷狗音乐') >= 0));
+  }
+  // 日夜主题：跟随系统（isNightMode 桥 → applyTheme 切 html[data-theme]）
+  const themeBridgeOk = typeof window.L6Native.isNightMode === 'function';
+  window.applyTheme(false);
+  const themeLightOk = d.documentElement.getAttribute('data-theme') === 'light';
+  window.applyTheme(true);
+  const themeDarkOk = d.documentElement.getAttribute('data-theme') === 'dark';
   const dockRendered = !!dockAppsBox && dockAppsBox.querySelectorAll('.dock-app').length >= 1; // 至少「打开应用列表」按钮
   const moreBtn = dockAppsBox && dockAppsBox.querySelector('.dock-app.more');
   // 「返回原桌面」：必须在「打开应用列表」左侧，点按触发原生 goHome
@@ -158,9 +195,12 @@ setTimeout(() => {
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
     && barOk && ovOk && homeOk && sysAccOk && rescanOk && autoPlayOk
-    && autoPlayToggle && homeBridgeOk && musicLaunchBtnOk && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic
-    && dockSetOk && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk
-    && homeLeftOfMore && goHomeBridgeOk && goHomeCalled;
+    && autoPlayToggle && homeBridgeOk && musicLaunchBtnGone && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic && localNoLaunch
+    && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
+    && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk
+    && homeLeftOfMore && goHomeBridgeOk && goHomeCalled
+    && homeStateBridgeOk && homeStateSet && homeStateUnset
+    && themeBridgeOk && themeLightOk && themeDarkOk;
 
   console.log('音乐源卡片 ->', music.join(' / '));
   console.log('导航源卡片 ->', nav.join(' / '));
@@ -175,8 +215,10 @@ setTimeout(() => {
   console.log('重新识别应用按钮 ->', rescanOk);
   console.log('启动后自动播放按钮 ->', autoPlayOk, '(', autoPlayBefore, '→', autoPlayAfter, ')');
   console.log('默认桌面桥接 openHomeSettings ->', homeBridgeOk);
-  console.log('音乐启动/唤醒按钮 ->', musicLaunchBtnOk, '| 桥 launchMusic ->', launchMusicBridgeOk, '| 点按触发 kugou ->', musicLaunchCall);
-  console.log('dock 设置分区(已装App) ->', dockSetOk, '(' + (dockSetWrap ? dockSetWrap.querySelectorAll('.set-opt').length : 0) + ' 项)');
+  console.log('默认桌面状态读取 isDefaultHome ->', homeStateBridgeOk, '| 已设置显示 ->', homeStateSet, '| 未设置显示 ->', homeStateUnset);
+  console.log('启动/唤醒按钮已移除 ->', musicLaunchBtnGone, '| 桥 launchMusic ->', launchMusicBridgeOk, '| 播放键拉起 kugou ->', musicLaunchCall, '| 本地源不代拉 ->', localNoLaunch);
+  console.log('dock 设置分区已移除 ->', dockSetGone, '| 抽屉长按已绑定 ->', lpBound, '| 长按钉入 ->', pinAddOk, '| 长按移除 ->', pinRemoveOk);
+  console.log('日夜主题：桥 isNightMode ->', themeBridgeOk, '| 浅色 ->', themeLightOk, '| 深色 ->', themeDarkOk);
   console.log('dock 渲染(含打开应用列表) ->', dockRendered);
   console.log('应用列表抽屉打开 ->', appListOpened, '| 项 ->', appListItems);
   console.log('dock 点应用 → launchPkg ->', launchPkgOk, '(' + (launchedPkg ? launchedPkg[1] : '') + ')');
