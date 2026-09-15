@@ -5,6 +5,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
@@ -61,15 +62,29 @@ public class MainActivity extends Activity {
      * 导航保活窗口（毫秒）。调起导航 App 后这段时间内，若系统 HOME 请求把本界面顶到前台，
      * 就把导航再推回前台。
      *
-     * 背景（用户实测）：本应用被设为车机默认桌面后，车机导航 App（如高德车机版）**启动完成后
-     * （约 2~10 秒）会自己发一次 HOME 请求回桌面** —— 桌面既然是本应用，地图就被顶掉，
-     * 用户看到的现象就是「打开导航后自动返回」。用户明确要求「老六中控必须当默认桌面」，
-     * 所以不能靠「别当桌面」绕开，只能在这里把落到本界面的 HOME 请求弹回导航。
+     * 背景（用户实测）：本应用被设为车机默认桌面后，车机导航 App **启动完成后（约 2~10 秒）
+     * 会自己发一次 HOME 请求回桌面** —— 桌面既然是本应用，地图就被顶掉，用户看到的现象就是
+     * 「打开导航后自动返回」。用户明确要求「老六中控必须当默认桌面」，所以不能靠「别当桌面」
+     * 绕开，只能在这里把落到本界面的 HOME 请求弹回导航。
+     *
+     * ✅ 根因已确认（2026-09-15）：**是当时那个版本的高德车机版自己发 HOME** —— 用户换用
+     *    另一个版本的高德后该现象即消失，本应用侧无责。保活机制继续保留作**防御**：老六既然是
+     *    默认桌面，任何发 HOME 的 App（换回旧版导航、其它导航 App、车机 ROM 看门狗）都会复现，
+     *    有它在就不会再顶掉地图。
      */
     private static final long NAV_GUARD_MS = 20000L;
 
     /** 最多回弹次数：超过就放手，避免与「周期性发 HOME」的导航 App 互相顶成闪屏。 */
     private static final int NAV_GUARD_MAX = 3;
+
+    /**
+     * 「用户按 HOME」的识别宽限：回弹成功后的这段时间内若又收到 HOME，判定为**用户自己按的**
+     * （导航 App 不会刚回桌面就再发一次），于是放行、让用户留在主页。
+     *
+     * 没有这段逻辑会有一个硬伤：回弹后 20 秒保活窗口仍在、计数也没用完，用户按 HOME 想回主页
+     * 会被**反复弹回导航**，得按满 3 次并等窗口过期才行 —— 等于「老六当桌面」时按 HOME 回不了主页。
+     */
+    private static final long NAV_GUARD_GRACE_MS = 8000L;
 
     /**
      * 保活状态全部用 **static** 存：车机 ROM 未必走 onNewIntent —— 它可能把本 Activity 整个
@@ -80,6 +95,7 @@ public class MainActivity extends Activity {
     private static long navGuardUntil = 0L;         // 保活窗口截止（SystemClock.uptimeMillis()）
     private static int navGuardHits = 0;            // 已回弹次数
     private static boolean navBounceLeft = false;   // 回弹后确已退到后台（onPause 置位 → 700ms 兜底不必执行）
+    private static long navGuardBounceAt = 0L;      // 上次回弹时刻（uptimeMillis）→ 用于识别「用户按的 HOME」
     /** 本次恢复到前台是否为「系统 HOME 请求」。onNewIntent / onCreate 记录 → onResume 消费。 */
     private boolean pendingHomeIntent = false;
 
@@ -419,6 +435,7 @@ public class MainActivity extends Activity {
             navGuardUntil = android.os.SystemClock.uptimeMillis() + NAV_GUARD_MS;
             navGuardHits = 0;
             navBounceLeft = false;
+            navGuardBounceAt = 0L;      // 新一次导航启动：清掉上一轮的回弹时刻，避免误判为「用户按键」
         } catch (Throwable t) {
             navGuardIntent = null;
         }
@@ -446,8 +463,20 @@ public class MainActivity extends Activity {
             if (navGuardIntent == null) {
                 return false;
             }
-            if (android.os.SystemClock.uptimeMillis() > navGuardUntil) {
+            final long now = android.os.SystemClock.uptimeMillis();
+            if (now > navGuardUntil) {
                 disarmNavGuard();       // 保活窗口已过：此时按 HOME 就该停在主页
+                return false;
+            }
+            // 刚回弹过又立刻收到 HOME → 判定为**用户自己按的**（导航 App 不会刚被推回去就再发一次），
+            // 于是放行并撤销保活，让用户留在主页。
+            // 没有这一段会有硬伤：回弹后窗口仍在、计数没用完 → 用户按 HOME 想回主页会被反复弹回导航，
+            // 得按满 3 次并等 20 秒窗口过期才行，等于「老六当桌面时按 HOME 回不了主页」。
+            if (navGuardHits >= 1 && now - navGuardBounceAt < NAV_GUARD_GRACE_MS) {
+                android.util.Log.i("L6Nav", "回弹后 " + (now - navGuardBounceAt)
+                        + "ms 再次收到 HOME → 判为用户按键，留在主页");
+                disarmNavGuard();
+                toast("已停留在主页");
                 return false;
             }
             if (navGuardHits >= NAV_GUARD_MAX) {
@@ -456,6 +485,7 @@ public class MainActivity extends Activity {
             }
             navGuardHits++;
             navBounceLeft = false;
+            navGuardBounceAt = now;     // 记下回弹时刻 → 下一次 HOME 据此识别「用户按键」
             android.util.Log.i("L6Nav", "HOME 请求被拦截，回弹导航（第 " + navGuardHits + " 次）");
             toast("已切回导航；如需回到主页请再按一次 HOME");
             final Intent nav = new Intent(navGuardIntent);
@@ -700,6 +730,100 @@ public class MainActivity extends Activity {
 
     public class Bridge {
 
+        /**
+         * 收集车机「可启动」的应用（包名 + 显示名）。
+         *
+         * ⚠️ 必须**优先**用 `queryIntentActivities(MAIN + CATEGORY_LAUNCHER)`：本应用的
+         *    AndroidManifest `<queries>` 里**显式声明**了 MAIN/LAUNCHER，这条路径一定能越过
+         *    Android 11+ 的包可见性限制。而 `getInstalledApplications` /
+         *    `getLaunchIntentForPackage` 依赖 `QUERY_ALL_PACKAGES` 权限 —— **部分车机 ROM 会
+         *    忽略该权限**，枚举结果就会为空或只剩自己，表现为「应用列表看不到已安装的应用」。
+         *    下面的回退分支只服务极个别连 queryIntentActivities 都受限的 ROM。
+         *
+         * ⚠️ 现场排查：`adb logcat -s L6Apps` —— 会打出枚举到的应用个数与异常原因
+         *    （以前这里是 `catch (Throwable ignored)`，错误被静默吞掉，无法定位）。
+         */
+        private java.util.List<String[]> collectLaunchable(PackageManager pm) {
+            java.util.List<String[]> out = new java.util.ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            try {
+                Intent main = new Intent(Intent.ACTION_MAIN);
+                main.addCategory(Intent.CATEGORY_LAUNCHER);
+                List<ResolveInfo> ris = pm.queryIntentActivities(main, 0);
+                if (ris != null) {
+                    for (ResolveInfo ri : ris) {
+                        if (ri == null || ri.activityInfo == null
+                                || ri.activityInfo.applicationInfo == null) {
+                            continue;
+                        }
+                        String pkg = ri.activityInfo.applicationInfo.packageName;
+                        if (pkg == null || pkg.equals(getPackageName()) || !seen.add(pkg)) {
+                            continue;
+                        }
+                        CharSequence cs = ri.loadLabel(pm);
+                        out.add(new String[]{pkg, cs == null ? pkg : cs.toString().trim()});
+                    }
+                }
+            } catch (Throwable t) {
+                android.util.Log.w("L6Apps", "queryIntentActivities 枚举失败: " + t);
+            }
+            if (out.isEmpty()) {
+                try {
+                    for (ApplicationInfo ai : pm.getInstalledApplications(0)) {
+                        String pkg = ai.packageName;
+                        if (pkg == null || pkg.equals(getPackageName()) || !seen.add(pkg)) {
+                            continue;
+                        }
+                        if (pm.getLaunchIntentForPackage(pkg) == null) {
+                            continue;
+                        }
+                        CharSequence cs = ai.loadLabel(pm);
+                        out.add(new String[]{pkg, cs == null ? pkg : cs.toString().trim()});
+                    }
+                } catch (Throwable t) {
+                    android.util.Log.w("L6Apps", "getInstalledApplications 枚举失败: " + t);
+                }
+            }
+            android.util.Log.i("L6Apps", "可启动应用枚举结果: " + out.size() + " 个");
+            return out;
+        }
+
+        /**
+         * 取某个包的启动 Intent，带**显式 Intent 兜底**。
+         *
+         * `getLaunchIntentForPackage` 在包可见性受限时会返回 null（部分车机 ROM 忽略
+         * `QUERY_ALL_PACKAGES`）；此时用 `queryIntentActivities` 查出它的 launcher Activity
+         * 拼一个**显式** Intent —— 显式 Intent（setClassName）不受 Android 11+ 包可见性限制，
+         * 车机上一定拉得起来。
+         */
+        private Intent launchIntentOf(PackageManager pm, String pkg) {
+            try {
+                Intent li = pm.getLaunchIntentForPackage(pkg);
+                if (li != null) {
+                    return li;
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                Intent main = new Intent(Intent.ACTION_MAIN);
+                main.addCategory(Intent.CATEGORY_LAUNCHER);
+                main.setPackage(pkg);
+                List<ResolveInfo> ris = pm.queryIntentActivities(main, 0);
+                if (ris != null && !ris.isEmpty()) {
+                    ResolveInfo ri = ris.get(0);
+                    if (ri != null && ri.activityInfo != null) {
+                        Intent c = new Intent(Intent.ACTION_MAIN);
+                        c.addCategory(Intent.CATEGORY_LAUNCHER);
+                        c.setClassName(ri.activityInfo.packageName, ri.activityInfo.name);
+                        return c;
+                    }
+                }
+            } catch (Throwable t) {
+                android.util.Log.w("L6Apps", "launchIntentOf(" + pkg + ") 失败: " + t);
+            }
+            return null;
+        }
+
         /** 枚举车机已安装的可启动 App，识别音乐 / 导航类，返回 JSON 数组字符串。 */
         @JavascriptInterface
         public String getInstalledAppsJson() {
@@ -707,17 +831,9 @@ public class MainActivity extends Activity {
             Set<String> seenKeys = new HashSet<>();
             try {
                 PackageManager pm = getPackageManager();
-                List<ApplicationInfo> apps = pm.getInstalledApplications(0);
-                for (ApplicationInfo ai : apps) {
-                    String pkg = ai.packageName;
-                    if (pkg == null || pkg.equals(getPackageName())) {
-                        continue;
-                    }
-                    if (pm.getLaunchIntentForPackage(pkg) == null) {
-                        continue;   // 非可启动 App，跳过
-                    }
-                    CharSequence labelCs = ai.loadLabel(pm);
-                    String label = labelCs == null ? pkg : labelCs.toString().trim();
+                for (String[] entry : collectLaunchable(pm)) {
+                    String pkg = entry[0];
+                    String label = entry[1];
                     String key = null, name = null, icon = null, type = null;
 
                     for (String[] m : APP_MAP) {
@@ -761,13 +877,9 @@ public class MainActivity extends Activity {
             Set<String> seenKeys = new HashSet<>();
             try {
                 PackageManager pm = getPackageManager();
-                List<ApplicationInfo> apps = pm.getInstalledApplications(0);
-                for (ApplicationInfo ai : apps) {
-                    String pkg = ai.packageName;
-                    if (pkg == null || pkg.equals(getPackageName())) continue;
-                    if (pm.getLaunchIntentForPackage(pkg) == null) continue;   // 非可启动 App，跳过
-                    CharSequence labelCs = ai.loadLabel(pm);
-                    String label = labelCs == null ? pkg : labelCs.toString().trim();
+                for (String[] entry : collectLaunchable(pm)) {
+                    String pkg = entry[0];
+                    String label = entry[1];
                     String key = null, name = null, icon = null, type = null;
                     for (String[] m : APP_MAP) {
                         if (m[0].equalsIgnoreCase(pkg)) {
@@ -1102,25 +1214,22 @@ public class MainActivity extends Activity {
             Intent fallback = null;
             try {
                 PackageManager pm = getPackageManager();
-                for (ApplicationInfo ai : pm.getInstalledApplications(0)) {
-                    if (ai.packageName == null || ai.packageName.equals(getPackageName())) {
+                for (String[] entry : collectLaunchable(pm)) {
+                    String pkg = entry[0];
+                    String label = entry[1];
+                    if (pkg == null || pkg.equals(getPackageName())) {
                         continue;   // 兜底时也绝不把自己当导航 App
                     }
-                    Intent li = pm.getLaunchIntentForPackage(ai.packageName);
-                    if (li == null) {
-                        continue;
-                    }
                     for (String[] m : APP_MAP) {
-                        if (m[0].equalsIgnoreCase(ai.packageName) && "nav".equals(m[4])) {
-                            return li;      // 白名单命中优先级最高
+                        if (m[0].equalsIgnoreCase(pkg) && "nav".equals(m[4])) {
+                            Intent li = launchIntentOf(pm, pkg);
+                            if (li != null) {
+                                return li;      // 白名单命中优先级最高
+                            }
                         }
                     }
-                    if (fallback == null) {
-                        CharSequence lc = ai.loadLabel(pm);
-                        String label = lc == null ? ai.packageName : lc.toString();
-                        if ("nav".equals(guessType(label, ai.packageName))) {
-                            fallback = li;  // 记下第一个动态识别出的导航 App
-                        }
+                    if (fallback == null && "nav".equals(guessType(label, pkg))) {
+                        fallback = launchIntentOf(pm, pkg);   // 记下第一个动态识别出的导航 App
                     }
                 }
             } catch (Throwable ignored) {

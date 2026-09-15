@@ -1036,7 +1036,10 @@ function openAppPicker(type, onPick){
     var list=type? apps.filter(function(a){return a.type===type;}) : apps;
     body.innerHTML="";
     if(!list.length){
-      body.innerHTML='<div class="al-empty">未检测到已安装的应用</div>';
+      body.innerHTML='<div class="al-empty">'+(
+        type==="music" ? "未检测到已安装的音乐应用"
+        : type==="nav" ? "未检测到已安装的导航应用"
+        : "未读到已安装的应用")+'</div>';
     }else{
       list.forEach(function(a){
         var it=document.createElement("div"); it.className="al-item";
@@ -1509,7 +1512,7 @@ function setHomeState(isHome){
   // HOME 请求会被原生弹回导航（MainActivity.tryBounceBackToNav），这里交代用户侧的出口。
   if(msg){
     msg.innerHTML = isHome
-      ? '✅ <b>老六中控已是车机默认桌面</b>：按 HOME 即回本界面。导航 App 启动完成后若自己发 HOME 请求回桌面，本应用会自动把界面<b>切回导航</b>（启动后 20 秒内最多 3 次，之后不再干预）；想留在主页请连按 HOME 或点左下角悬浮「返回」。'
+      ? '✅ <b>老六中控已是车机默认桌面</b>：按 HOME 即回本界面。个别导航 App 启动完成后会自己发 HOME 请求回桌面，届时本应用会自动把界面<b>切回导航</b>（启动后 20 秒内最多 3 次，之后不再干预）；想留在主页请<b>连按两次 HOME</b>，或点左下角悬浮「返回」。'
       : '未设为默认桌面：点右侧按钮，在系统「主屏幕应用」里选<b>老六中控</b>，之后按 HOME 即回本界面。未设置时请授权上面的悬浮窗，用左下角悬浮「返回」按钮回主页。';
   }
 }

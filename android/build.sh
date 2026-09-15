@@ -45,7 +45,7 @@ WORK="${WORK:-C:/Users/yanzi/l6apk-build-$(date +%s)}"
 
 APP_NAME="老六中控"              # 应用显示名（build 时写入 res/values/strings.xml 的 app_name）
 APK_NAME="Z6CC"                  # 产物文件名前缀（作为 GitHub Release 资产上传，必须 ASCII）
-VER_NAME="1.4.13"
+VER_NAME="1.4.14"
 
 # versionCode 编码约定：major*10000 + minor*100 + patch（例：1.2.1 -> 10201）
 # 必须与 Ota.normalizeGithubRelease() 从 tag 解析出的编码一致，否则 OTA 比较会误判。
