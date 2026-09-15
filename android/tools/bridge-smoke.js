@@ -110,11 +110,29 @@ setTimeout(() => {
   const launchedMusic = NativeRaw.calls.filter(c => c[0] === 'launchMusic').pop();
   const musicLaunchCall = launchedMusic && launchedMusic[1] === 'kugou';
 
+  // dock 右侧应用快捷方式：设置页钉入 + dock 渲染 + 应用列表抽屉 + launchPkg 桥
+  if (typeof window.buildDockAppsSetting === 'function') window.buildDockAppsSetting();
+  if (typeof window.buildDockApps === 'function') window.buildDockApps();
+  const dockSetWrap = d.getElementById('setDockApps');
+  const dockSetOk = !!dockSetWrap && dockSetWrap.querySelectorAll('.set-opt').length >= 4; // 桩返回 4 个 App
+  const dockAppsBox = d.getElementById('dockApps');
+  const dockRendered = !!dockAppsBox && dockAppsBox.querySelectorAll('.dock-app').length >= 1; // 至少「打开应用列表」按钮
+  const moreBtn = dockAppsBox && dockAppsBox.querySelector('.dock-app.more');
+  if (moreBtn) moreBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const appList = d.getElementById('appList');
+  const appListOpened = !!appList && appList.hidden === false;
+  const appListItems = appList ? appList.querySelectorAll('.al-item').length : 0;
+  const kugouItem = appList && [...appList.querySelectorAll('.al-item')].find(el => el.textContent.includes('酷狗音乐'));
+  if (kugouItem) kugouItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const launchedPkg = NativeRaw.calls.filter(c => c[0] === 'launchPkg').pop();
+  const launchPkgOk = !!launchedPkg && launchedPkg[1] === 'com.kugou.android';
+
   const ok = listOk && launched && launched[1] === 'baidu'
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
     && barOk && ovOk && homeOk && sysAccOk && rescanOk && autoPlayOk
-    && autoPlayToggle && homeBridgeOk && musicLaunchBtnOk && launchMusicBridgeOk && musicLaunchCall;
+    && autoPlayToggle && homeBridgeOk && musicLaunchBtnOk && launchMusicBridgeOk && musicLaunchCall
+    && dockSetOk && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk;
 
   console.log('原生音乐源 ->', music.join(' / '));
   console.log('原生导航项 ->', nav.join(' / '));
@@ -128,6 +146,10 @@ setTimeout(() => {
   console.log('启动后自动播放按钮 ->', autoPlayOk, '(', autoPlayBefore, '→', autoPlayAfter, ')');
   console.log('默认桌面桥接 openHomeSettings ->', homeBridgeOk);
   console.log('音乐启动/唤醒按钮 ->', musicLaunchBtnOk, '| 桥 launchMusic ->', launchMusicBridgeOk, '| 点按触发 kugou ->', musicLaunchCall);
+  console.log('dock 设置分区(已装App) ->', dockSetOk, '(' + (dockSetWrap ? dockSetWrap.querySelectorAll('.set-opt').length : 0) + ' 项)');
+  console.log('dock 渲染(含打开应用列表) ->', dockRendered);
+  console.log('应用列表抽屉打开 ->', appListOpened, '| 项 ->', appListItems);
+  console.log('dock 点应用 → launchPkg ->', launchPkgOk, '(' + (launchedPkg ? launchedPkg[1] : '') + ')');
   console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));

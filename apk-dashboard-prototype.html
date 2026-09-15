@@ -360,7 +360,7 @@
             <div class="set-sec">
               <div class="set-label">导航源</div>
               <div class="set-opts" id="setNavApp"><!-- 只显示已识别到的导航 App --></div>
-              <div class="set-hint">只列出车机上<b>实际已安装</b>的导航 App。选中即设为默认导航源；<b>dock 导航按钮</b>或<b>主页上滑</b>直接拉起该 App（蓝框为当前选择）。</div>
+              <div class="set-hint">只列出<b>实际已安装</b>的导航 App。选中即设为默认导航源；<b>dock 导航按钮</b>或<b>主页上滑</b>直接拉起该 App（蓝框为当前选择）。</div>
             </div>
             <!-- 悬浮窗权限已并入下方「系统权限」卡片 -->
             <div class="set-sec">
@@ -377,7 +377,7 @@
               <!-- 点击上方「静态/动态」即切换这里显示的壁纸列表 -->
               <div class="wall-grid" id="wallList"></div>
               <div class="set-hint" id="upName">上传位置：静态 → Download/L6/壁纸/静态　动态 → Download/L6/壁纸/动态</div>
-              <div class="set-hint">点击列表项即选用该壁纸；「上传静态壁纸」只收图片，「上传动态壁纸」可收动图/视频，上传后自动选中并入库到对应类型。壁纸<b>仅在主页（车辆状态 + 音乐）生效</b>，导航页/设置页保持深色底。</div>
+              <div class="set-hint">「上传静态壁纸」只收图片，「上传动态壁纸」可收动图/视频，上传后自动选中并入库到对应类型。壁纸<b>仅在主页（车辆状态 + 音乐）生效</b>，导航页/设置页保持深色底。</div>
             </div>
             <div class="set-sec">
               <div class="set-label">启动后自动播放音乐</div>
@@ -411,11 +411,11 @@
                   <button class="set-opt" id="sysRefresh">🔄 刷新</button>
                 </div>
               </div>
-              <div class="set-hint" id="sysHint">
-                <b>音乐</b>：读取系统正在播放的歌曲（歌名 / 歌手 / 专辑封面 / 播放进度 / 播放状态），上一曲 · 暂停 · 下一曲按钮直接控制系统播放器；歌词按歌名自动匹配并<b>跟随进度高亮</b>。<br>
-                <b>导航</b>：读取导航 App 的常驻通知（转向、剩余距离、预计到达）。<br>
-                未授权或不支持时，音乐 / 导航自动回落到本地演示数据，不影响展示。
-              </div>
+            </div>
+            <div class="set-sec">
+              <div class="set-label">dock 应用快捷方式</div>
+              <div class="set-hint">勾选要钉在底部 dock 右侧的已装应用（最多 6 个）；最右侧「📋 打开应用列表」可拉起全部已装应用。</div>
+              <div class="set-opts" id="setDockApps"><!-- 已装应用勾选列表 --></div>
             </div>
             <div class="set-sec">
               <div class="set-label">在线更新</div>
@@ -438,7 +438,7 @@
                   </div>
                 </div>
               </div>
-              <div class="set-hint">信息源 GitHub Releases（默认 gh-proxy.com 国内镜像回落）；签名密钥不同将无法直接覆盖安装，需先卸载旧版。</div>
+              <div class="set-hint">签名密钥不同将无法直接覆盖安装，需先卸载旧版。</div>
             </div>
           </div>
         </div>
@@ -479,6 +479,11 @@
         <button class="dock-btn" data-go="set" data-page-node-id="D3LKVeCYZbBWkT1YOdT1yZ">⚙️<small data-page-node-id="KMer5qxHbfq2mJ7pXMuuCh">设置</small></button>
       </div>
     </nav>
+    <div id="dockApps"></div>
+  </div>
+  <div class="app-list" id="appList" hidden>
+    <div class="al-head">📋 应用列表<button class="al-close" id="appListClose">✕</button></div>
+    <div class="al-grid" id="appListBody"></div>
   </div>
 </div>
 
@@ -689,13 +694,15 @@ const DEFAULT_WALL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEB
 // navApp 默认留空 → 由 buildNavApp() 按「车机实际已安装的导航 App」自动选中第一个；
 // 壁纸改为「列表 + 当前选中」模型：wallList 存该类型下可用壁纸，pick 记选中项 id。
 const settings={musicSrc:"usb",navApp:"",wall:"static",wallColor:"#0b0e14",autoPlay:false,
+  dockApps:{list:[],max:6},
   wallList:{static:[{id:"preset",name:"预设壁纸",src:DEFAULT_WALL}],
             dynamic:[{id:"preset",name:"预设动态壁纸",src:"",vid:false}]},
   pick:{static:"preset",dynamic:"preset"}};
 /* ---- 设置持久化（localStorage）：仅存轻量字段，壁纸图片不入库避免超出配额 ---- */
 function saveSettings(){ try{ localStorage.setItem("l6_settings_v1", JSON.stringify({
   musicSrc:settings.musicSrc, navApp:settings.navApp, wall:settings.wall,
-  wallColor:settings.wallColor, pick:settings.pick, autoPlay:settings.autoPlay })); }catch(e){} }
+  wallColor:settings.wallColor, pick:settings.pick, autoPlay:settings.autoPlay,
+  dockApps:settings.dockApps })); }catch(e){} }
 function loadSettings(){ try{ const s=JSON.parse(localStorage.getItem("l6_settings_v1")||"{}");
   if(s&&typeof s==="object"){ Object.assign(settings,s); } }catch(e){} }
 loadSettings();
@@ -760,7 +767,7 @@ function buildNavApp(){
     }
   });
 }
-buildMusicSrc();buildNavApp();
+buildMusicSrc();buildNavApp();buildDockApps();buildDockAppsSetting();
 // 音乐源「启动/唤醒」按钮：用户主动点才前台拉起选中的音乐 App（接管播放），不挂返回按钮
 (function(){
   var ml=document.getElementById("musicLaunchBtn");
@@ -772,6 +779,76 @@ buildMusicSrc();buildNavApp();
 })();
 syncMusicLaunch();
 loadTrack();startLyrics();
+
+/* ===== dock 右侧应用快捷方式 ===== */
+function launchAppPkg(pkg){
+  try{ if(window.L6Native&&window.L6Native.launchPkg) window.L6Native.launchPkg(pkg); }catch(e){}
+}
+// 渲染 dock 右侧：已钉应用图标 + 最右侧「打开应用列表」
+function buildDockApps(){
+  var box=$("#dockApps"); if(!box)return; box.innerHTML="";
+  var n=l6n(); if(!n||!n.getInstalledApps)return;
+  n.getInstalledApps(function(apps){
+    var list=(settings.dockApps&&settings.dockApps.list)||[];
+    list.forEach(function(pkg){
+      var a=apps.filter(function(x){return x.pkg===pkg;})[0]; if(!a)return;
+      var b=document.createElement("button");
+      b.className="dock-app"; b.title=a.name; b.textContent=a.icon||"▦";
+      b.onclick=function(){ launchAppPkg(pkg); };
+      box.appendChild(b);
+    });
+    var more=document.createElement("button");
+    more.className="dock-app more"; more.title="打开应用列表"; more.textContent="📋";
+    more.onclick=openAppList;
+    box.appendChild(more);
+  });
+}
+// 设置页：勾选已装应用钉入 dock（最多 max 个）
+function buildDockAppsSetting(){
+  var wrap=$("#setDockApps"); if(!wrap)return; wrap.innerHTML="";
+  var n=l6n(); if(!n||!n.getInstalledApps){ wrap.innerHTML='<span class="set-empty">需装机后读取已装应用</span>'; return; }
+  n.getInstalledApps(function(apps){
+    if(!apps.length){ wrap.innerHTML='<span class="set-empty">未检测到已安装的应用</span>'; return; }
+    var list=(settings.dockApps&&settings.dockApps.list)||[];
+    var max=(settings.dockApps&&settings.dockApps.max)||6;
+    apps.forEach(function(a){
+      var on=list.indexOf(a.pkg)>=0;
+      var btn=document.createElement("button");
+      btn.className="set-opt"+(on?" on":"");
+      btn.textContent=(a.icon||"▦")+" "+a.name;
+      btn.onclick=function(){
+        var l=(settings.dockApps&&settings.dockApps.list)||[];
+        var i=l.indexOf(a.pkg);
+        if(i>=0){ l.splice(i,1); }
+        else{ if(l.length>=max)return; l.push(a.pkg); }
+        settings.dockApps=settings.dockApps||{}; settings.dockApps.list=l;
+        if(typeof saveSettings==="function")saveSettings();
+        buildDockAppsSetting(); buildDockApps();
+      };
+      wrap.appendChild(btn);
+    });
+  });
+}
+// 打开应用列表抽屉（列全部已装应用）
+function openAppList(){
+  var d=$("#appList"); if(!d)return;
+  var body=$("#appListBody"); if(!body)return;
+  body.innerHTML="";
+  var n=l6n(); if(!n||!n.getInstalledApps)return;
+  n.getInstalledApps(function(apps){
+    apps.forEach(function(a){
+      var it=document.createElement("div"); it.className="al-item";
+      it.innerHTML='<div class="ai-ic">'+(a.icon||"▦")+'</div><div class="ai-nm">'+a.name+'</div>';
+      it.onclick=function(){ launchAppPkg(a.pkg); d.hidden=true; };
+      body.appendChild(it);
+    });
+  });
+  d.hidden=false;
+}
+(function(){
+  var c=document.getElementById("appListClose");
+  if(c)c.onclick=function(){ var d=$("#appList"); if(d)d.hidden=true; };
+})();
 
 /* ===== 壁纸：静态 / 动态 两个列表 + 上传（合并为一个模块） ===== */
 const WALL_DIR={static:"Download/L6/壁纸/静态",dynamic:"Download/L6/壁纸/动态"};
@@ -972,7 +1049,7 @@ document.getElementById("otaForceBtn").onclick=function(){
 /* ================================================================
    真实系统数据接入（音乐 = 系统媒体会话 / 导航 = 导航 App 通知）
    原生侧：L6NotifyService + MediaHub + Lyrics → window.L6SysEvent(JSON)
-   无桥接（浏览器直接打开原型）或未授权 → active=false，页面保持演示数据
+   无桥接（浏览器直接打开原型）或未授权 → active=false，页面显示空状态（无真实数据时）
    ================================================================ */
 function l6n(){return window.L6Native||null;}
 function pad2(n){return n<10?("0"+n):(""+n);}
@@ -1036,7 +1113,7 @@ function resetRealMedia(){
   if(!REAL.media.active)return;
   REAL.media.active=false;REAL.lrc=null;REAL.lrcKey="";REAL.lrcIdx=-1;
   $("#mbCover").innerHTML="🎵";
-  loadTrack();                                        // 回到本地演示数据
+  loadTrack();                                        // 回到空状态
 }
 
 /* ---- 导航：真实通知接管导航数据 ---- */
@@ -1072,7 +1149,7 @@ function renderSysAcc(granted,noBridge){
     el.style.color=granted?"var(--acc2)":"var(--red)";}
   if(msg)msg.textContent=granted
     ?"已接入系统媒体会话与导航通知，音乐 / 导航使用真实数据"
-    :"未授权：音乐 / 导航当前为演示数据，点右侧按钮授权后读取真实数据";
+    :"未授权：音乐 / 导航暂不可用，点右侧按钮授权后读取真实数据";
   if(btn)btn.textContent=granted?"⚙️ 通知使用权设置":"🔓 去授权";
 }
 
@@ -1130,7 +1207,7 @@ setTimeout(readOvState,1200);
 
 /* ---- 重新识别已安装应用（音乐 / 导航） ---- */
 $("#rescanApps").onclick=function(){
-  try{buildMusicSrc();buildNavApp();buildDockApps();}catch(e){}
+  try{buildMusicSrc();buildNavApp();buildDockApps();buildDockAppsSetting();}catch(e){}
 };
 
 /* ---- 启动后自动播放音乐（持久化到 localStorage） ---- */
