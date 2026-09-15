@@ -384,7 +384,6 @@
                 </div>
                 <div class="ota-actions">
                   <button class="set-opt" id="sysRefresh">🔄 刷新</button>
-                  <button class="set-opt ghost" id="sysProbe">🔍 当前接入</button>
                 </div>
               </div>
               <div class="set-hint" id="sysHint">
@@ -581,7 +580,7 @@ function startNav(key){
   navApp=key;settings.navApp=key; if(typeof saveSettings==="function")saveSettings();
   highlight($("#setNavApp"),key);
   const it=NAV_APPS.filter(x=>x.key===key)[0];
-  REAL.nav.app=it?it.name:"";            // 「当前接入」探针要显示是哪个 App 在导航
+  REAL.nav.app=it?it.name:"";            // 迷你导航卡要显示是哪个 App 在导航
   try{window.L6Native.launchApp(key);}catch(e){}
 }
 // 回到本 App 时由 MainActivity.onResume 调用，复位迷你卡片显隐（导航仍在后台则继续显示）
@@ -1117,24 +1116,8 @@ $("#sysRefresh").onclick=function(){
   if(!n||!n.refreshSys){$("#sysMsg").textContent="无原生桥接，无法刷新";return;}
   try{n.refreshSys();}catch(e){}
   $("#sysMsg").textContent="已请求刷新…";
-  setTimeout(probeSys,900);
   setTimeout(readOvState,900);   // 合并卡片后，刷新同时重读悬浮窗授权状态
 };
-$("#sysProbe").onclick=probeSys;
-function probeSys(){
-  var msg=$("#sysMsg");
-  var m=REAL.media,nn=REAL.nav,out=[];
-  out.push(m.active
-    ?("媒体：正在播放《"+(m.title||"未知")+"》– "+(m.artist||"未知")
-      +"　"+fmtMs(m.pos)+"/"+fmtMs(m.dur)+"　"+(m.playing?"播放中":"已暂停"))
-    :"媒体：未检测到活跃媒体会话");
-  out.push(nn.active
-    ?("导航："+(REAL.nav.app||"导航中")+"　剩余 "+$("#mDist").textContent
-      +"　约 "+$("#mEta").textContent+"　"+$("#mTurn").textContent)
-    :"导航：未检测到导航通知（导航 App 需在导航中）");
-  out.push("通知使用权："+(REAL.acc?"已授权":"未授权"));
-  if(msg)msg.textContent=out.join("　|　");
-}
 
 /* ---- 悬浮窗权限（已并入「系统权限」卡片，作为返回主页的备用通道） ---- */
 function setOvState(granted){

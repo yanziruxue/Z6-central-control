@@ -42,7 +42,7 @@ const DELAY = ms => new Promise(r => setTimeout(r, ms));
   await DELAY(300);
 
   console.log('\n== 结构 & 初始状态 ==');
-  ok('新卡片元素齐全', !!( $('#sysAcc') && $('#sysAccBtn') && $('#sysRefresh') && $('#sysProbe') && $('#sysMsg') ));
+  ok('新卡片元素齐全', !!( $('#sysAcc') && $('#sysAccBtn') && $('#sysRefresh') && $('#sysMsg') ));
   ok('无桥接时提示「未接入」（浏览器预览态）', txt('#sysAcc') === '未接入', txt('#sysAcc'));
   ok('页面无运行时错误', errs.length === 0, errs.join(' | '));
 
@@ -135,14 +135,10 @@ const DELAY = ms => new Promise(r => setTimeout(r, ms));
   await DELAY(1700);
   ok('导航回落后演示数据恢复滚动', txt('#mDist') !== '5.6 km', txt('#mDist'));
 
-  console.log('\n== 当前接入自检 ==');
+  console.log('\n== 刷新 & 授权 ==');
   $('#sysRefresh').onclick();
   ok('刷新调用原生 refreshSys', calls.some(c => c[0] === 'refreshSys'));
   await DELAY(1000);
-  $('#sysProbe').onclick();
-  const probe = txt('#sysMsg');
-  ok('自检输出含媒体/导航/权限三项', probe.includes('媒体：') && probe.includes('导航：') && probe.includes('通知使用权'),
-    probe);
   $('#sysAccBtn').onclick();
   ok('授权按钮调原生打开通知使用权设置', calls.some(c => c[0] === 'openNotifyAccess'));
 
