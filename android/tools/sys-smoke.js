@@ -130,10 +130,10 @@ const DELAY = ms => new Promise(r => setTimeout(r, ms));
   console.log('\n== 断开真实数据 → 回落演示 ==');
   w.L6SysEvent({ kind: 'media', active: false });
   ok('封面回到占位图标', txt('#mbCover') === '🎵', txt('#mbCover'));
-  ok('歌名回到演示曲目', txt('#npTitle') === '夜空中最亮的星', txt('#npTitle'));
+  ok('歌名回到空状态（无演示数据）', txt('#npTitle') === '未播放', txt('#npTitle'));
   w.L6SysEvent({ kind: 'nav', active: false });
   await DELAY(1700);
-  ok('导航回落后演示数据恢复滚动', txt('#mDist') !== '5.6 km', txt('#mDist'));
+  ok('导航断开后迷你卡片回到默认', txt('#mDist') === '--', txt('#mDist'));
 
   console.log('\n== 刷新 & 授权 ==');
   $('#sysRefresh').onclick();

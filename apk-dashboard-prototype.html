@@ -193,6 +193,31 @@
   .dock-btn:active{transform:scale(.9)}
   .dock-btn.on{background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f;
     border-color:transparent;box-shadow:0 6px 16px #3da9fc55}
+  /* dock 右侧应用快捷方式 */
+  #dockApps{position:absolute;right:18px;top:50%;transform:translateY(-50%);
+    display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:30px;
+    background:rgba(255,255,255,.06);border:1px solid var(--line);backdrop-filter:blur(8px)}
+  .dock-app{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);
+    background:transparent;color:var(--txt);font-size:20px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;transition:.15s}
+  .dock-app:active{transform:scale(.9)}
+  .dock-app.more{background:rgba(255,255,255,.1)}
+  /* 应用列表（抽屉） */
+  .app-list{position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:70vh;
+    display:flex;flex-direction:column;background:rgba(10,14,22,.96);
+    border-top:1px solid var(--line);border-radius:18px 18px 0 0;backdrop-filter:blur(10px);
+    box-shadow:0 -10px 30px rgba(0,0,0,.5)}
+  .app-list[hidden]{display:none}
+  .al-head{display:flex;align-items:center;justify-content:space-between;
+    padding:14px 18px;font-size:15px;font-weight:600;border-bottom:1px solid var(--line)}
+  .al-close{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
+    background:transparent;color:var(--sub);font-size:16px;cursor:pointer}
+  .al-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px;padding:16px;overflow:auto}
+  .al-item{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;
+    border-radius:14px;border:1px solid transparent;background:rgba(255,255,255,.04);cursor:pointer;transition:.15s}
+  .al-item:active{transform:scale(.95);border-color:var(--acc)}
+  .al-item .ai-ic{font-size:26px}
+  .al-item .ai-nm{font-size:11px;color:var(--sub);text-align:center;line-height:1.3}
 
   /* ---- 迷你导航卡片（仅在真实导航时显示） ---- */
   #miniNav{position:absolute;left:18px;right:18px;top:8px;z-index:6;display:none;
@@ -330,7 +355,7 @@
                 <button class="set-opt" id="rescanApps">🔄 重新识别应用</button>
                 <button class="set-opt" id="musicLaunchBtn">▶ 启动/唤醒</button>
               </div>
-              <div class="set-hint">只列出车机本地源（U盘 / 蓝牙）与<b>实际已安装</b>的音乐 App；进入音乐页即定位到此源。识别不全时点「重新识别应用」。</div>
+              <div class="set-hint">（U盘 / 蓝牙）与<b>实际已安装</b>的音乐 App；进入音乐页即定位到此源。识别不全时点「重新识别应用」。</div>
             </div>
             <div class="set-sec">
               <div class="set-label">导航源</div>
@@ -349,7 +374,7 @@
                 <label class="up-btn" id="wallUpStatic">⬆️ 上传静态壁纸<input type="file" id="wallUploadStatic" accept="image/*" hidden></label>
                 <label class="up-btn" id="wallUpDyn">⬆️ 上传动态壁纸<input type="file" id="wallUploadDyn" accept="image/*,video/*" hidden></label>
               </div>
-              <!-- 点击上方「静态/动态」即切换这里显示的壁纸列表；点击列表项即选用 -->
+              <!-- 点击上方「静态/动态」即切换这里显示的壁纸列表 -->
               <div class="wall-grid" id="wallList"></div>
               <div class="set-hint" id="upName">上传位置：静态 → Download/L6/壁纸/静态　动态 → Download/L6/壁纸/动态</div>
               <div class="set-hint">点击列表项即选用该壁纸；「上传静态壁纸」只收图片，「上传动态壁纸」可收动图/视频，上传后自动选中并入库到对应类型。壁纸<b>仅在主页（车辆状态 + 音乐）生效</b>，导航页/设置页保持深色底。</div>
@@ -462,70 +487,40 @@
 <script>
 /* ---------- 模拟实时数据（实际由 Linux 服务端推送） ---------- */
 const $=s=>document.querySelector(s);
-let playing=false, cur=0, vol=62;
+let playing=false, vol=62;
 /* 真实系统数据（媒体会话 / 导航通知）—— 由原生桥经 window.L6SysEvent 回填；
-   没有桥接（浏览器直接打开原型）或未授权时 active=false，页面走下面的演示数据。 */
+   没有桥接（浏览器直接打开原型）或未授权时 active=false，页面显示「未播放 / 暂无歌词」空状态。 */
 var REAL={media:{active:false,playing:false,dur:0,pos:0,title:"",artist:""},
   nav:{active:false,app:""},acc:false,lrc:null,lrcKey:""};
-const tracks=[
-  {t:"夜空中最亮的星",a:"逃跑计划",d:"4:08",src:"U盘",lyr:[
-    "夜空中最亮的星 能否听清","那仰望的人 心底的孤独和叹息",
-    "夜空中最亮的星 能否记起","曾与我同行 消失在风里的身影",
-    "我祈祷拥有一颗透明的心灵","和会流泪的眼睛"]},
-  {t:"稻香",a:"周杰伦",d:"3:43",src:"蓝牙",lyr:[
-    "对这个世界如果你有太多的抱怨","跌倒了就不该继续往前走",
-    "为什么人要这么的脆弱 堕落","请你打开电视看看",
-    "多少人为生命在努力勇敢的走下去","我们是不是该知足"]},
-  {t:"晴天",a:"周杰伦",d:"4:29",src:"酷狗",lyr:[
-    "故事的小黄花 从出生那年就飘着","童年的荡秋千 随记忆一直晃到现在",
-    "吹着前奏望着天空","我想起花瓣试着掉落",
-    "为你翘课的那一天","教室的那一间"]},
-  {t:"成都",a:"赵雷",d:"5:28",src:"U盘",lyr:[
-    "让我掉下眼泪的 不止昨夜的酒","让我依依不舍的 不止你的温柔",
-    "余路还要走多久 你攥着我的手","让我感到为难的 是挣扎的自由",
-    "和我在成都的街头走一走","直到所有的灯都熄灭了也不停留"]},
-  {t:"海阔天空",a:"Beyond",d:"5:25",src:"蓝牙",lyr:[
-    "今天我 寒夜里看雪飘过","怀着冷却了的心窝漂远方",
-    "风雨里追赶 雾里分不清影踪","天空海阔你与我 可会变",
-    "多少次 迎着冷眼与嘲笑","从没有放弃过心中的理想"]},
-  {t:"起风了",a:"买辣椒也用券",d:"5:11",src:"酷狗",lyr:[
-    "我曾将青春翻涌成她","也曾指尖弹出盛夏",
-    "心之所动 且就随缘去吧","这一路上走走停停",
-    "顺着少年漂流的痕迹","迈出车站的前一刻 竟有些犹豫"]},
-];
-// 歌词区（右侧 2/3）：整屏歌词 + 当前句高亮，随播放轮转
-let lyrIdx=0,lyrTimer=null;
+// 歌词区（右侧 2/3）：整屏歌词 + 当前句高亮，由真实播放进度驱动
+let lyrIdx=0;
 function renderLyrics(){
   const box=$("#lyr");if(!box)return;
-  const L=(tracks[cur].lyr||[]).slice(0,6);   // 固定 6 行文字
-  if(lyrIdx>=L.length)lyrIdx=0;
-  box.innerHTML=L.map((s,i)=>`<p${i===lyrIdx?' class="on"':""}>${s}</p>`).join("");
+  // 真实歌词由 renderLrcAt 按播放进度绘制；此处仅提供空状态占位
+  box.innerHTML='<p class="on">暂无歌词</p>';
 }
-function startLyrics(){
-  clearInterval(lyrTimer);
-  lyrTimer=setInterval(()=>{
-    if(REAL.media.active)return;                 // 真实歌词由播放位置驱动，停掉演示轮转
-    if(!playing)return;                          // 未播放（含暂停/无音乐）不跳动，避免空转高亮
-    const L=(tracks[cur].lyr||[]).slice(0,6);if(!L.length)return;
-    lyrIdx=(lyrIdx+1)%L.length;renderLyrics();
-  },2600);
+function startLyrics(){ /* 真实歌词由 renderLrcAt 按播放进度绘制，无需演示轮转 */ }
+function loadTrack(){
+  if(REAL.media.active)return;            // 真实数据由 applyRealMedia 接管，不走这里
+  $("#npTitle").textContent="未播放";
+  $("#npArtist").textContent="—";
+  syncMusicSrcTag();
+  $("#tDur").textContent="—";
+  lyrIdx=0;renderLyrics();
 }
-function loadTrack(){const x=tracks[cur];$("#npTitle").textContent=x.t;$("#npArtist").textContent=x.a;
-  syncMusicSrcTag();$("#tDur").textContent=x.d;
-  lyrIdx=0;renderLyrics();}
 /* 初始渲染延后到 buildMusicSrc/buildNavApp 之后（见文件末尾），确保音乐源标签能用已识别的应用名 */
 $("#play").textContent=playing?'⏸':'▶';   // 初始同步播放按钮文案（未播放显示 ▶）
 
 /* 传输控制：接了真实数据就转给系统播放器（状态由原生事件回推），否则走本地演示 */
 $("#play").onclick=()=>{
   if(REAL.media.active){mediaCtl("toggle");return;}
-  playing=!playing;$("#play").textContent=playing?'⏸':'▶';};
+  /* 无真实媒体：不演示播放 */};
 $("#prev").onclick=()=>{
   if(REAL.media.active){mediaCtl("prev");return;}
-  cur=(cur-1+tracks.length)%tracks.length;loadTrack();};
+  /* 无真实媒体：无上一曲可切 */};
 $("#next").onclick=()=>{
   if(REAL.media.active){mediaCtl("next");return;}
-  cur=(cur+1)%tracks.length;loadTrack();};
+  /* 无真实媒体：无下一曲可切 */};
 $("#seek").onclick=e=>{const r=$("#seek").getBoundingClientRect();
   const p=(e.clientX-r.left)/r.width;$("#seek i").style.width=(p*100)+"%";
   if(REAL.media.active&&REAL.media.dur>0)mediaCtl("seek:"+Math.round(p*REAL.media.dur));};
@@ -542,22 +537,7 @@ setInterval(()=>{
 function tick(){$("#clock").textContent=new Date().toTimeString().slice(0,5);}
 tick();setInterval(tick,1000);
 
-/* 导航数据模拟（实际由 APK 后台高德 SDK 静默取数 → 推迷你卡片 / 外部 App 全屏） */
-const turns=[["↱","前方 300m 右转","进入 滨江大道"],["↑","直行 800m","滨江大道"],
-  ["↰","500m 后靠左","驶入 高架"],["↰","即将到达目的地","公司"]];
-let ti=0;
-let navDist=8.6;
-setInterval(()=>{
-  if(REAL.nav.active)return;              // 有真实导航通知时不覆盖
-  const spd=60+Math.floor(Math.random()*20);
-  navDist-=0.03; if(navDist<0.2)navDist=8.6;
-  if(Math.random()<0.18)ti=(ti+1)%turns.length;
-  const t=turns[ti];
-  // 同步到迷你卡片（回到本界面后显示；外部 App 全屏时看不见本页，无需再更新假地图）
-  $("#mArr").textContent=t[0];$("#mTurn").textContent=t[1]+" · "+t[2];
-  $("#mDist").textContent=navDist.toFixed(1)+"km";
-  $("#mEta").textContent=Math.max(1,Math.round(navDist/(spd/60)))+"min";
-},1500);
+/* 导航数据由原生桥经 window.L6SysEvent 推送（REAL.nav.active 为真时显示顶部迷你卡片），无模拟数据 */
 
 /* ===== 导航：直接调起外部 App（真实全屏），不再有页内导航界面 ===== */
 let navApp="amap";
@@ -1061,7 +1041,9 @@ function resetRealMedia(){
 
 /* ---- 导航：真实通知接管导航数据 ---- */
 function applyRealNav(d){
-  if(!d||!d.active){REAL.nav.active=false;syncMiniNav();return;}
+  if(!d||!d.active){REAL.nav.active=false;syncMiniNav();
+    $("#mArr").textContent="↑";$("#mTurn").textContent="";$("#mDist").textContent="--";
+    $("#mEta").textContent="";$("#mDest").textContent="";return;}
   REAL.nav.active=true;
   // 真实导航数据全部落到 miniNav 卡片 —— 外部地图全屏时本页不可见，
   // 只有回到本界面后这张顶部卡片才是用户唯一能看到导航状态的地方。
@@ -1148,7 +1130,7 @@ setTimeout(readOvState,1200);
 
 /* ---- 重新识别已安装应用（音乐 / 导航） ---- */
 $("#rescanApps").onclick=function(){
-  try{buildMusicSrc();buildNavApp();}catch(e){}
+  try{buildMusicSrc();buildNavApp();buildDockApps();}catch(e){}
 };
 
 /* ---- 启动后自动播放音乐（持久化到 localStorage） ---- */

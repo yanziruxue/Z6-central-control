@@ -98,6 +98,7 @@ public class MainActivity extends Activity {
             "saveWallpaper:function(t,b,n){try{R.saveWallpaper(t,b,n);}catch(e){}}," +
             "launchApp:function(k){try{R.launchApp(k);}catch(e){}}," +
             "launchMusic:function(k){try{R.launchMusic(k);}catch(e){}}," +
+            "launchPkg:function(p){try{R.launchPkg(p);}catch(e){}}," +
             "checkOtaUpdate:function(){try{R.checkOtaUpdate();}catch(e){}}," +
             "installOtaUpdate:function(u,s){try{R.installOtaUpdate(u,s);}catch(e){}}," +
             "getOtaConfig:function(){try{return JSON.parse(R.getOtaConfig()||'{}');}catch(e){return{};}}," +
@@ -593,10 +594,48 @@ public class MainActivity extends Activity {
                     return;
                 }
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                startActivity(i);   // 用户主动「启动/唤醒」→ 前台拉起接管；不挂返回按钮
+                startActivity(i);   // 用户主动「启动/唤醒」→ 拉起该 App 成为活跃媒体会话
+                bringSelfToFront();  // 唤醒后立刻把仪表盘拉回前台：音乐 App 接管播放但留在后台
             } catch (Throwable e) {
                 toast("启动音乐 App 失败：" + e.getMessage());
             }
+        }
+
+        /**
+         * dock 应用快捷方式：按包名拉起任意已装应用（前台）。
+         * 与 launchApp(导航) 不同：不挂悬浮返回按钮、不置 navLaunching（它不是导航）。
+         */
+        @JavascriptInterface
+        public void launchPkg(String pkg) {
+            try {
+                if (pkg == null || pkg.isEmpty()) {
+                    return;
+                }
+                PackageManager pm = getPackageManager();
+                Intent i = pm.getLaunchIntentForPackage(pkg);
+                if (i == null) {
+                    toast("未找到该应用（" + pkg + "）");
+                    return;
+                }
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Throwable e) {
+                toast("启动应用失败：" + e.getMessage());
+            }
+        }
+
+        /** 把本 Activity（仪表盘）重新拉回前台，盖在刚启动的外部 App 之上。 */
+        private void bringSelfToFront() {
+            runOnUiThread(() -> {
+                try {
+                    Intent self = getPackageManager().getLaunchIntentForPackage(getPackageName());
+                    if (self != null) {
+                        self.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(self);
+                    }
+                } catch (Throwable ignored) {
+                }
+            });
         }
 
         /**

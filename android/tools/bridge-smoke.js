@@ -42,6 +42,7 @@ const NativeRaw = {
   saveWallpaper(t, b, n) { this.calls.push(['saveWallpaper', t, n, String(b).length]); },
   launchApp(k) { this.calls.push(['launchApp', k]); },
   launchMusic(k) { this.calls.push(['launchMusic', k]); },
+  launchPkg(p) { this.calls.push(['launchPkg', p]); },
 };
 
 const errs = [];
