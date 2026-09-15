@@ -23,6 +23,19 @@ ROOT="$(cd "$HERE/../.." && pwd)"            # 项目根目录（内容已上提
 BUILD="$ROOT/android/build.sh"
 OTA_PROPS="$ROOT/android/assets/ota.properties"
 
+# 推送失败时的硬闸：必须显式报错并给出补救命令。
+# 背景（v1.3.0 踩过）：push 全败后脚本继续往下走，结果本地 tag 建好了、
+# 远端 main 还停在上一版、Release 根本没建 —— 看起来「发过了」，实际没发出去。
+l6_fail_push() {
+  echo
+  echo "✗ 推送失败：$1 未能同步到远端（已重试 $TRIES 次）"
+  echo "  常见于国内直连 github.com:443 丢 SYN。补救："
+  echo "    cd \"$(pwd)\" && bash android/tools/push.sh --release $2"
+  echo "  或只推代码：  bash android/tools/push.sh"
+  echo "  网络好转后重跑本脚本是安全的（commit/tag 已就绪，重复执行只是覆盖）。"
+  exit 1
+}
+
 # ---- 读仓库信息（与 OTA 客户端同一份，避免两处不一致）----
 REPO_OWNER=""; REPO_NAME=""
 if [ -f "$OTA_PROPS" ]; then
@@ -108,10 +121,19 @@ git tag -f "v$NEW_VER" >/dev/null 2>&1
 # 国内直连 github.com 会丢 SYN（每次耗满 ~21s 才失败）→ 压短连接超时 + 多轮重试
 # 可用环境变量覆盖： L6_TRIES=20 L6_WAIT=3 bash android/tools/release.sh ...
 TRIES="${L6_TRIES:-12}"; WAIT="${L6_WAIT:-5}"
-l6_retry "$TRIES" "$WAIT" "推送 main" -- git -c http.connectTimeout=8 push -q origin main \
-  || l6_retry "$TRIES" "$WAIT" "推送 main" -- git -c http.connectTimeout=8 push -q -u origin main
-l6_retry "$TRIES" "$WAIT" "推 tag" -- git -c http.connectTimeout=8 push -q -f origin "v$NEW_VER"
-echo "    tag v$NEW_VER 已推送"
+if ! l6_retry "$TRIES" "$WAIT" "推送 main" -- git -c http.connectTimeout=8 push -q origin main; then
+  l6_retry "$TRIES" "$WAIT" "推送 main（-u）" -- git -c http.connectTimeout=8 push -q -u origin main \
+    || l6_fail_push "main" "$NEW_VER"
+fi
+l6_retry "$TRIES" "$WAIT" "推 tag" -- git -c http.connectTimeout=8 push -q -f origin "v$NEW_VER" \
+  || l6_fail_push "tag v$NEW_VER" "$NEW_VER"
+
+# 验收：本地 HEAD 必须真的出现在远端（只信 ls-remote，不信退出码）
+LOCAL_SHA="$(git rev-parse HEAD)"
+REMOTE_SHA="$(git ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}')"
+[ "$REMOTE_SHA" = "$LOCAL_SHA" ] || l6_fail_push "main" "$NEW_VER"
+git ls-remote --tags origin "refs/tags/v$NEW_VER" | grep -q . || l6_fail_push "tag v$NEW_VER" "$NEW_VER"
+echo "    远端已同步 ($REMOTE_SHA) + tag v$NEW_VER"
 
 # gh 是 Windows 程序，不认 MSYS 的 /d/... 路径（会报 no matches found），
 # 必须转成 Windows 形式（D:/...）再传给它。
@@ -125,6 +147,12 @@ else
     --title "老六中控 v$NEW_VER" \
     --notes "$FULL_NOTES"
 fi
+
+# 终检：Release 必须真的能查到且带上 APK 资产，否则车机 OTA 看不到新版本
+gh release view "v$NEW_VER" --json tagName,assets \
+  --jq '.assets[]?.name' 2>/dev/null | grep -qx "Z6CC-$NEW_VER.apk" \
+  || { echo "✗ Release 已建但资产 Z6CC-$NEW_VER.apk 缺失，请手动补传："; \
+       echo "    gh release upload v$NEW_VER \"$(l6_to_win_slash "$APK")\" --clobber"; exit 1; }
 
 echo
 echo "✓ 已发布 https://github.com/$REPO_OWNER/$REPO_NAME/releases/tag/v$NEW_VER"
