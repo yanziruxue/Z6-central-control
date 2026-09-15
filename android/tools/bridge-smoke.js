@@ -122,6 +122,17 @@ setTimeout(() => {
     homeStateUnset = (d.getElementById('homeState').textContent || '').indexOf('未设置') >= 0;
   }
   const sysAccOk = !!(d.getElementById('sysAcc') && d.getElementById('sysAccBtn'));
+  // 文案（v1.4.12）：用户已决定「老六中控就是车机默认桌面」，因此说明里**不能再出现
+  // 「改回车机原桌面」的旧建议**；且两态都要交代「导航 App 发的 HOME 会被自动切回导航」。
+  let homeMsgSet = '', homeMsgUnset = '';
+  if (typeof window.readHomeState === 'function') {
+    NativeRaw.defaultHome = true;  window.readHomeState();
+    homeMsgSet = (d.getElementById('homeMsg') || {}).textContent || '';
+    NativeRaw.defaultHome = false; window.readHomeState();
+    homeMsgUnset = (d.getElementById('homeMsg') || {}).textContent || '';
+  }
+  const homeCopyOk = homeMsgSet.indexOf('切回导航') >= 0 && homeMsgSet.indexOf('改回') < 0
+    && homeMsgUnset.indexOf('主屏幕应用') >= 0 && homeMsgUnset.indexOf('改回') < 0;
 
   // 「🔄 重新识别应用」按钮已移除（v1.4.9）→ 断言它确实不在了；「启动后自动播放」+ 默认桌面桥接
   const rescanGone = !d.getElementById('rescanApps');
@@ -224,7 +235,7 @@ setTimeout(() => {
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
     && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk
     && homeLeftOfMore && goHomeBridgeOk && goHomeCalled
-    && homeStateBridgeOk && homeStateSet && homeStateUnset
+    && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk
     && themeBridgeOk && themeLightOk && themeDarkOk;
 
   console.log('音乐源卡片 ->', music.join(' / '));
@@ -243,6 +254,7 @@ setTimeout(() => {
   console.log('启动后自动播放按钮 ->', autoPlayOk, '(', autoPlayBefore, '→', autoPlayAfter, ')');
   console.log('默认桌面桥接 openHomeSettings ->', homeBridgeOk);
   console.log('默认桌面状态读取 isDefaultHome ->', homeStateBridgeOk, '| 已设置显示 ->', homeStateSet, '| 未设置显示 ->', homeStateUnset);
+  console.log('默认桌面文案(不再劝退/含「切回导航」) ->', homeCopyOk, '| 已设置态 ->', (homeMsgSet || '').slice(0, 28) + '…');
   console.log('启动/唤醒按钮已移除 ->', musicLaunchBtnGone, '| 桥 launchMusic ->', launchMusicBridgeOk, '| 播放键拉起 kugou ->', musicLaunchCall, '| 本地源不代拉 ->', localNoLaunch);
   console.log('dock 设置分区已移除 ->', dockSetGone, '| 抽屉长按已绑定 ->', lpBound, '| 长按钉入 ->', pinAddOk, '| 长按移除 ->', pinRemoveOk);
   console.log('日夜主题：桥 isNightMode ->', themeBridgeOk, '| 浅色 ->', themeLightOk, '| 深色 ->', themeDarkOk);

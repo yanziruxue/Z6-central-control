@@ -55,6 +55,33 @@ public class MainActivity extends Activity {
     /** 即将调起导航 App：onPause 时若确实离开本界面，才挂「返回」悬浮按钮（导航未成功接管则不留按钮）。 */
     private boolean navLaunching = false;
 
+    /* ==================== 导航保活（HOME 请求回弹） ==================== */
+
+    /**
+     * 导航保活窗口（毫秒）。调起导航 App 后这段时间内，若系统 HOME 请求把本界面顶到前台，
+     * 就把导航再推回前台。
+     *
+     * 背景（用户实测）：本应用被设为车机默认桌面后，车机导航 App（如高德车机版）**启动完成后
+     * （约 2~10 秒）会自己发一次 HOME 请求回桌面** —— 桌面既然是本应用，地图就被顶掉，
+     * 用户看到的现象就是「打开导航后自动返回」。用户明确要求「老六中控必须当默认桌面」，
+     * 所以不能靠「别当桌面」绕开，只能在这里把落到本界面的 HOME 请求弹回导航。
+     */
+    private static final long NAV_GUARD_MS = 20000L;
+
+    /** 最多回弹次数：超过就放手，避免与「周期性发 HOME」的导航 App 互相顶成闪屏。 */
+    private static final int NAV_GUARD_MAX = 3;
+
+    /** 最近一次调起的导航 App 启动 Intent（回弹时复用）。null = 保活未开启。 */
+    private Intent navGuardIntent;
+    /** 保活窗口截止（SystemClock.uptimeMillis()）。 */
+    private long navGuardUntil = 0L;
+    /** 已回弹次数。 */
+    private int navGuardHits = 0;
+    /** 本次 onResume 是否由「HOME 请求回弹」引发（据此跳过「已回主页」回推、保住悬浮按钮）。 */
+    private boolean navBouncePending = false;
+    /** 回弹后是否确已退到后台（onPause 置位 → 700ms 兜底不必再执行）。 */
+    private boolean navBounceLeft = false;
+
     /** 每秒推进一次媒体进度条；每 10 秒兜底重建一次会话（防止系统不回调解绑）。 */
     private int mediaTickCount = 0;
     private final Runnable mediaTick = new Runnable() {
@@ -257,9 +284,19 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 回到本界面（系统 HOME 返回 / 从导航或设置页返回）→ 撤销悬浮返回按钮；
-        // 若确在导航中，按钮由 onPause(navLaunching) 负责挂上，不会丢失。
-        try { FloatNav.hide(this); } catch (Throwable ignored) {}
+        // 本次 onResume 是否由「HOME 请求被回弹」引发（见 onNewIntent / tryBounceBackToNav）。
+        final boolean bounced = navBouncePending;
+        navBouncePending = false;
+        if (bounced) {
+            // 导航 App 回桌面把本界面顶了上来，我们正在把它弹回去：
+            // ① 不能撤悬浮「返回」按钮 —— 用户随后要靠它回主页（onPause 不会再挂，因为 navLaunching 已消费）
+            // ② 不向页面推「已回主页」（L6NavReturn），否则主页状态会闪一下
+            try { FloatNav.show(getApplicationContext(), "返回"); } catch (Throwable ignored) {}
+        } else {
+            // 回到本界面（用户按 HOME / 点悬浮返回 / 从导航或设置页返回）→ 撤销悬浮返回按钮；
+            // 若确在导航中，按钮由 onPause(navLaunching) 负责挂上，不会丢失。
+            try { FloatNav.hide(this); } catch (Throwable ignored) {}
+        }
         // 用户可能刚从「通知使用权」设置页返回，这里重新读一次权限并刷新
         try {
             boolean ok = MediaHub.hasAccess(this);
@@ -279,12 +316,15 @@ public class MainActivity extends Activity {
         }
         // 回到本界面（系统 HOME 键 / 从授权页返回）→ 通知页面复位迷你导航卡片，
         // 并把最新悬浮窗授权状态刷到设置页（悬浮窗权限已并入「系统权限」卡片）。
-        try {
-            if (web != null) {
-                web.evaluateJavascript(
-                        "(function(){try{if(window.L6NavReturn)window.L6NavReturn();}catch(e){}})()", null);
+        // 被 HOME 请求顶回并已回弹导航时跳过：用户并不在主页，推了只会让状态闪一下。
+        if (!bounced) {
+            try {
+                if (web != null) {
+                    web.evaluateJavascript(
+                            "(function(){try{if(window.L6NavReturn)window.L6NavReturn();}catch(e){}})()", null);
+                }
+            } catch (Throwable ignored) {
             }
-        } catch (Throwable ignored) {
         }
         try {
             boolean ov = FloatNav.canDrawOverlay(this);
@@ -311,6 +351,10 @@ public class MainActivity extends Activity {
         super.onPause();
         // 仅当确系「调起导航 App 后本界面被盖住」才挂返回按钮；
         // 导航 App 没完全启动 / 失败导致本界面仍在前台时，onPause 不会触发，按钮也就不出现。
+        // 确已离开本界面 → 通知回弹逻辑「已经成功退到后台」，700ms 兜底不必再抢前台
+        if (navGuardIntent != null) {
+            navBounceLeft = true;
+        }
         if (navLaunching) {
             navLaunching = false;
             boolean ok = FloatNav.show(getApplicationContext(), "返回");
@@ -318,6 +362,122 @@ public class MainActivity extends Activity {
                 toast("未授予悬浮窗权限：返回主页请到设置页「系统权限 → 悬浮窗」授权");
             }
         }
+    }
+
+    /* ---------------- 导航保活：把落到本界面的 HOME 请求弹回导航 ---------------- */
+
+    /**
+     * 单任务模式下，系统投递给已存在实例的新 Intent 走这里（本 Activity 是 singleTask）。
+     *
+     * 关键用途：**区分两种「回到本界面」的意图** ——
+     *   ① 系统 HOME 请求（ACTION_MAIN + CATEGORY_HOME）：导航 App 主动回桌面导致，
+     *      本应用既然是默认桌面就会被顶上来 → 要弹回导航；
+     *   ② 用户点悬浮「返回」按钮 / 外部调起本界面（ACTION_MAIN + CATEGORY_LAUNCHER）：
+     *      用户真的想待在主页 → 撤销保活，绝不能弹走。
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        try {
+            setIntent(intent);
+        } catch (Throwable ignored) {
+        }
+        if (isHomeRequest(intent)) {
+            if (tryBounceBackToNav()) {
+                navBouncePending = true;
+            }
+        } else {
+            // 非 HOME 请求 = 用户主动回主页（或本应用被外部主动调起）→ 撤销保活
+            disarmNavGuard();
+        }
+    }
+
+    /** 是否为系统 HOME 请求（区别于 CATEGORY_LAUNCHER 的普通调起）。 */
+    private boolean isHomeRequest(Intent i) {
+        try {
+            return i != null
+                    && Intent.ACTION_MAIN.equals(i.getAction())
+                    && i.hasCategory(Intent.CATEGORY_HOME);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 刚成功调起导航 App → 记下它的启动 Intent 并开启保活窗口。 */
+    private void armNavGuard(Intent nav) {
+        try {
+            navGuardIntent = new Intent(nav);
+            navGuardUntil = android.os.SystemClock.uptimeMillis() + NAV_GUARD_MS;
+            navGuardHits = 0;
+            navBounceLeft = false;
+        } catch (Throwable t) {
+            navGuardIntent = null;
+        }
+    }
+
+    /** 撤销保活（用户已明确回主页 / 启动失败 / 换目标 / 窗口过期 / 反复回弹后放手）。 */
+    private void disarmNavGuard() {
+        navGuardIntent = null;
+        navGuardUntil = 0L;
+        navGuardHits = 0;
+        navBounceLeft = false;
+    }
+
+    /**
+     * HOME 请求落到本界面时，把导航 App 再推回前台。
+     *
+     * 先试最轻的 {@link Activity#moveTaskToBack}：不新建实例、也不重跑导航 App 的启动逻辑，
+     * 因此**不会再次触发它发 HOME**（这一点很关键 —— 重新 startActivity 会重跑启动流程，
+     * 容易顶成闪屏循环）。700ms 后若本界面仍在前台（onPause 没来），才退化为显式调起导航。
+     *
+     * @return true 表示已接手这次 HOME 请求（调用方据此跳过「已回主页」相关回推）
+     */
+    private boolean tryBounceBackToNav() {
+        try {
+            if (navGuardIntent == null) {
+                return false;
+            }
+            if (android.os.SystemClock.uptimeMillis() > navGuardUntil) {
+                disarmNavGuard();       // 保活窗口已过：此时按 HOME 就该停在主页
+                return false;
+            }
+            if (navGuardHits >= NAV_GUARD_MAX) {
+                disarmNavGuard();       // 反复回弹 → 放手，避免和导航 App 互相顶成闪屏
+                return false;
+            }
+            navGuardHits++;
+            navBounceLeft = false;
+            android.util.Log.i("L6Nav", "HOME 请求被拦截，回弹导航（第 " + navGuardHits + " 次）");
+            toast("已切回导航；如需回到主页请再按一次 HOME");
+            final Intent nav = new Intent(navGuardIntent);
+            moveTaskToBack(true);
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                if (navGuardIntent == null || navBounceLeft) {
+                    return;             // 已成功退到后台 → 无需兜底
+                }
+                try {
+                    nav.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(nav);  // 部分 ROM 的桌面窗口压不走，只能显式调起导航
+                } catch (Throwable ignored) {
+                }
+            }, 700L);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 用户一碰本界面就撤销保活 —— 这是「人要留在这里」的最强信号，
+     * 避免 700ms 兜底把正在操作的用户莫名弹去导航。
+     */
+    @Override
+    public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+        if (navGuardIntent != null && ev != null
+                && ev.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+            disarmNavGuard();
+        }
+        return super.dispatchTouchEvent(ev);
     }
 
     /** 把当前日夜模式回推页面：window.L6ThemeEvent(isDark)。 */
@@ -412,6 +572,7 @@ public class MainActivity extends Activity {
      *    状态原样保留。
      */
     private void leaveOrStay() {
+        disarmNavGuard();   // 用户主动按返回键 = 明确要留在主页 → 撤销导航保活
         try {
             if (isDefaultHomeOf(this)) {
                 // 自己就是桌面：压后台会把桌面也压走，保持不动；顺便去重，避免按键重复刷屏
@@ -764,6 +925,7 @@ public class MainActivity extends Activity {
          */
         @JavascriptInterface
         public void launchApp(String key) {
+            disarmNavGuard();   // 每次重新发起导航都先重置保活，避免回弹复用到上一次的目标
             try {
                 if (key == null) {
                     key = "";
@@ -812,6 +974,9 @@ public class MainActivity extends Activity {
                 navLaunching = true;
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);
+                // 记下导航 App 的启动 Intent 并开启保活窗口：导航启动完成后若发 HOME 请求回桌面，
+                // 桌面（本应用）会被顶上来 —— 此时由 onNewIntent 把它弹回导航（见 tryBounceBackToNav）。
+                armNavGuard(i);
             } catch (Throwable e) {
                 navLaunching = false;   // 启动抛异常：本次不算「去导航」，onPause 不会误挂按钮
                 toast("启动导航失败：" + e.getMessage());
@@ -999,24 +1164,58 @@ public class MainActivity extends Activity {
         }
 
         /**
-         * 跳系统的「默认应用」设置页，让用户把本应用设为默认桌面（HOME）。
-         * 返回主页机制依赖此设置：设为本应用后，系统 HOME 键 / 上滑回桌面都会回到本界面。
-         * 老版本无 MANAGE_DEFAULT_APPS_SETTINGS 常量时，退化为直接拉起 HOME 选择。
+         * 把本应用设为车机默认桌面（HOME）。
+         *
+         * 用户明确要求「老六中控就是车机默认桌面」—— 返回主页靠它 + 导航保活（见 tryBounceBackToNav）。
+         * 但车机 ROM 的「默认应用 → 主屏幕」入口往往藏得极深，因此这里四级降级，尽量一步到位：
+         *   ① API 29+ RoleManager.createRequestRoleIntent(ROLE_HOME)：直接弹系统确认框
+         *      「是否将老六中控设为主屏幕应用？」—— 最可靠；
+         *   ② Settings.ACTION_HOME_SETTINGS：系统的「主屏幕应用」页；
+         *   ③ Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS：默认应用总页；
+         *   ④ 拉起 HOME 选择（部分老车机只有这个入口）。
+         * 全限定类名 + try/catch + SDK_INT 守卫，与 isDefaultHomeOf 写法一致（避开 ART 类校验）。
          */
         @JavascriptInterface
         public void openHomeSettings() {
+            // ① Android 10+：RoleManager 直接申请 HOME 角色
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    android.app.role.RoleManager rm = (android.app.role.RoleManager)
+                            getSystemService(android.content.Context.ROLE_SERVICE);
+                    if (rm != null
+                            && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)
+                            && !rm.isRoleHeld(android.app.role.RoleManager.ROLE_HOME)) {
+                        Intent req = rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME);
+                        req.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(req);
+                        return;
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+            // ② 系统「主屏幕应用」设置页
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_HOME_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+                return;
+            } catch (Throwable ignored) {
+            }
+            // ③ 系统「默认应用」总设置页
             try {
                 Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS);
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);
-            } catch (Throwable e) {
-                try {
-                    Intent h = new Intent(Intent.ACTION_MAIN);
-                    h.addCategory(Intent.CATEGORY_HOME);
-                    h.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    startActivity(h);
-                } catch (Throwable ignored) {
-                }
+                return;
+            } catch (Throwable ignored) {
+            }
+            // ④ 最后退化为拉起 HOME 选择
+            try {
+                Intent h = new Intent(Intent.ACTION_MAIN);
+                h.addCategory(Intent.CATEGORY_HOME);
+                h.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(h);
+            } catch (Throwable ignored) {
             }
         }
 

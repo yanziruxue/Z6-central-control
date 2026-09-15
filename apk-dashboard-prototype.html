@@ -477,12 +477,12 @@
                   <span class="ota-cur">悬浮窗权限：<b id="ovAcc">读取中…</b></span>
                   <button class="set-opt" id="ovAccBtn">🔓 去授权</button>
                 </div>
-                <div class="ota-status" id="ovMsg">返回主页的可靠方式：导航 App 全屏后点左下角悬浮「返回」按钮。需先授予本权限。</div>
+                <div class="ota-status" id="ovMsg">可选的备用通道：导航 App 全屏后点左下角悬浮「返回」按钮回主页。已把本应用设为默认桌面时可不授权。</div>
                 <div class="ota-row">
                   <span class="ota-cur">默认桌面：<b id="homeState">未设置</b></span>
                   <button class="set-opt" id="homeBtn">🖥️ 设为默认桌面</button>
                 </div>
-                <div class="ota-status" id="homeMsg">⚠️ 不建议把老六中控设为默认桌面：车机导航 App（高德/百度车机版这类）启动完成后常会自己回到桌面，占了桌面就会把地图顶掉，表现为「导航打开后自动返回」。返回主页请用上面的悬浮「返回」按钮。</div>
+                <div class="ota-status" id="homeMsg">把「老六中控」设为车机默认桌面后，按 HOME 键即回本界面。车机导航 App（高德/百度车机版这类）启动完成后常会自己发一次 HOME 请求回桌面 —— 届时本应用会自动把界面<b>切回导航</b>，不会把地图顶掉。</div>
                 <div class="ota-actions">
                   <button class="set-opt" id="sysRefresh">🔄 刷新</button>
                 </div>
@@ -1446,8 +1446,8 @@ function setOvState(granted){
   const el=$("#ovAcc"),msg=$("#ovMsg"),btn=$("#ovAccBtn");
   if(el){el.textContent=granted?"已授权":"未授权";el.style.color=granted?"var(--acc2)":"var(--red)";}
   if(msg)msg.textContent=granted
-    ?"已授权：已设本应用为默认桌面时无需此权限；未设时它作为返回主页的备用通道（不再显示悬浮按钮）"
-    :"未授权：建议把本应用设为默认桌面，用系统 HOME 键返回；或在此授权作备用";
+    ?"已授权：导航 App 全屏后点左下角悬浮「返回」即可回本界面 —— 默认桌面之外的备用通道。"
+    :"未授权：若已把老六中控设为默认桌面，按 HOME 即可回本界面；想再多一条退路就在这里授权，用左下角悬浮「返回」回主页。";
   if(btn)btn.textContent=granted?"✅ 已授权":"🔓 去授权";
 }
 function readOvState(){
@@ -1504,10 +1504,13 @@ function setHomeState(isHome){
     el.textContent=isHome?"已设置 ✓":"未设置";
     el.style.color=isHome?"var(--acc2)":"var(--red)";
   }
-  if(btn)btn.textContent=isHome?"✅ 已是默认桌面（点此改回原桌面）":"🖥️ 设为默认桌面";
-  // 已是默认桌面 → 把说明换成针对当前状态的处置建议（导航 App 回桌面会把地图顶掉）
-  if(msg&&isHome){
-    msg.innerHTML='⚠️ 当前<b>老六中控就是车机默认桌面</b>：车机导航 App 启动完成后常会回到桌面，会把地图顶掉（表现为「导航打开后自动返回」）。建议点上面按钮进系统设置<b>改回车机原桌面</b>，返回主页改用悬浮「返回」按钮。';
+  if(btn)btn.textContent=isHome?"✅ 已是默认桌面（点此重设）":"🖥️ 设为默认桌面";
+  // 两种状态各给一条「现在该怎么做」的说明。默认桌面 = 本应用时，导航 App 启动后发的
+  // HOME 请求会被原生弹回导航（MainActivity.tryBounceBackToNav），这里交代用户侧的出口。
+  if(msg){
+    msg.innerHTML = isHome
+      ? '✅ <b>老六中控已是车机默认桌面</b>：按 HOME 即回本界面。导航 App 启动完成后若自己发 HOME 请求回桌面，本应用会自动把界面<b>切回导航</b>（启动后 20 秒内最多 3 次，之后不再干预）；想留在主页请连按 HOME 或点左下角悬浮「返回」。'
+      : '未设为默认桌面：点右侧按钮，在系统「主屏幕应用」里选<b>老六中控</b>，之后按 HOME 即回本界面。未设置时请授权上面的悬浮窗，用左下角悬浮「返回」按钮回主页。';
   }
 }
 function readHomeState(){
