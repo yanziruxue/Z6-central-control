@@ -254,6 +254,9 @@
   .al-item .ai-ic{font-size:26px}
   .al-item .ai-nm{font-size:11px;color:var(--sub);text-align:center;line-height:1.3}
   .al-empty{padding:30px;text-align:center;color:var(--sub);font-size:13px}
+  /* 空态自诊断（桥没注入 / 方法没暴露 / 桥抛错）—— 便于现场一眼看出是读数失败而非真的没装应用 */
+  .al-diag{margin-top:10px;font-size:11px;line-height:1.6;opacity:.7;word-break:break-all;
+    padding:8px 10px;border-radius:8px;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3)}
   /* 页面内轻提示（长按钉入 / 移出 dock 快捷方式） */
   .l6-toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,8px);z-index:60;
     max-width:70vw;padding:9px 16px;border-radius:20px;font-size:13px;
@@ -1027,6 +1030,18 @@ function fillIcons(root){
     if(i<slots.length) setTimeout(step,0);
   })();
 }
+// 应用列表空态诊断：把「桥没注入 / 方法没暴露 / 桥抛错」三种情况区分开。
+// 历史上「应用列表看不到已装应用」被误当成「车机真没装应用」，拖了 8 个版本才定位到
+// 原生 getAllAppsJson 漏了 @JavascriptInterface —— 此后空态一律带出自诊断信息。
+function appsDiag(){
+  var n=l6n(), msgs=[];
+  if(!n) msgs.push("原生桥未注入（L6Native 为 null）");
+  else if(!n.getAllApps) msgs.push("原生未暴露 getAllApps");
+  var e=(window.__l6Err||[]).slice(-3).join(" / ");
+  if(e) msgs.push("桥调用异常："+e);
+  if(!msgs.length) return "";
+  return '<div class="al-diag">'+msgs.join("<br>")+'</div>';
+}
 function openAppPicker(type, onPick){
   var d=$("#appList"), sc=$("#appScrim"), body=$("#appListBody"), tt=$("#appListTitle");
   if(!d||!body)return;
@@ -1039,7 +1054,7 @@ function openAppPicker(type, onPick){
       body.innerHTML='<div class="al-empty">'+(
         type==="music" ? "未检测到已安装的音乐应用"
         : type==="nav" ? "未检测到已安装的导航应用"
-        : "未读到已安装的应用")+'</div>';
+        : "未读到已安装的应用")+appsDiag()+'</div>';
     }else{
       list.forEach(function(a){
         var it=document.createElement("div"); it.className="al-item";
@@ -1062,7 +1077,7 @@ function openAppPicker(type, onPick){
     fillIcons(body);      // 抽屉先展开，图标随后逐片补上
   };
   body.innerHTML="";
-  var n=l6n(); if(!n){ open(); return; }
+  var n=l6n(); if(!n){ fill([]); return; }   // 桥未注入也走空态，把诊断一并显示出来
   if(type){ if(n.getInstalledApps) n.getInstalledApps(fill); }
   else { if(n.getAllApps) n.getAllApps(fill); else if(n.getInstalledApps) n.getInstalledApps(fill); }
 }

@@ -226,6 +226,21 @@ setTimeout(() => {
   const launchedPkg = NativeRaw.calls.filter(c => c[0] === 'launchPkg').pop();
   const launchPkgOk = !!launchedPkg && launchedPkg[1] === 'com.kugou.android';
 
+  // 空态自诊断：必须能把「桥读不到应用」与「车机真没装应用」区分开。
+  // 历史教训（v1.4.6~v1.4.14）：原生 getAllAppsJson 漏了 @JavascriptInterface，
+  // 桥调用在 JS 侧抛错、被 SHIM 的 catch 静默转成空数组，页面只显示「未读到已安装的应用」，
+  // 与「真的没装」长得一模一样 → 定位花了 8 个版本。此断言守住这条可观测性。
+  const realGetAllApps = window.L6Native.getAllApps;
+  window.L6Native.getAllApps = function (cb) { cb([]); };
+  window.__l6Err = ['getAllApps: TypeError: R.getAllAppsJson is not a function'];
+  if (typeof window.openAppList === 'function') window.openAppList();
+  const emptyEl = d.querySelector('#appListBody .al-empty');
+  const diagEl = d.querySelector('#appListBody .al-diag');
+  const emptyDiagOk = !!(emptyEl && diagEl && /getAllApps/.test(diagEl.textContent));
+  window.L6Native.getAllApps = realGetAllApps;
+  window.__l6Err = undefined;
+  if (typeof window.closeAppList === 'function') window.closeAppList();
+
   const ok = listOk && launched && launched[1] === 'baidu'
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
@@ -233,7 +248,7 @@ setTimeout(() => {
     && autoPlayToggle && homeBridgeOk && musicLaunchBtnGone && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic && localNoLaunch
     && iconBridgeOk && iconDataOk && iconSlotsOk && srcIconOk
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
-    && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk
+    && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk && emptyDiagOk
     && homeLeftOfMore && goHomeBridgeOk && goHomeCalled
     && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk
     && themeBridgeOk && themeLightOk && themeDarkOk;
@@ -260,6 +275,7 @@ setTimeout(() => {
   console.log('日夜主题：桥 isNightMode ->', themeBridgeOk, '| 浅色 ->', themeLightOk, '| 深色 ->', themeDarkOk);
   console.log('dock 渲染(含打开应用列表) ->', dockRendered);
   console.log('应用列表抽屉打开 ->', appListOpened, '| 项 ->', appListItems);
+  console.log('空态自诊断(读不到 vs 真没装) ->', emptyDiagOk);
   console.log('dock 点应用 → launchPkg ->', launchPkgOk, '(' + (launchedPkg ? launchedPkg[1] : '') + ')');
   console.log('返回原桌面按钮(在打开应用列表左侧) ->', homeLeftOfMore, '| 桥 goHome ->', goHomeBridgeOk, '| 点按触发 ->', goHomeCalled);
   console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');

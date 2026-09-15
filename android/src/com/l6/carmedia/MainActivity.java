@@ -138,8 +138,11 @@ public class MainActivity extends Activity {
             "(function(){try{" +
             "var R=window.L6NativeRaw;if(!R)return;" +
             "window.L6Native={" +
-            "getInstalledApps:function(cb){try{cb(JSON.parse(R.getInstalledAppsJson()));}catch(e){cb([]);}}," +
-            "getAllApps:function(cb){try{cb(JSON.parse(R.getAllAppsJson()));}catch(e){cb([]);}}," +
+            // ⚠️ 这两个 catch 以前是静默的 `catch(e){cb([]);}` —— 桥调用失败与「车机真没装应用」
+            //    在页面上长得一模一样，导致「应用列表看不到已装应用」拖了 8 个版本才定位。
+            //    现在把错误记到 window.__l6Err，页面空态会把它显示出来（不用 adb 也能定论）。
+            "getInstalledApps:function(cb){try{cb(JSON.parse(R.getInstalledAppsJson()));}catch(e){window.__l6Err=(window.__l6Err||[]).concat('getInstalledApps: '+e);cb([]);}}," +
+            "getAllApps:function(cb){try{cb(JSON.parse(R.getAllAppsJson()));}catch(e){window.__l6Err=(window.__l6Err||[]).concat('getAllApps: '+e);cb([]);}}," +
             "getAppIcon:function(v){try{return R.getAppIcon(v)||'';}catch(e){return '';}}," +
             "saveWallpaper:function(t,b,n){try{R.saveWallpaper(t,b,n);}catch(e){}}," +
             "launchApp:function(k){try{R.launchApp(k);}catch(e){}}," +
@@ -871,7 +874,22 @@ public class MainActivity extends Activity {
             return out.toString();
         }
 
-        /** 全部可启动 App（不过滤类型），供「打开应用列表」抽屉拉起任意已装应用。 */
+        /**
+         * 全部可启动 App（不过滤类型），供「打开应用列表」抽屉拉起任意已装应用。
+         *
+         * ⚠️⚠️ `@JavascriptInterface` **绝对不能漏**：Android 4.2+ 起，由 addJavascriptInterface
+         *    暴露给页面的对象，**只有标注了该注解的方法才允许被 JS 调用**；未标注的在 JS 侧
+         *    等同「方法不存在」，调用即抛错。
+         *
+         *     本方法自 v1.4.6 引入起就一直缺这个注解，而 SHIM 是 `R.getAllAppsJson()` 调的 →
+         *     JS 侧抛错 → SHIM 的 `catch(e){cb([])}` **静默**转成空数组 → 页面显示
+         *     「未读到已安装的应用」。症状极具迷惑性：编译通过、运行不崩、jsdom 冒烟全绿
+         *     （冒烟里的桥是 JS 桩，永远可用），只有真机上点「📋 打开应用列表」才会暴露。
+         *
+         *     ⚠️ 防回归：`tools/bridge-contract-check.js` 会静态比对「SHIM 里 R.xxx() 调用的
+         *     方法名」与「带 @JavascriptInterface 的方法名」，缺失即报错。
+         */
+        @JavascriptInterface
         public String getAllAppsJson() {
             JSONArray out = new JSONArray();
             Set<String> seenKeys = new HashSet<>();
