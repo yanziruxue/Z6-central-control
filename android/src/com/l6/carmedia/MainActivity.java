@@ -71,16 +71,17 @@ public class MainActivity extends Activity {
     /** 最多回弹次数：超过就放手，避免与「周期性发 HOME」的导航 App 互相顶成闪屏。 */
     private static final int NAV_GUARD_MAX = 3;
 
-    /** 最近一次调起的导航 App 启动 Intent（回弹时复用）。null = 保活未开启。 */
-    private Intent navGuardIntent;
-    /** 保活窗口截止（SystemClock.uptimeMillis()）。 */
-    private long navGuardUntil = 0L;
-    /** 已回弹次数。 */
-    private int navGuardHits = 0;
-    /** 本次 onResume 是否由「HOME 请求回弹」引发（据此跳过「已回主页」回推、保住悬浮按钮）。 */
-    private boolean navBouncePending = false;
-    /** 回弹后是否确已退到后台（onPause 置位 → 700ms 兜底不必再执行）。 */
-    private boolean navBounceLeft = false;
+    /**
+     * 保活状态全部用 **static** 存：车机 ROM 未必走 onNewIntent —— 它可能把本 Activity 整个
+     * 重建再用 HOME Intent 启动一次，那时实例字段全被重置、onNewIntent 也不会触发。
+     * 静态字段跨实例存活，配合 onCreate 里读 getIntent() 就能把这条路径也覆盖住。
+     */
+    private static Intent navGuardIntent;           // 最近一次调起的导航 App 启动 Intent；null = 保活未开启
+    private static long navGuardUntil = 0L;         // 保活窗口截止（SystemClock.uptimeMillis()）
+    private static int navGuardHits = 0;            // 已回弹次数
+    private static boolean navBounceLeft = false;   // 回弹后确已退到后台（onPause 置位 → 700ms 兜底不必执行）
+    /** 本次恢复到前台是否为「系统 HOME 请求」。onNewIntent / onCreate 记录 → onResume 消费。 */
+    private boolean pendingHomeIntent = false;
 
     /** 每秒推进一次媒体进度条；每 10 秒兜底重建一次会话（防止系统不回调解绑）。 */
     private int mediaTickCount = 0;
@@ -258,6 +259,11 @@ public class MainActivity extends Activity {
 
         web.loadUrl("file:///android_asset/index.html");
 
+        // 启动本 Activity 的那个 Intent 若是「系统 HOME 请求」，也按 HOME 请求处理。
+        // 覆盖这条路径：车机 ROM 没走 onNewIntent，而是把本 Activity 重建后用 HOME Intent
+        // 启动 —— 此时保活状态（static）还在，靠这里认回来，onResume 就能把导航弹回去。
+        pendingHomeIntent = isHomeRequest(getIntent());
+
         // 系统实时数据（媒体会话 / 导航通知）统一走 window.L6SysEvent
         SysHub.setEmitter(js -> {
             final WebView w = web;
@@ -284,9 +290,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        // 本次 onResume 是否由「HOME 请求被回弹」引发（见 onNewIntent / tryBounceBackToNav）。
-        final boolean bounced = navBouncePending;
-        navBouncePending = false;
+        // 系统 HOME 请求落到本界面（导航 App 回桌面导致）→ 在这里把导航弹回前台。
+        // 判据用 pendingHomeIntent（而非直接看 onNewIntent）：onNewIntent 与
+        // 「onCreate 读 getIntent()」两条路径都会置它，后者覆盖 ROM 重建实例的情况。
+        final boolean bounced = pendingHomeIntent && tryBounceBackToNav();
+        pendingHomeIntent = false;
         if (bounced) {
             // 导航 App 回桌面把本界面顶了上来，我们正在把它弹回去：
             // ① 不能撤悬浮「返回」按钮 —— 用户随后要靠它回主页（onPause 不会再挂，因为 navLaunching 已消费）
@@ -383,11 +391,12 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) {
         }
         if (isHomeRequest(intent)) {
-            if (tryBounceBackToNav()) {
-                navBouncePending = true;
-            }
+            // 只记标记，真正的回弹统一放到 onResume 执行 —— 那时窗口栈已稳定，
+            // 且能与「实例被重建」路径（onCreate 也是记这个标记）共用同一个出口。
+            pendingHomeIntent = true;
         } else {
             // 非 HOME 请求 = 用户主动回主页（或本应用被外部主动调起）→ 撤销保活
+            pendingHomeIntent = false;
             disarmNavGuard();
         }
     }
