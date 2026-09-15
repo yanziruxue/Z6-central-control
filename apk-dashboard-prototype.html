@@ -328,6 +328,7 @@
               <div class="set-opts" id="setMusicSrc"><!-- 车机本地源 + 实际已安装的音乐 App --></div>
               <div class="set-actions">
                 <button class="set-opt" id="rescanApps">🔄 重新识别应用</button>
+                <button class="set-opt" id="musicLaunchBtn">▶ 启动/唤醒</button>
               </div>
               <div class="set-hint">只列出车机本地源（U盘 / 蓝牙）与<b>实际已安装</b>的音乐 App；进入音乐页即定位到此源。识别不全时点「重新识别应用」。</div>
             </div>
@@ -360,7 +361,7 @@
                   <span class="ota-cur">应用启动后自动开始播放</span>
                   <button class="set-opt" id="autoPlayBtn">○ 关闭</button>
                 </div>
-                <div class="ota-status" id="autoPlayMsg">开启后，每次打开本应用会自动播放当前音乐源（若已选音乐 App 会先启动它）。</div>
+                <div class="ota-status" id="autoPlayMsg">开启后，每次打开本应用会自动后台唤醒当前音乐源播放，不拉起音乐 App 界面，也不会出现悬浮返回按钮。</div>
               </div>
             </div>
             <div class="set-sec">
@@ -737,6 +738,15 @@ const LOCAL_MUSIC=[{key:"usb",name:"U盘",icon:"💾"},{key:"bt",name:"蓝牙",i
 // 音乐栏源标签：显示「当前选中的音乐源」名（U盘/蓝牙/酷狗音乐…），而非演示曲目的写死来源
 function musicSrcName(){const v=settings.musicSrc;const l=LOCAL_MUSIC.filter(s=>s.key===v)[0];if(l)return l.name;const a=MUSIC_APPS.filter(x=>x.key===v)[0];if(a)return a.name;return "U盘";}
 function syncMusicSrcTag(){const el=$("#npSrc");if(el)el.textContent=musicSrcName();}
+// 音乐源「启动/唤醒」按钮：仅当选中的是真实音乐 App 时显示；本地源(U盘/蓝牙)隐藏
+function syncMusicLaunch(){
+  const b=document.getElementById("musicLaunchBtn");
+  if(!b)return;
+  const v=settings.musicSrc;
+  if(v==="usb"||v==="bt"){b.style.display="none";return;}
+  b.style.display="";
+  b.textContent="▶ 启动/唤醒《"+musicSrcName()+"》";
+}
 function optBtn(val,label){const b=document.createElement("button");b.className="set-opt";b.dataset.v=val;b.textContent=label;return b;}
 function highlight(wrap,val){wrap.querySelectorAll(".set-opt").forEach(x=>x.classList.toggle("on",x.dataset.v===val));}
 function bindOpts(wrap,onpick){wrap.querySelectorAll(".set-opt").forEach(b=>b.onclick=()=>onpick(b.dataset.v));}
@@ -749,8 +759,8 @@ function buildMusicSrc(){
     MUSIC_APPS=apps.filter(a=>a.type==="music");
     MUSIC_APPS.forEach(a=>wrap.appendChild(optBtn(a.key,a.icon+" "+a.name)));
     highlight(wrap,settings.musicSrc);
-    bindOpts(wrap,v=>{settings.musicSrc=v;highlight(wrap,v);syncMusicSrcTag();});
-    syncMusicSrcTag();
+    bindOpts(wrap,v=>{settings.musicSrc=v;highlight(wrap,v);syncMusicSrcTag();syncMusicLaunch(); if(typeof saveSettings==="function")saveSettings();});
+    syncMusicSrcTag();syncMusicLaunch();
   });
 }
 // 导航源：只列出车机**实际已安装**的导航 App（不再有「系统默认」这类非应用选项）
@@ -772,6 +782,16 @@ function buildNavApp(){
   });
 }
 buildMusicSrc();buildNavApp();
+// 音乐源「启动/唤醒」按钮：用户主动点才前台拉起选中的音乐 App（接管播放），不挂返回按钮
+(function(){
+  var ml=document.getElementById("musicLaunchBtn");
+  if(ml)ml.onclick=function(){
+    var v=settings.musicSrc;
+    if(v==="usb"||v==="bt")return;
+    try{ if(window.L6Native&&window.L6Native.launchMusic)window.L6Native.launchMusic(v); }catch(e){}
+  };
+})();
+syncMusicLaunch();
 loadTrack();startLyrics();
 
 /* ===== 壁纸：静态 / 动态 两个列表 + 上传（合并为一个模块） ===== */
@@ -1176,7 +1196,6 @@ function applyAutoPlayOnLaunch(){
     if(typeof loadTrack==="function")loadTrack();
     if(typeof startLyrics==="function")startLyrics();
     if(settings.musicSrc && settings.musicSrc!=="usb" && settings.musicSrc!=="bt"){
-      try{window.L6Native.launchApp(settings.musicSrc);}catch(e){}
       try{window.L6Native.mediaControl("play");}catch(e){}
     }
   }catch(e){}

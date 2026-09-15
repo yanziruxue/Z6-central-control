@@ -41,6 +41,7 @@ const NativeRaw = {
   calls: [],
   saveWallpaper(t, b, n) { this.calls.push(['saveWallpaper', t, n, String(b).length]); },
   launchApp(k) { this.calls.push(['launchApp', k]); },
+  launchMusic(k) { this.calls.push(['launchMusic', k]); },
 };
 
 const errs = [];
@@ -98,11 +99,21 @@ setTimeout(() => {
   const autoPlayToggle = autoPlayBefore !== autoPlayAfter;
   const homeBridgeOk = typeof window.L6Native.openHomeSettings === 'function';
 
+  // 音乐源「启动/唤醒」按钮 + launchMusic 桥：选中真实音乐 App → 点按钮 → 触发 launchMusic(key)，不挂返回按钮
+  const musicLaunchBtn = d.getElementById('musicLaunchBtn');
+  const musicLaunchBtnOk = !!musicLaunchBtn;
+  const launchMusicBridgeOk = typeof window.L6Native.launchMusic === 'function';
+  const kugou = [...d.querySelectorAll('#setMusicSrc .set-opt')].find(b => b.textContent.includes('酷狗音乐'));
+  if (kugou) kugou.onclick();           // 选中酷狗音乐 → settings.musicSrc='kugou'
+  if (musicLaunchBtn) musicLaunchBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const launchedMusic = NativeRaw.calls.filter(c => c[0] === 'launchMusic').pop();
+  const musicLaunchCall = launchedMusic && launchedMusic[1] === 'kugou';
+
   const ok = listOk && launched && launched[1] === 'baidu'
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
     && barOk && ovOk && homeOk && sysAccOk && rescanOk && autoPlayOk
-    && autoPlayToggle && homeBridgeOk;
+    && autoPlayToggle && homeBridgeOk && musicLaunchBtnOk && launchMusicBridgeOk && musicLaunchCall;
 
   console.log('原生音乐源 ->', music.join(' / '));
   console.log('原生导航项 ->', nav.join(' / '));
@@ -115,6 +126,7 @@ setTimeout(() => {
   console.log('重新识别应用按钮 ->', rescanOk);
   console.log('启动后自动播放按钮 ->', autoPlayOk, '(', autoPlayBefore, '→', autoPlayAfter, ')');
   console.log('默认桌面桥接 openHomeSettings ->', homeBridgeOk);
+  console.log('音乐启动/唤醒按钮 ->', musicLaunchBtnOk, '| 桥 launchMusic ->', launchMusicBridgeOk, '| 点按触发 kugou ->', musicLaunchCall);
   console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));

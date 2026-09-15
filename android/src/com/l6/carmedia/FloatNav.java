@@ -157,25 +157,17 @@ public final class FloatNav {
                             }
                             return true;
                         case MotionEvent.ACTION_UP:
-                            // 位移小于阈值且是「点按」→ 视为点击
+                            // 位移小于阈值且是「点按」→ 直接返回主页（不再经 performClick → onClick，避免拖动后点击链路丢失）
                             float dx = Math.abs(e.getRawX() - sx);
                             float dy = Math.abs(e.getRawY() - sy);
                             if (dx < 8 && dy < 8 && System.currentTimeMillis() - downAt < 400) {
-                                v.performClick();
+                                hide(ctx);
+                                bringToFront(ctx);
                             }
                             return true;
                         default:
                             return false;
                     }
-                }
-            });
-
-            // 点击 → 回到本 App（MainActivity 是 singleTask，reorder 到前台即可）
-            root.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    hide(ctx);
-                    bringToFront(ctx);
                 }
             });
 

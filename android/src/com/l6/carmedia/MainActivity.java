@@ -52,6 +52,8 @@ public class MainActivity extends Activity {
     private WebView web;
     private ValueCallback<Uri[]> filePathCallback;
     private long lastBackAt = 0L;
+    /** 即将调起导航 App：onPause 时若确实离开本界面，才挂「返回」悬浮按钮（导航未成功接管则不留按钮）。 */
+    private boolean navLaunching = false;
 
     /** 每秒推进一次媒体进度条；每 10 秒兜底重建一次会话（防止系统不回调解绑）。 */
     private int mediaTickCount = 0;
@@ -95,6 +97,7 @@ public class MainActivity extends Activity {
             "getInstalledApps:function(cb){try{cb(JSON.parse(R.getInstalledAppsJson()));}catch(e){cb([]);}}," +
             "saveWallpaper:function(t,b,n){try{R.saveWallpaper(t,b,n);}catch(e){}}," +
             "launchApp:function(k){try{R.launchApp(k);}catch(e){}}," +
+            "launchMusic:function(k){try{R.launchMusic(k);}catch(e){}}," +
             "checkOtaUpdate:function(){try{R.checkOtaUpdate();}catch(e){}}," +
             "installOtaUpdate:function(u,s){try{R.installOtaUpdate(u,s);}catch(e){}}," +
             "getOtaConfig:function(){try{return JSON.parse(R.getOtaConfig()||'{}');}catch(e){return{};}}," +
@@ -223,6 +226,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // 回到本界面（系统 HOME 返回 / 从导航或设置页返回）→ 撤销悬浮返回按钮；
+        // 若确在导航中，按钮由 onPause(navLaunching) 负责挂上，不会丢失。
+        try { FloatNav.hide(this); } catch (Throwable ignored) {}
         // 用户可能刚从「通知使用权」设置页返回，这里重新读一次权限并刷新
         try {
             boolean ok = MediaHub.hasAccess(this);
@@ -255,6 +261,20 @@ public class MainActivity extends Activity {
                     "(function(){try{if(window.L6OverlayEvent)window.L6OverlayEvent(" + ov
                             + ");}catch(e){}})()", null);
         } catch (Throwable ignored) {
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // 仅当确系「调起导航 App 后本界面被盖住」才挂返回按钮；
+        // 导航 App 没完全启动 / 失败导致本界面仍在前台时，onPause 不会触发，按钮也就不出现。
+        if (navLaunching) {
+            navLaunching = false;
+            boolean ok = FloatNav.show(getApplicationContext(), "返回");
+            if (!ok) {
+                toast("未授予悬浮窗权限：返回主页请到设置页「系统权限 → 悬浮窗」授权，或把本应用设为默认桌面");
+            }
         }
     }
 
@@ -533,16 +553,49 @@ public class MainActivity extends Activity {
                 //   ② 多数车机 ROM 锁死系统桌面、不让第三方应用设为默认桌面，此时挂一个
                 //      左下角「🏠 返回」悬浮按钮（底部、非顶部、可拖动避让），点击即把本应用拉回前台。
                 // 悬浮按钮需 SYSTEM_ALERT_WINDOW 授权，未授权则降级提示、不阻塞导航启动。
+                // 返回按钮「不在 launchApp 里直接挂」，而是标记 navLaunching，等本 Activity 真正
+                // onPause（确证导航 App 已接管前台）时再挂。这样导航 App 没完全启动 / 启动失败、
+                // 本界面没被盖住时，按钮不会出现；即便出现，点击 hide+bringToFront 也一定能回本界面。
+                navLaunching = true;
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);
-                runOnUiThread(() -> {
-                    boolean ok = FloatNav.show(getApplicationContext(), "返回");
-                    if (!ok) {
-                        toast("未授予悬浮窗权限：返回主页请到设置页「系统权限 → 悬浮窗」授权，或把本应用设为默认桌面");
-                    }
-                });
             } catch (Throwable e) {
+                navLaunching = false;   // 启动抛异常：本次不算「去导航」，onPause 不会误挂按钮
                 toast("启动导航失败：" + e.getMessage());
+            }
+        }
+
+        /**
+         * 音乐源「启动 / 唤醒」：用户主动点设置页按钮才前台拉起选中的音乐 App，
+         * 让它成为系统活跃媒体会话（从而被本应用接管播放 / 上下曲）。
+         * 与 launchApp(导航) 不同：① 不挂悬浮返回按钮（音乐走后台控制，v1.4.2 决定）；
+         * ② 仅针对音乐类（白名单 music 类型 + key 即包名兜底），本地源 usb/bt 直接忽略。
+         */
+        @JavascriptInterface
+        public void launchMusic(String key) {
+            try {
+                if (key == null || key.isEmpty() || "usb".equals(key) || "bt".equals(key)) {
+                    return;   // 本地源（U盘/蓝牙）无需启动
+                }
+                PackageManager pm = getPackageManager();
+                Intent i = null;
+                for (String[] m : APP_MAP) {
+                    if (m[1].equals(key) && "music".equals(m[4])) {
+                        i = pm.getLaunchIntentForPackage(m[0]);
+                        break;
+                    }
+                }
+                if (i == null && key.indexOf('.') > 0) {
+                    i = pm.getLaunchIntentForPackage(key);   // 动态识别项：key 即包名
+                }
+                if (i == null) {
+                    toast("未找到该音乐 App（车机未安装或未识别）");
+                    return;
+                }
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);   // 用户主动「启动/唤醒」→ 前台拉起接管；不挂返回按钮
+            } catch (Throwable e) {
+                toast("启动音乐 App 失败：" + e.getMessage());
             }
         }
 
