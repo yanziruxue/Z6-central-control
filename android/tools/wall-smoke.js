@@ -7,6 +7,9 @@
  *      （曾经只存 pick/wall 不存 wallList → 重启后上传项丢失、pick 失效 → 回落预设）
  *   ② mp4 动态壁纸不显示：部分车机文件选择器不返回 MIME（f.type 空）→ 视频被当图片，
  *      用 background-image 加载视频 data URL 必然显示不出来。必须按扩展名兜底 + 统一 wallIsVid()。
+ *   ③ 壁纸应用后整片发白：浅色主题把 #wallScrim（壁纸上的压暗层）染成 45%~70% 的白，
+ *      照片壁纸被蒙成一片白、像加了一层不透明。浅色白层必须很轻（≤25%），
+ *      且用户可用设置页「壁纸压暗层」开关整体关掉（关掉 = 壁纸原图）。
  *
  * 用法： node tools/wall-smoke.js
  * 依赖： jsdom（NODE_PATH 指向已装 jsdom 的 node_modules）
@@ -85,6 +88,27 @@ setTimeout(() => {
   ok('<video> 被显示', wv.style.display === 'block', wv.style.display);
   ok('<video>.src 已设置', (wv.getAttribute('src') || '').indexOf('data:video/mp4') === 0);
   ok('未误用 background-image', wm.style.display === 'none', wm.style.display);
+
+  console.log('\n== ⑤ 壁纸压暗层（浅色白层过强 → 照片壁纸整片发白）==');
+  const raw = fs.readFileSync(HTML, 'utf8');
+  const lightScrim = raw.match(/html\[data-theme="light"\] #wallScrim\{background:linear-gradient\(180deg,rgba\(255,255,255,\.(\d+)\)/);
+  ok('浅色主题压暗层已减弱（顶部白 ≤25%）', !!lightScrim && Number(lightScrim[1]) <= 25,
+    lightScrim ? 'top alpha=.' + lightScrim[1] : '未匹配到规则');
+  const darkScrim = raw.match(/#wallScrim\{position:fixed[\s\S]{0,140}?rgba\(6,9,14,\.(\d+)\)/);
+  ok('深色主题压暗层不过重（≤35%）', !!darkScrim && Number(darkScrim[1]) <= 35,
+    darkScrim ? 'top alpha=.' + darkScrim[1] : '未匹配到规则');
+  const ws = d.getElementById('wallScrim'), dimBtn = d.getElementById('wallDimBtn');
+  ok('「壁纸压暗层」开关存在', !!dimBtn);
+  ok('默认开启', ev('settings.wallDim!==false'));
+  ev('(function(){settings.wall="dynamic";settings.pick.dynamic="up_mp4";applyWall();})()');
+  ok('开启时压暗层显示', ws.style.display === 'block', ws.style.display);
+  if (dimBtn) dimBtn.onclick();
+  ok('关闭后压暗层不显示（壁纸原图）', ws.style.display === 'none', ws.style.display);
+  ok('关闭后按钮文案为「○ 关闭」', /关闭/.test(dimBtn ? dimBtn.textContent : ''), dimBtn && dimBtn.textContent);
+  ok('关闭状态已持久化', JSON.parse(w.localStorage.getItem('l6_settings_v1')).wallDim === false);
+  if (dimBtn) dimBtn.onclick();
+  ok('再开启恢复显示', ws.style.display === 'block', ws.style.display);
+  ok('再开启按钮文案为「● 开启」', /开启/.test(dimBtn ? dimBtn.textContent : ''), dimBtn && dimBtn.textContent);
 
   console.log('\n== 运行时错误 ==');
   ok('全程 0 运行时错误', errs.length === 0, errs.join(' | '));
