@@ -252,42 +252,9 @@
   #miniNav .m-meta{display:flex;gap:14px;font-size:12px;color:var(--sub);white-space:nowrap}
   #miniNav .m-meta b{color:var(--txt);font-variant-numeric:tabular-nums}
 
-  /* ---- 外部导航 App 全屏 overlay + 我们的悬浮层 ---- */
-  #navOverlay{position:fixed;inset:0;z-index:50;display:none;background:#0a0f1d}
-  #navOverlay.show{display:block}
-  .ext-map{position:absolute;inset:0;background:radial-gradient(140% 120% at 50% 40%,#10203f,#070b16);overflow:hidden}
-  .ext-road{position:absolute;inset:0;width:100%;height:100%}
-  .ext-road .r1{stroke:#33405f;stroke-width:46;fill:none;stroke-linecap:round}
-  .ext-road .r2{stroke:var(--acc);stroke-width:14;fill:none;stroke-linecap:round;
-    stroke-dasharray:3 16;animation:eflow 1.1s linear infinite}
-  @keyframes eflow{to{stroke-dashoffset:-19}}
-  .ext-turn{position:absolute;left:50%;top:18%;transform:translateX(-50%);text-align:center;color:#fff}
-  .ext-turn .big{font-size:84px;line-height:1}
-  .ext-turn .road{font-size:22px;font-weight:600;margin-top:6px}
-  .ext-turn .dist{font-size:16px;color:#9fb6d6}
-  .ext-eta{position:absolute;left:24px;bottom:26px;color:#fff}
-  .ext-eta .t{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
-  .ext-eta .s{font-size:14px;color:#9fb6d6}
-  .ext-eta .meta{font-size:13px;color:#cfe0f5;margin-top:4px}
-  .ext-badge{position:absolute;right:18px;bottom:18px;font-size:12px;color:#9fb6d6;
-    background:rgba(8,12,20,.6);border:1px solid var(--line);padding:4px 10px;border-radius:8px}
-  /* 悬浮层：最左返回按钮 + 顶部可隐藏 dock */
-  .fab-back{position:fixed;left:18px;top:50%;transform:translateY(-50%);z-index:60;
-    width:54px;height:54px;border-radius:50%;border:1px solid var(--line);
-    background:rgba(8,12,20,.78);color:#fff;font-size:24px;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
-  .fab-back:active{transform:translateY(-50%) scale(.92)}
-  .float-dock{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:60;
-    display:flex;gap:8px;background:rgba(8,12,20,.8);border:1px solid var(--line);
-    border-radius:30px;padding:7px 12px;backdrop-filter:blur(4px);
-    transition:opacity .25s,transform .25s}
-  .float-dock.hide{opacity:0;transform:translateX(-50%) translateY(-20px);pointer-events:none}
-  .fd-btn{width:46px;height:46px;border-radius:50%;border:none;background:transparent;color:#cfe0f5;
-    font-size:19px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
-  .fd-btn small{font-size:9px}
-  .fd-btn.on{background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f}
-  .fd-hide{position:fixed;top:16px;right:16px;z-index:60;width:34px;height:34px;border-radius:50%;
-    border:1px solid var(--line);background:rgba(8,12,20,.7);color:#cfe0f5;font-size:15px;cursor:pointer}
+  /* 假地图全屏层与页内假悬浮条的样式已随 DOM 一并删除（导航改拉起真实外部 App，这些 UI 永不可见）。
+     返回主页的悬浮按钮改由原生 FloatNav 绘制，样式不在本页。 */
+
 
   /* ---- 设置页 ---- */
   .set-panel{flex:1;gap:12px}
@@ -404,7 +371,9 @@
       <section class="page" id="pageNav" data-page-node-id="1DF8kD0XnwVMAKhbH7EAhR">
         <div class="card nav-panel" data-page-node-id="AaLAXgwpgFXfwafw9RNjaA">
           <div class="cp-head" style="align-self:flex-start">导航 · 调起车机导航 App</div>
-          <div class="nav-note">本 APK 不自绘地图。点「启动导航」将调起车机里已安装的导航 App（外部 App）全屏运行；导航在后台运行时仍持续。返回车机界面后顶部显示迷你导航卡片。</div>
+          <div class="nav-note">本 APK 不自绘地图，也不再保留任何模拟地图。<br>
+            <b>点击列表项</b>或<b>在页面任意位置上滑</b>，直接拉起选中的车机导航 App（外部 App 真实全屏）；地图全屏时屏幕左下角会出现原生悬浮按钮「🏠」，点击即回到本界面（可拖动位置）。<br>
+            回到本界面后，导航仍在后台运行，实时转向显示在顶部迷你卡片。</div>
           <!-- 只列出车机上实际已安装的导航 App（renderNavApps 按 PackageManager 结果动态生成） -->
           <div class="nav-apps" id="navApps"></div>
           <button class="nav-launch" id="btnLaunch">🚀 启动导航</button>
@@ -425,21 +394,37 @@
             <div class="set-sec">
               <div class="set-label">导航源</div>
               <div class="set-opts" id="setNavApp"><!-- 只显示已识别到的导航 App --></div>
-              <div class="set-hint">只列出车机上<b>实际已安装</b>的导航 App；点「启动导航」时调起选中的那个（蓝框为当前选择）。</div>
+              <div class="set-hint">只列出车机上<b>实际已安装</b>的导航 App。导航页里<b>点击某项</b>或<b>上滑</b>即直接拉起该 App（蓝框为当前选择）。</div>
+            </div>
+            <div class="set-sec">
+              <div class="set-label">悬浮窗权限（导航返回主页）</div>
+              <div class="ota-card">
+                <div class="ota-row">
+                  <span class="ota-cur">悬浮窗：<b id="ovAcc">读取中…</b></span>
+                  <button class="set-opt" id="ovAccBtn">🔓 去授权</button>
+                </div>
+                <div class="ota-status" id="ovMsg">授权后，导航 App 全屏时左下角会显示「🏠 返回主页」悬浮按钮</div>
+                <div class="ota-actions">
+                  <button class="set-opt" id="ovRefresh">🔄 刷新</button>
+                </div>
+              </div>
+              <div class="set-hint">地图 App 会完全盖住本界面，车机未必有物理返回键 —— 悬浮按钮是回到本界面的唯一入口（可拖动位置，点击即返回）。未授权时请点「去授权」，在系统页里打开「显示在其他应用上层 / 悬浮窗」开关。</div>
             </div>
             <div class="set-sec">
               <div class="set-label">壁纸</div>
+              <!-- 上传按钮固定在「动态壁纸」右侧；两个按钮各自绑定类型，不再依赖当前选中的页签 -->
               <div class="wall-bar">
                 <div class="set-opts" id="setWall">
                   <button class="set-opt on" data-v="static">🖼️ 静态壁纸</button>
                   <button class="set-opt" data-v="dynamic">🌈 动态壁纸</button>
                 </div>
-                <label class="up-btn" id="wallUp">📁 上传<input type="file" id="wallUpload" accept="image/*" hidden></label>
+                <label class="up-btn" id="wallUpStatic">⬆️ 上传静态壁纸<input type="file" id="wallUploadStatic" accept="image/*" hidden></label>
+                <label class="up-btn" id="wallUpDyn">⬆️ 上传动态壁纸<input type="file" id="wallUploadDyn" accept="image/*,video/*" hidden></label>
               </div>
               <!-- 点击上方「静态/动态」即切换这里显示的壁纸列表；点击列表项即选用 -->
               <div class="wall-grid" id="wallList"></div>
               <div class="set-hint" id="upName">上传位置：静态 → Download/L6/壁纸/静态　动态 → Download/L6/壁纸/动态</div>
-              <div class="set-hint">点击列表项即选用该壁纸；右上「上传」按当前选中的类型（静态=图片 / 动态=动图或视频）入库。壁纸<b>仅在主页（车辆状态 + 音乐）生效</b>，导航页/设置页保持深色底。</div>
+              <div class="set-hint">点击列表项即选用该壁纸；「上传静态壁纸」只收图片，「上传动态壁纸」可收动图/视频，上传后自动选中并入库到对应类型。壁纸<b>仅在主页（车辆状态 + 音乐）生效</b>，导航页/设置页保持深色底。</div>
             </div>
             <div class="set-sec">
               <div class="set-label">系统数据接入（音乐 / 导航真实数据）</div>
@@ -530,34 +515,13 @@
 
 <!-- 导航改由调起车机已装导航 App（外部 App）实现；APK 不再内嵌高德 JS API，见下方导航启动面板与悬浮层 -->
 
-<!-- 外部导航 App 全屏（被调起的车机导航 App）+ 我们的悬浮层（最左返回按钮 + 顶部可隐藏 dock） -->
-<div id="navOverlay">
-  <div class="ext-map">
-    <svg class="ext-road" viewBox="0 0 800 480" preserveAspectRatio="none">
-      <path class="r1" d="M-40,520 C200,360 260,200 420,160 S660,120 860,40"/>
-      <path class="r2" d="M-40,520 C200,360 260,200 420,160 S660,120 860,40"/>
-    </svg>
-  </div>
-  <div class="ext-turn">
-    <div class="big" id="extArr">↱</div>
-    <div class="road" id="extRoad">进入 滨江大道</div>
-    <div class="dist" id="extDist">前方 300 m</div>
-  </div>
-  <div class="ext-eta">
-    <div class="t" id="extEta">14:25</div>
-    <div class="s">预计到达</div>
-    <div class="meta" id="extMeta">剩余 8.6 km · 当前 68 km/h · 到 公司</div>
-  </div>
-  <div class="ext-badge" id="extBadge">高德地图 · 车机版（外部 App）</div>
-  <!-- 我们的悬浮层 -->
-  <button class="fab-back" id="fabBack" title="返回车机界面">←</button>
-      <div class="float-dock" id="floatDock">
-        <button class="fd-btn" data-go="home"><span>🏠</span><small>主页</small></button>
-        <button class="fd-btn on" data-go="nav"><span>🧭</span><small>导航</small></button>
-        <button class="fd-btn" data-go="set"><span>⚙️</span><small>设置</small></button>
-      </div>
-  <button class="fd-hide" id="fdHide" title="隐藏悬浮条">︾</button>
-</div>
+<!--
+  原先这里有一整套「假地图全屏 + 页内假悬浮条」的模拟层，现已删除：
+  导航改为调起车机已装导航 App（外部 App 真实全屏），外部 App 会完全盖住本页，
+  页内的模拟地图和悬浮条在真机上**永远不可见**（属于死 UI）。
+  返回主页改由原生悬浮窗 FloatNav（SYSTEM_ALERT_WINDOW）实现，不受本页影响；
+  回到本 App 后，导航状态显示在顶部迷你卡片 #miniNav。
+-->
 <script>
 /* ---------- 模拟实时数据（实际由 Linux 服务端推送） ---------- */
 const $=s=>document.querySelector(s);
@@ -565,7 +529,7 @@ let playing=true, cur=0, vol=62;
 /* 真实系统数据（媒体会话 / 导航通知）—— 由原生桥经 window.L6SysEvent 回填；
    没有桥接（浏览器直接打开原型）或未授权时 active=false，页面走下面的演示数据。 */
 var REAL={media:{active:false,playing:false,dur:0,pos:0,title:"",artist:""},
-  nav:{active:false},acc:false,lrc:null,lrcKey:""};
+  nav:{active:false,app:""},acc:false,lrc:null,lrcKey:""};
 const tracks=[
   {t:"夜空中最亮的星",a:"逃跑计划",d:"4:08",src:"U盘",lyr:[
     "夜空中最亮的星 能否听清","那仰望的人 心底的孤独和叹息",
@@ -650,47 +614,76 @@ setInterval(()=>{
   navDist-=0.03; if(navDist<0.2)navDist=8.6;
   if(Math.random()<0.18)ti=(ti+1)%turns.length;
   const t=turns[ti];
-  // 同步：外部 App 全屏 + 回 APK 后的迷你卡片
-  $("#extArr").textContent=t[0];$("#extRoad").textContent=t[2];$("#extDist").textContent=t[1];
+  // 同步到迷你卡片（回到本界面后显示；外部 App 全屏时看不见本页，无需再更新假地图）
   $("#mArr").textContent=t[0];$("#mTurn").textContent=t[1]+" · "+t[2];
   $("#mDist").textContent=navDist.toFixed(1)+"km";
-  $("#extMeta").textContent=`剩余 ${navDist.toFixed(1)} km · 当前 ${spd} km/h · 到 公司`;
   $("#mEta").textContent=Math.max(1,Math.round(navDist/(spd/60)))+"min";
 },1500);
 
-/* ===== 导航：调起外部 App（全屏）+ 悬浮层 + 迷你卡片 ===== */
+/* ===== 导航：调起外部 App（真实全屏）+ 原生悬浮返回按钮 + 迷你卡片 ===== */
 let navRunning=false, navApp="amap";
-const overlay=$("#navOverlay"), miniNav=$("#miniNav");
+const miniNav=$("#miniNav");
+// on=true：外部导航 App 已拉起（此刻它盖满屏幕，本页不可见，所以这里不再画任何假地图/假悬浮条）
+// on=false：已回到本界面 —— 导航仍在后台跑，状态显示在顶部迷你卡片 #miniNav
 function setNav(on){
   navRunning=on;
-  overlay.classList.toggle("show",on);
-  miniNav.classList.toggle("show",!on);   // 回 APK 后显示迷你卡片
-  $("#navState").innerHTML = on
-    ? "状态：<b>导航 App 全屏运行中</b>（后台持续）"
-    : "状态：<b>已返回车机界面</b>（导航后台运行 · 顶部迷你卡片）";
+  miniNav.classList.toggle("show",!on);
   document.querySelectorAll(".nav-app").forEach(a=>
     a.style.outline=(a.dataset.app===navApp&&on)?"2px solid var(--acc)":"none");
-  document.querySelectorAll("#floatDock .fd-btn").forEach(b=>
-    b.classList.toggle("on",b.dataset.go==="nav"));
 }
 // 选导航 App（选择器）
 // 列表与点击绑定都在 renderNavApps() 里按「车机实际已安装的导航 App」动态生成，
 // 这里不再硬编码 amap / baidu / sys 三项。
-// 启动导航 → 调起外部 App 全屏（原型演示：直接全屏 overlay）
-$("#btnLaunch").onclick=()=>setNav(true);
-// 悬浮返回按钮：回车机 APK（音乐页），导航转后台
-$("#fabBack").onclick=()=>{ setNav(false); go(0); };
-// 导航页主页按钮：直接回音乐主页（idx 0）
+let NAV_APPS=[];          // 当前识别到的导航 App（来自原生桥接，供上滑启动取名字用）
+let lastNavStart=0, lastNavKey="";
+/**
+ * 选中并直接启动导航 App。
+ * 设计要点：一次操作就要见效 —— 点列表项、上滑、「启动导航」按钮三条路径都走这里。
+ */
+function startNav(key){
+  if(!key){ return; }
+  const now=Date.now();
+  // 只拦「同一个 App 被重复触发」（按钮层与原生桥接层可能各调一次）；切换到另一个 App 不受影响
+  if(key===lastNavKey && now-lastNavStart<600)return;
+  lastNavStart=now;lastNavKey=key;
+  const it=NAV_APPS.filter(x=>x.key===key)[0];
+  const name=it?it.name:"";
+  navApp=key;settings.navApp=key;
+  document.querySelectorAll("#navApps .nav-app").forEach(x=>x.classList.toggle("def",x.dataset.app===key));
+  highlight($("#setNavApp"),key);
+  REAL.nav.app=name||"";            // 「当前接入」探针要显示是哪个 App 在导航
+  const st0=$("#navState");
+  if(st0)st0.innerHTML="状态：<b>已调起 "+(name||"导航 App")+"</b>（外部 App 全屏运行）";
+  setNav(true);                     // 此后屏幕被外部 App 占据，本页不再显示任何东西
+  try{window.L6Native.launchApp(key);}catch(e){}
+  // 悬浮返回按钮依赖悬浮窗权限；没授权时显式告知，避免用户被困在地图里
+  try{
+    if(window.L6Native&&typeof window.L6Native.hasOverlay==="function"){
+      const ovOk=!!window.L6Native.hasOverlay(), st=$("#navState");
+      if(st)st.innerHTML="状态：<b>导航 App 全屏运行中</b> · "
+        +(ovOk?"点击左下角悬浮按钮可返回主页"
+              :"<b style=\"color:#ff6b6b\">未授予悬浮窗权限</b>，请到设置页「悬浮窗权限」授权");
+    }
+  }catch(e){}
+}
+$("#btnLaunch").onclick=()=>startNav(navApp);
+// 上滑手势：在导航页任意位置上滑 → 直接启动当前选中的导航 App
+(function(){
+  const p=$("#pageNav");if(!p)return;
+  let sx=0,sy=0,t0=0;
+  p.addEventListener("touchstart",e=>{
+    const t=e.touches[0];if(!t)return;sx=t.clientX;sy=t.clientY;t0=Date.now();
+  },{passive:true});
+  p.addEventListener("touchend",e=>{
+    const t=e.changedTouches[0];if(!t)return;
+    const dx=t.clientX-sx, dy=t.clientY-sy;
+    if(Date.now()-t0>800)return;                       // 慢拖不作数
+    if(dy<-70&&Math.abs(dy)>Math.abs(dx)*1.6)startNav(navApp);   // 以上是起点：竖直上滑
+  },{passive:true});
+})();
+// 导航页主页按钮：回到音乐主页（外部 App 仍在后台跑）。
+// 注：地图全屏时的「返回主页」由原生悬浮窗 FloatNav 提供，没有页内的假悬浮条了。
 $("#navHome").onclick=()=>{ setNav(false); go(0); };
-// 悬浮 dock 切换（非导航项 → 返回并切页）
-document.querySelectorAll("#floatDock .fd-btn").forEach(b=>b.onclick=()=>{
-  if(b.dataset.go==="nav")return;
-  setNav(false);
-  if(b.dataset.go==="home")go(0);
-  else if(b.dataset.go==="set")go(2);
-});
-// 隐藏/显示悬浮 dock
-$("#fdHide").onclick=()=>document.getElementById("floatDock").classList.toggle("hide");
 
 /* ===== 车辆状态（左 1/3，数据来自 Linux 服务端） ===== */
 const car={doors:{fl:false,fr:false,rl:false,rr:false},
@@ -876,12 +869,8 @@ function renderNavApps(navs){
     el.className="nav-app"+(a.key===navApp?" def":"");
     el.dataset.app=a.key;
     el.innerHTML='<span class="ic">'+a.icon+'</span><span class="nm">'+a.name+'</span><span class="sc">车机版</span>';
-    el.onclick=()=>{
-      navApp=a.key;settings.navApp=a.key;
-      box.querySelectorAll(".nav-app").forEach(x=>x.classList.toggle("def",x.dataset.app===navApp));
-      highlight($("#setNavApp"),navApp);
-      const eb=$("#extBadge");if(eb)eb.textContent=a.name+"（外部 App）";
-    };
+    // 点一下就走：选中 + 立即拉起该导航 App（不再需要「先选再点启动」两步）
+    el.onclick=()=>startNav(a.key);
     box.appendChild(el);
   });
 }
@@ -890,17 +879,15 @@ buildMusicSrc();buildNavApp();
 /* ===== 壁纸：静态 / 动态 两个列表 + 上传（合并为一个模块） ===== */
 const WALL_DIR={static:"Download/L6/壁纸/静态",dynamic:"Download/L6/壁纸/动态"};
 const upName=document.getElementById("upName");
-const wallUpload=document.getElementById("wallUpload");
-// 点击「静态壁纸 / 动态壁纸」→ 切换下方列表内容
+const wallUploadStatic=document.getElementById("wallUploadStatic");
+const wallUploadDyn=document.getElementById("wallUploadDyn");
+// 点击「静态壁纸 / 动态壁纸」→ 切换下方列表内容（仅是列表视图切换，不影响上传按钮的归属类型）
 document.querySelectorAll("#setWall .set-opt").forEach(b=>b.onclick=()=>{
   settings.wall=b.dataset.v;
   document.querySelectorAll("#setWall .set-opt").forEach(x=>x.classList.toggle("on",x===b));
-  syncWallAccept();
   renderWallList();
   setWallForPage(idx===0);   // 设置页(idx=2)不显示壁纸，回主页时自动应用
 });
-// 上传按钮的 accept 跟随当前类型：静态只收图片，动态可收图片/视频
-function syncWallAccept(){ if(wallUpload)wallUpload.accept=(settings.wall==="dynamic")?"image/*,video/*":"image/*"; }
 function wallCurrentItem(){
   const list=settings.wallList[settings.wall]||[];
   return list.find(it=>it.id===settings.pick[settings.wall])||list[0]||null;
@@ -944,29 +931,37 @@ function saveWallpaper(type,dataUrl,filename){
   const base64=(dataUrl.split(",")[1]||"");
   try{if(window.L6Native&&typeof window.L6Native.saveWallpaper==="function"){window.L6Native.saveWallpaper(type,base64,filename);}}catch(_){}
 }
-// 上传：按当前选中的类型入库（图片 → 静态/动态；视频仅动态），并显示落盘位置
-if(wallUpload)wallUpload.addEventListener("change",function(){
-  const f=this.files&&this.files[0];if(!f)return;
-  const kind=settings.wall, isVid=(f.type||"").indexOf("video")>=0;
-  if(kind==="static"&&isVid){
-    upName.textContent="静态壁纸只支持图片；请切到「动态壁纸」再上传视频";
-    this.value="";return;
-  }
-  const r=new FileReader();
-  r.onload=()=>{
-    const id="up_"+Date.now();
-    settings.wallList[kind].push({id:id,name:f.name,src:r.result,vid:isVid});
-    settings.pick[kind]=id;
-    saveWallpaper(kind,r.result,f.name);
-    renderWallList();setWallForPage(idx===0);
-    upName.textContent="已上传 → "+WALL_DIR[kind]+"/"+f.name;
-    this.value="";
-  };
-  r.readAsDataURL(f);
-});
+// 两个上传按钮各自绑定类型：静态只收图片，动态可收图片/视频。
+// 上传后入库到「按钮对应的类型」，并把该类型切为当前视图 + 选中新项。
+function bindWallUpload(input,kind){
+  if(!input)return;
+  input.addEventListener("change",function(){
+    const f=this.files&&this.files[0];if(!f)return;
+    const isVid=(f.type||"").indexOf("video")>=0;
+    if(kind==="static"&&isVid){
+      upName.textContent="静态壁纸只支持图片；视频请用右侧「上传动态壁纸」";
+      this.value="";return;
+    }
+    const r=new FileReader();
+    r.onload=()=>{
+      const id="up_"+Date.now();
+      settings.wallList[kind].push({id:id,name:f.name,src:r.result,vid:isVid});
+      settings.pick[kind]=id;
+      settings.wall=kind;                      // 切到该类型的视图，让用户立刻看到新壁纸
+      document.querySelectorAll("#setWall .set-opt").forEach(x=>x.classList.toggle("on",x.dataset.v===kind));
+      saveWallpaper(kind,r.result,f.name);
+      renderWallList();setWallForPage(idx===0);
+      upName.textContent="已上传 → "+WALL_DIR[kind]+"/"+f.name;
+      this.value="";
+    };
+    r.readAsDataURL(f);
+  });
+}
+bindWallUpload(wallUploadStatic,"static");
+bindWallUpload(wallUploadDyn,"dynamic");
 
 // 初始：应用壁纸（导航源 / 导航页由 buildNavApp → renderNavApps 异步渲染）
-renderWallList();syncWallAccept();applyWall();
+renderWallList();applyWall();
 
 /* ---- 原生桥字符串解码 ----
    Java 端把 JSON 以 Base64(UTF-8) 注入（避免引号/换行炸 evaluateJavascript）。
@@ -1151,20 +1146,18 @@ function resetRealMedia(){
 function applyRealNav(d){
   if(!d||!d.active){REAL.nav.active=false;return;}
   REAL.nav.active=true;
+  // 真实导航数据全部落到 miniNav 卡片 —— 外部地图全屏时本页不可见，
+  // 只有回到本界面后这张顶部卡片才是用户唯一能看到导航状态的地方。
   var arr=d.arrow||"↑";
-  $("#extArr").textContent=arr;$("#mArr").textContent=arr;
+  $("#mArr").textContent=arr;
   var turn=d.turn||d.raw||"导航中";
-  if(d.road)$("#extRoad").textContent=d.road;
-  else $("#extRoad").textContent=turn;
-  $("#extDist").textContent=d.next?("前方 "+d.next):"导航中";
   $("#mTurn").textContent=d.road?(turn+" · "+d.road):turn;
   $("#mDist").textContent=d.remain||"--";
-  $("#extMeta").textContent="剩余 "+(d.remain||"--")
-    +(d.eta?(" · 约 "+d.eta):"")+(d.dest?(" · 到 "+d.dest):"");
-  if(d.clock)$("#extEta").textContent=d.clock;
   if(d.eta)$("#mEta").textContent=d.eta;
   if(d.dest)$("#mDest").textContent=d.dest;
-  if(d.app)$("#extBadge").textContent=d.app+"（外部 App）";
+  if(d.app)REAL.nav.app=d.app;
+  if(REAL.nav.app){const st=$("#navState");
+    if(st)st.innerHTML="状态：<b>"+REAL.nav.app+" 导航中</b>（回到本界面时顶部显示实时转向）";}
 }
 
 /* ---- 权限卡片 ---- */
@@ -1218,12 +1211,40 @@ function probeSys(){
       +"　"+fmtMs(m.pos)+"/"+fmtMs(m.dur)+"　"+(m.playing?"播放中":"已暂停"))
     :"媒体：未检测到活跃媒体会话");
   out.push(nn.active
-    ?("导航："+($("#extBadge").textContent||"导航中")+"　剩余 "+$("#mDist").textContent
+    ?("导航："+(REAL.nav.app||"导航中")+"　剩余 "+$("#mDist").textContent
       +"　约 "+$("#mEta").textContent+"　"+$("#mTurn").textContent)
     :"导航：未检测到导航通知（导航 App 需在导航中）");
   out.push("通知使用权："+(REAL.acc?"已授权":"未授权"));
   if(msg)msg.textContent=out.join("　|　");
 }
+
+/* ---- 悬浮窗权限卡片（导航返回主页按钮的前提） ---- */
+function setOvState(granted){
+  const el=$("#ovAcc"),msg=$("#ovMsg"),btn=$("#ovAccBtn");
+  if(el){el.textContent=granted?"已授权":"未授权";el.style.color=granted?"var(--acc2)":"var(--red)";}
+  if(msg)msg.textContent=granted
+    ?"已授权：地图 App 全屏时左下角显示悬浮按钮，可拖动位置"
+    :"未授权：地图全屏后只能用车机物理返回键/任务键回到本界面";
+  if(btn)btn.textContent=granted?"✅ 已授权":"🔓 去授权";
+}
+function readOvState(){
+  const n=l6n();
+  if(!n||typeof n.hasOverlay!=="function"){                 // 浏览器预览：无原生桥接
+    if($("#ovAcc"))setOvState(false);
+    return false;
+  }
+  const g=!!n.hasOverlay();setOvState(g);return g;
+}
+$("#ovAccBtn").onclick=function(){
+  const n=l6n();if(!n||!n.openOverlay){$("#ovMsg").textContent="无原生桥接，装机后可在此授权";return;}
+  try{n.openOverlay();}catch(e){}
+};
+$("#ovRefresh").onclick=function(){readOvState();};
+// 原生 MainActivity.onResume 回推最新授权状态（用户从系统悬浮窗设置页返回时）
+window.L6OverlayEvent=function(granted){ setOvState(!!granted); };
+readOvState();
+// 补读一次：WebView 的 SHIM 注入发生在页面加载后，首次同步读可能赶在桥接就绪之前
+setTimeout(readOvState,1200);
 
 /* ---- 初始化：拉一次全量状态（含封面），并请求原生刷新 ---- */
 (function initSys(){

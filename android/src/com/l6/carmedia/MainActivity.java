@@ -1,6 +1,7 @@
 package com.l6.carmedia;
 
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -103,7 +104,10 @@ public class MainActivity extends Activity {
             "openNotifyAccess:function(){try{R.openNotifyAccess();}catch(e){}}," +
             "refreshSys:function(){try{R.refreshSys();}catch(e){}}," +
             "mediaControl:function(a){try{R.mediaControl(a);}catch(e){}}," +
-            "requestLyrics:function(t,a){try{R.requestLyrics(t,a);}catch(e){}}" +
+            "requestLyrics:function(t,a){try{R.requestLyrics(t,a);}catch(e){}}," +
+            // ---- 悬浮窗权限：调起外部导航 App 后显示「返回主页」悬浮按钮 ----
+            "hasOverlay:function(){try{return !!R.hasOverlayPermission();}catch(e){return false;}}," +
+            "openOverlay:function(){try{R.openOverlaySettings();}catch(e){}}" +
             "};" +
             "try{buildMusicSrc();buildNavApp();}catch(e){}" +
             "var B=document.getElementById('btnLaunch');" +
@@ -228,7 +232,7 @@ public class MainActivity extends Activity {
             MediaHub.get(this).refresh();
         } catch (Throwable ignored) {
         }
-        // 用户可能刚在「允许安装未知应用」里授权，回来把没装完的 OTA 包续上
+        // 用户可能刚从「允许安装未知应用」里授权，回来把没装完的 OTA 包续上
         try {
             if (Ota.hasPendingInstall() && web != null) {
                 Ota.resumeInstallIfPending(this, json -> {
@@ -236,6 +240,19 @@ public class MainActivity extends Activity {
                     web.post(() -> web.evaluateJavascript(js, null));
                 });
             }
+        } catch (Throwable ignored) {
+        }
+        // 回到本界面（点了悬浮按钮 / 系统返回键 / 从悬浮窗授权页返回）→ 悬浮按钮必须撤掉，
+        // 否则它会悬在本 App 上面挡操作。同时把最新授权状态刷到设置页。
+        try {
+            FloatNav.hide(this);
+        } catch (Throwable ignored) {
+        }
+        try {
+            boolean ov = FloatNav.canDrawOverlay(this);
+            web.evaluateJavascript(
+                    "(function(){try{if(window.L6OverlayEvent)window.L6OverlayEvent(" + ov
+                            + ");}catch(e){}})()", null);
         } catch (Throwable ignored) {
         }
     }
@@ -502,9 +519,33 @@ public class MainActivity extends Activity {
                     return;
                 }
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                final ComponentName cn = i.getComponent();
+                final String pkg = (cn != null && cn.getPackageName() != null) ? cn.getPackageName() : "";
                 startActivity(i);
+                // 地图是全屏外部 App，车机未必有物理返回键 —— 挂一个悬浮按钮保证随时能回到本界面。
+                // 必须回主线程：WindowManager.addView 只在 UI 线程合法。
+                runOnUiThread(() -> {
+                    boolean ok = FloatNav.show(getApplicationContext(), appLabel(pkg));
+                    if (!ok) {
+                        toast("未授予悬浮窗权限，返回主页需在设置页「悬浮窗权限」里授权");
+                    }
+                });
             } catch (Throwable e) {
                 toast("启动导航失败：" + e.getMessage());
+            }
+        }
+
+        /** 取应用显示名；取不到就返回空串（悬浮按钮只显示图标）。 */
+        private String appLabel(String pkg) {
+            try {
+                if (pkg.isEmpty()) {
+                    return "";
+                }
+                ApplicationInfo ai = getPackageManager().getApplicationInfo(pkg, 0);
+                CharSequence lb = getPackageManager().getApplicationLabel(ai);
+                return lb == null ? "" : lb.toString();
+            } catch (Throwable ignored) {
+                return "";
             }
         }
 
@@ -567,6 +608,20 @@ public class MainActivity extends Activity {
                 final String js = Ota.safeJs(json);
                 web.post(() -> web.evaluateJavascript(js, null));
             });
+        }
+
+        /* ==================== 悬浮窗权限（导航返回主页按钮） ==================== */
+
+        /** 是否已授予悬浮窗权限（"显示在其他应用上层"）。未授权时悬浮按钮不会显示。 */
+        @JavascriptInterface
+        public boolean hasOverlayPermission() {
+            return FloatNav.canDrawOverlay(MainActivity.this);
+        }
+
+        /** 跳系统悬浮窗授权页；授权后由页面回调 refresh 读取新状态。 */
+        @JavascriptInterface
+        public void openOverlaySettings() {
+            FloatNav.openOverlaySettings(MainActivity.this);
         }
 
         /* ==================== 真实系统数据（音乐 / 导航） ==================== */

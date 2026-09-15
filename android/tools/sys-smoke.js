@@ -110,13 +110,16 @@ const DELAY = ms => new Promise(r => setTimeout(r, ms));
     turn: '前方 300米 右转', road: '滨江大道', next: '300 m', remain: '5.6 km',
     eta: '12 分钟', clock: '14:25', dest: '公司',
   });
-  ok('转向箭头来自导航通知', txt('#mArr') === '↱' && txt('#extArr') === '↱', txt('#mArr'));
+  ok('转向箭头来自导航通知', txt('#mArr') === '↱', txt('#mArr'));
   ok('迷你卡片剩余距离', txt('#mDist') === '5.6 km', txt('#mDist'));
   ok('迷你卡片预计用时', txt('#mEta') === '12 分钟', txt('#mEta'));
   ok('转向 + 道路名', txt('#mTurn').includes('滨江大道'), txt('#mTurn'));
-  ok('预计到达时刻', txt('#extEta') === '14:25', txt('#extEta'));
   ok('目的地', txt('#mDest') === '公司', txt('#mDest'));
-  ok('全屏导航角标显示真实 App', txt('#extBadge').includes('高德地图'), txt('#extBadge'));
+  // 假地图全屏层已删除：真实导航数据改落到迷你卡片与导航状态行（外部 App 全屏时本页不可见）
+  ok('导航 App 名显示在导航状态行', txt('#navState').includes('高德地图'), txt('#navState'));
+  ok('假地图节点已全部移除',
+    !d.querySelector('#navOverlay') && !d.querySelector('#extBadge') && !d.querySelector('#extEta'),
+    'navOverlay/extBadge/extEta 均已不存在');
 
   // 演示用模拟导航是 1.5s 一跳，等 1.8s 看它有没有被真实数据压住
   await DELAY(1800);

@@ -73,21 +73,39 @@ setTimeout(() => {
   d.getElementById('btnLaunch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const launched = NativeRaw.calls.filter(c => c[0] === 'launchApp').pop();
 
-  // 「布局和显示」模块已整块移除；壁纸改为列表式（#wallList + 上传按钮）
+  // 「布局和显示」模块已整块移除；壁纸改为列表式（#wallList + 两个独立上传按钮）
   const layoutGone = !d.getElementById('setModules');
   const wallListOk = !!d.getElementById('wallList') && d.querySelectorAll('#wallList .wall-item').length >= 1;
-  const wallUpOk = !!d.getElementById('wallUpload');
+  const wallUpOk = !!d.getElementById('wallUploadStatic') && !!d.getElementById('wallUploadDyn');
+  // 上传按钮必须紧跟在「动态壁纸」右侧（同一行 .wall-bar 内，且顺序为 静态/动态/上传静态/上传动态）
+  const bar = d.getElementById('setWall') && d.getElementById('setWall').parentElement;
+  const barSeq = bar ? [...bar.children].map(e => e.id || e.className) : [];
+  const barOk = barSeq[0] === 'setWall' && barSeq[1] === 'wallUpStatic' && barSeq[2] === 'wallUpDyn';
+
+  // 悬浮窗权限卡片（导航返回主页按钮的前提）
+  const ovOk = !!(d.getElementById('ovAcc') && d.getElementById('ovAccBtn') && d.getElementById('ovRefresh'));
+
+  // 导航页：点击列表项即直接拉起 App（不再需要先选再点「启动导航」）
+  NativeRaw.calls.length = 0;
+  const navItem = [...d.querySelectorAll('#navApps .nav-app')].find(e => e.dataset.app === 'amap');
+  if (navItem) navItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const clickLaunched = NativeRaw.calls.filter(c => c[0] === 'launchApp').pop();
+  const clickLaunchOk = !!clickLaunched && clickLaunched[1] === 'amap';
 
   const ok = listOk && launched && launched[1] === 'baidu'
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
-    && navOnlyInstalled && navPageOk && layoutGone && wallListOk && wallUpOk;
+    && navOnlyInstalled && navPageOk && layoutGone && wallListOk && wallUpOk
+    && barOk && ovOk && clickLaunchOk;
 
   console.log('原生音乐源 ->', music.join(' / '));
   console.log('原生导航项 ->', nav.join(' / '));
   console.log('导航源只列已装 ->', navOnlyInstalled);
   console.log('导航页动态项 ->', navPageItems.join(' / '), '(无 sys =', !navPageItems.includes('sys'), ')');
   console.log('布局/显示模块已移除 ->', layoutGone);
-  console.log('壁纸列表 + 上传按钮 ->', wallListOk, '/', wallUpOk);
+  console.log('壁纸列表 + 双上传按钮 ->', wallListOk, '/', wallUpOk);
+  console.log('上传按钮位置(动态右侧) ->', barOk, '(' + barSeq.join(' | ') + ')');
+  console.log('悬浮窗权限卡片 ->', ovOk);
+  console.log('点列表项直接启动 ->', clickLaunchOk, '(' + (clickLaunched ? clickLaunched[1] : '未触发') + ')');
   console.log('启动导航 key ->', launched ? launched[1] : '(未触发)');
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));

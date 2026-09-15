@@ -18,6 +18,8 @@
         tools:ignore="QueryAllPackagesPermission" />
     <!-- OTA 升级安装新版本需要 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 悬浮窗：调起外部导航 App 后，在屏幕上显示「返回主页」悬浮按钮（API 23+ 需用户手动授权） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
         <intent>
