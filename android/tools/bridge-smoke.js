@@ -38,6 +38,14 @@ const NativeRaw = {
     { pkg: 'com.autonavi.amapauto', key: 'amap', name: '高德地图(车机)', icon: '🧭', type: 'nav' },
     { pkg: 'com.baidu.BaiduMap', key: 'baidu', name: '百度地图', icon: '🗺', type: 'nav' },
   ]),
+  // 全部可启动 App（含一个游戏，验证音乐源不再混入游戏）
+  getAllAppsJson: () => JSON.stringify([
+    { pkg: 'com.kugou.android', key: 'kugou', name: '酷狗音乐', icon: '🎵', type: 'music' },
+    { pkg: 'com.tencent.qqmusic', key: 'qq', name: 'QQ音乐', icon: '🎶', type: 'music' },
+    { pkg: 'com.autonavi.amapauto', key: 'amap', name: '高德地图(车机)', icon: '🧭', type: 'nav' },
+    { pkg: 'com.baidu.BaiduMap', key: 'baidu', name: '百度地图', icon: '🗺', type: 'nav' },
+    { pkg: 'com.tencent.tmgp.pubgmhd', key: 'com.tencent.tmgp.pubgmhd', name: '和平精英', icon: '📦', type: 'other' },
+  ]),
   calls: [],
   saveWallpaper(t, b, n) { this.calls.push(['saveWallpaper', t, n, String(b).length]); },
   launchApp(k) { this.calls.push(['launchApp', k]); },
@@ -60,18 +68,26 @@ setTimeout(() => {
   const d = window.document;
   window.eval(shim);
 
+  const appListEl = d.getElementById('appList');
   const music = [...d.querySelectorAll('#setMusicSrc .set-opt')].map(b => b.textContent);
   const nav = [...d.querySelectorAll('#setNavApp .set-opt')].map(b => b.textContent);
-  const listOk = music.some(x => x.includes('酷狗音乐')) && nav.some(x => x.includes('百度地图'));
+  // 音乐源卡片：U盘/蓝牙 常驻 + 「选择应用」；导航源卡片：「选择应用」（均改为抽屉选取）
+  const musicLocalOk = music.some(x => x.includes('U盘')) && music.some(x => x.includes('蓝牙'));
+  const musicPick = d.getElementById('musicPickApp');
+  const navPick = d.getElementById('navPickApp');
+  const listOk = musicLocalOk && !!musicPick && !!navPick;
 
-  // 导航源只列「车机实际已安装」的导航 App：桩里 2 个 nav → 页面 2 项，且不含「系统默认」
-  const navOnlyInstalled = nav.length === 2 && !nav.some(x => x.includes('系统默认'));
+  // 导航源：点「选择应用」→ 抽屉只列 2 个导航 App（不含「系统默认」）→ 选百度地图
+  const navPickOk = !!navPick;
+  if (navPick) navPick.onclick();
+  const navItems = appListEl ? [...appListEl.querySelectorAll('.al-item')].map(e => e.textContent) : [];
+  const navOnlyInstalled = navItems.length === 2 && !navItems.some(x => x.includes('系统默认'));
   // 导航页已整块移除（不再有 #navApps / #btnLaunch）
   const navPageGone = !d.getElementById('navApps') && !d.getElementById('btnLaunch');
 
-  // 选中「百度地图」→ 点 dock 导航按钮（data-go=nav）直接拉起该 App（不再进导航页）
-  const baidu = [...d.querySelectorAll('#setNavApp .set-opt')].find(b => b.textContent.includes('百度地图'));
-  if (baidu) baidu.onclick();
+  // 选「百度地图」→ 点 dock 导航按钮（data-go=nav）直接拉起该 App（不再进导航页）
+  const baiduItem = appListEl && [...appListEl.querySelectorAll('.al-item')].find(el => el.textContent.includes('百度地图'));
+  if (baiduItem) baiduItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const dockNav = d.querySelector('[data-go="nav"]');
   if (dockNav) dockNav.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const launched = NativeRaw.calls.filter(c => c[0] === 'launchApp').pop();
@@ -100,12 +116,15 @@ setTimeout(() => {
   const autoPlayToggle = autoPlayBefore !== autoPlayAfter;
   const homeBridgeOk = typeof window.L6Native.openHomeSettings === 'function';
 
-  // 音乐源「启动/唤醒」按钮 + launchMusic 桥：选中真实音乐 App → 点按钮 → 触发 launchMusic(key)，不挂返回按钮
+  // 音乐源「启动/唤醒」：点「选择应用」→ 抽屉只列 2 个音乐 App（不含游戏）→ 选酷狗 → 点唤醒 → launchMusic('kugou')
   const musicLaunchBtn = d.getElementById('musicLaunchBtn');
   const musicLaunchBtnOk = !!musicLaunchBtn;
   const launchMusicBridgeOk = typeof window.L6Native.launchMusic === 'function';
-  const kugou = [...d.querySelectorAll('#setMusicSrc .set-opt')].find(b => b.textContent.includes('酷狗音乐'));
-  if (kugou) kugou.onclick();           // 选中酷狗音乐 → settings.musicSrc='kugou'
+  if (musicPick) musicPick.onclick();
+  const musicItems = appListEl ? [...appListEl.querySelectorAll('.al-item')].map(e => e.textContent) : [];
+  const musicOnlyMusic = musicItems.length === 2 && musicItems.some(x => x.includes('酷狗音乐')) && !musicItems.some(x => x.includes('和平精英'));
+  const kugouItem = appListEl && [...appListEl.querySelectorAll('.al-item')].find(el => el.textContent.includes('酷狗音乐'));
+  if (kugouItem) kugouItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));  // 选中酷狗 → settings.musicSrc='kugou'
   if (musicLaunchBtn) musicLaunchBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const launchedMusic = NativeRaw.calls.filter(c => c[0] === 'launchMusic').pop();
   const musicLaunchCall = launchedMusic && launchedMusic[1] === 'kugou';
@@ -120,10 +139,10 @@ setTimeout(() => {
   const moreBtn = dockAppsBox && dockAppsBox.querySelector('.dock-app.more');
   if (moreBtn) moreBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const appList = d.getElementById('appList');
-  const appListOpened = !!appList && appList.hidden === false;
+  const appListOpened = !!appList && appList.classList.contains('open');   // 安卓抽屉：用 open 类
   const appListItems = appList ? appList.querySelectorAll('.al-item').length : 0;
-  const kugouItem = appList && [...appList.querySelectorAll('.al-item')].find(el => el.textContent.includes('酷狗音乐'));
-  if (kugouItem) kugouItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const kugouDockItem = appList && [...appList.querySelectorAll('.al-item')].find(el => el.textContent.includes('酷狗音乐'));
+  if (kugouDockItem) kugouDockItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const launchedPkg = NativeRaw.calls.filter(c => c[0] === 'launchPkg').pop();
   const launchPkgOk = !!launchedPkg && launchedPkg[1] === 'com.kugou.android';
 
@@ -131,11 +150,13 @@ setTimeout(() => {
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
     && barOk && ovOk && homeOk && sysAccOk && rescanOk && autoPlayOk
-    && autoPlayToggle && homeBridgeOk && musicLaunchBtnOk && launchMusicBridgeOk && musicLaunchCall
+    && autoPlayToggle && homeBridgeOk && musicLaunchBtnOk && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic
     && dockSetOk && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk;
 
-  console.log('原生音乐源 ->', music.join(' / '));
-  console.log('原生导航项 ->', nav.join(' / '));
+  console.log('音乐源卡片 ->', music.join(' / '));
+  console.log('导航源卡片 ->', nav.join(' / '));
+  console.log('音乐源卡片(U盘/蓝牙+选择应用) ->', musicLocalOk, '| 导航源选择按钮 ->', navPickOk);
+  console.log('音乐源抽屉只列音乐(不含游戏) ->', musicOnlyMusic);
   console.log('导航源只列已装 ->', navOnlyInstalled);
   console.log('导航页已移除 ->', navPageGone);
   console.log('布局/显示模块已移除 ->', layoutGone);

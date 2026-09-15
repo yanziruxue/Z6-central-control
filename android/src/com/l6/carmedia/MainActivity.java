@@ -95,6 +95,7 @@ public class MainActivity extends Activity {
             "var R=window.L6NativeRaw;if(!R)return;" +
             "window.L6Native={" +
             "getInstalledApps:function(cb){try{cb(JSON.parse(R.getInstalledAppsJson()));}catch(e){cb([]);}}," +
+            "getAllApps:function(cb){try{cb(JSON.parse(R.getAllAppsJson()));}catch(e){cb([]);}}," +
             "saveWallpaper:function(t,b,n){try{R.saveWallpaper(t,b,n);}catch(e){}}," +
             "launchApp:function(k){try{R.launchApp(k);}catch(e){}}," +
             "launchMusic:function(k){try{R.launchMusic(k);}catch(e){}}," +
@@ -421,16 +422,51 @@ public class MainActivity extends Activity {
             return out.toString();
         }
 
+        /** 全部可启动 App（不过滤类型），供「打开应用列表」抽屉拉起任意已装应用。 */
+        public String getAllAppsJson() {
+            JSONArray out = new JSONArray();
+            Set<String> seenKeys = new HashSet<>();
+            try {
+                PackageManager pm = getPackageManager();
+                List<ApplicationInfo> apps = pm.getInstalledApplications(0);
+                for (ApplicationInfo ai : apps) {
+                    String pkg = ai.packageName;
+                    if (pkg == null || pkg.equals(getPackageName())) continue;
+                    if (pm.getLaunchIntentForPackage(pkg) == null) continue;   // 非可启动 App，跳过
+                    CharSequence labelCs = ai.loadLabel(pm);
+                    String label = labelCs == null ? pkg : labelCs.toString().trim();
+                    String key = null, name = null, icon = null, type = null;
+                    for (String[] m : APP_MAP) {
+                        if (m[0].equalsIgnoreCase(pkg)) {
+                            key = m[1]; name = m[2]; icon = m[3]; type = m[4]; break;
+                        }
+                    }
+                    if (key == null) {
+                        type = guessType(label, pkg);
+                        key = pkg; name = label;
+                        icon = "music".equals(type) ? "\uD83C\uDFB5"
+                                : "nav".equals(type) ? "\uD83E\uDDED" : "\uD83D\uDCE6";
+                    }
+                    if (!seenKeys.add(key)) continue;   // 同一 key 只保留一个
+                    JSONObject o = new JSONObject();
+                    o.put("pkg", pkg); o.put("key", key); o.put("name", name);
+                    o.put("icon", icon); o.put("type", type);
+                    out.put(o);
+                }
+            } catch (Throwable ignored) {
+            }
+            return out.toString();
+        }
+
         /** 低置信度归类：仅按名称/包名关键词猜音乐或导航。 */
         private String guessType(String label, String pkg) {
             String z = (label + " " + pkg).toLowerCase(Locale.ROOT);
             // 音乐类：覆盖常见音乐/收音/听书/播客关键词与包名片段（白名单之外的音乐 App 也认得出）
             if (z.contains("\u97f3\u4e50") || z.contains("music") || z.contains("radio")
-                    || z.contains("\u542c\u4e66") || z.contains("audio") || z.contains("player")
-                    || z.contains("song") || z.contains("fm") || z.contains("\u7535\u53f0")
-                    || z.contains("\u871c\u67d0") || z.contains("xmly") || z.contains("kg")
-                    || z.contains("kugou") || z.contains("qqmusic") || z.contains("netease")
-                    || z.contains("spotify") || z.contains("podcast") || z.contains("\u64ad\u5ba2")
+                    || z.contains("\u542c\u4e66") || z.contains("song") || z.contains("fm") || z.contains("\u7535\u53f0")
+                    || z.contains("\u871c\u67d0") || z.contains("xmly") || z.contains("kugou")
+                    || z.contains("qqmusic") || z.contains("netease") || z.contains("spotify")
+                    || z.contains("podcast") || z.contains("\u64ad\u5ba2")
                     || z.contains("\u871c\u8702") || z.contains("\u8702\u9e1f") || z.contains("ximalaya")) {
                 return "music";
             }

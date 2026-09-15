@@ -202,14 +202,20 @@
     display:flex;align-items:center;justify-content:center;transition:.15s}
   .dock-app:active{transform:scale(.9)}
   .dock-app.more{background:rgba(255,255,255,.1)}
-  /* 应用列表（抽屉） */
-  .app-list{position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:70vh;
-    display:flex;flex-direction:column;background:rgba(10,14,22,.96);
-    border-top:1px solid var(--line);border-radius:18px 18px 0 0;backdrop-filter:blur(10px);
-    box-shadow:0 -10px 30px rgba(0,0,0,.5)}
-  .app-list[hidden]{display:none}
+  /* 应用列表（安卓抽屉：底部上滑 + 背景遮罩 + 顶部手柄） */
+  .app-scrim{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.5);
+    opacity:0;visibility:hidden;transition:opacity .25s ease}
+  .app-scrim.open{opacity:1;visibility:visible}
+  .app-list{position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:84vh;
+    display:flex;flex-direction:column;background:rgba(16,20,30,.98);
+    border-top:1px solid var(--line);border-radius:24px 24px 0 0;backdrop-filter:blur(14px);
+    box-shadow:0 -12px 40px rgba(0,0,0,.55);
+    transform:translateY(100%);visibility:hidden;
+    transition:transform .3s cubic-bezier(.2,.85,.25,1),visibility .3s}
+  .app-list.open{transform:translateY(0);visibility:visible}
+  .al-grip{width:42px;height:5px;border-radius:3px;background:rgba(255,255,255,.3);margin:9px auto 3px}
   .al-head{display:flex;align-items:center;justify-content:space-between;
-    padding:14px 18px;font-size:15px;font-weight:600;border-bottom:1px solid var(--line)}
+    padding:6px 18px 12px;font-size:15px;font-weight:600;border-bottom:1px solid var(--line)}
   .al-close{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
     background:transparent;color:var(--sub);font-size:16px;cursor:pointer}
   .al-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px;padding:16px;overflow:auto}
@@ -218,6 +224,7 @@
   .al-item:active{transform:scale(.95);border-color:var(--acc)}
   .al-item .ai-ic{font-size:26px}
   .al-item .ai-nm{font-size:11px;color:var(--sub);text-align:center;line-height:1.3}
+  .al-empty{padding:30px;text-align:center;color:var(--sub);font-size:13px}
 
   /* ---- 迷你导航卡片（仅在真实导航时显示） ---- */
   #miniNav{position:absolute;left:18px;right:18px;top:8px;z-index:6;display:none;
@@ -242,6 +249,9 @@
   .set-opt:active{transform:scale(.96)}
   .set-opt.on{background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f;border-color:transparent;font-weight:600}
   .set-hint{font-size:11px;color:var(--sub);line-height:1.5}
+  .set-cur{font-size:12px;color:var(--txt);margin:8px 2px 2px;padding:6px 10px;border-radius:8px;
+    background:rgba(61,169,252,.12);border:1px solid rgba(61,169,252,.3)}
+  .set-opt.pick{background:rgba(255,255,255,.08);border:1px dashed var(--acc);color:var(--acc)}
   .nav-app.def{border-color:var(--acc)}
   /* 动态壁纸 */
   body.dynwall{background:linear-gradient(120deg,#0b0e14,#15233f,#241433,#0f1f17);
@@ -350,7 +360,8 @@
           <div class="set-scroll">
             <div class="set-sec">
               <div class="set-label">音乐源</div>
-              <div class="set-opts" id="setMusicSrc"><!-- 车机本地源 + 实际已安装的音乐 App --></div>
+              <div class="set-opts" id="setMusicSrc"><!-- 车机本地源（U盘/蓝牙） --></div>
+              <div class="set-cur" id="musicSrcCur"></div>
               <div class="set-actions">
                 <button class="set-opt" id="rescanApps">🔄 重新识别应用</button>
                 <button class="set-opt" id="musicLaunchBtn">▶ 启动/唤醒</button>
@@ -359,8 +370,9 @@
             </div>
             <div class="set-sec">
               <div class="set-label">导航源</div>
-              <div class="set-opts" id="setNavApp"><!-- 只显示已识别到的导航 App --></div>
-              <div class="set-hint">只列出<b>实际已安装</b>的导航 App。选中即设为默认导航源；<b>dock 导航按钮</b>或<b>主页上滑</b>直接拉起该 App（蓝框为当前选择）。</div>
+              <div class="set-opts" id="setNavApp"><!-- 导航源选应用按钮 --></div>
+              <div class="set-cur" id="navSrcCur"></div>
+              <div class="set-hint">点「选择应用」从已安装导航 App 中选取；<b>dock 导航按钮</b>或<b>主页上滑</b>直接拉起该 App。</div>
             </div>
             <!-- 悬浮窗权限已并入下方「系统权限」卡片 -->
             <div class="set-sec">
@@ -481,8 +493,10 @@
     </nav>
     <div id="dockApps"></div>
   </div>
-  <div class="app-list" id="appList" hidden>
-    <div class="al-head">📋 应用列表<button class="al-close" id="appListClose">✕</button></div>
+  <div class="app-scrim" id="appScrim"></div>
+  <div class="app-list" id="appList">
+    <div class="al-grip"></div>
+    <div class="al-head"><span id="appListTitle">📋 应用列表</span><button class="al-close" id="appListClose">✕</button></div>
     <div class="al-grid" id="appListBody"></div>
   </div>
 </div>
@@ -741,31 +755,50 @@ function bindOpts(wrap,onpick){wrap.querySelectorAll(".set-opt").forEach(b=>b.on
 function buildMusicSrc(){
   const wrap=$("#setMusicSrc");wrap.innerHTML="";
   LOCAL_MUSIC.forEach(s=>wrap.appendChild(optBtn(s.key,s.icon+" "+s.name)));
-  window.L6Native.getInstalledApps(apps=>{
-    MUSIC_APPS=apps.filter(a=>a.type==="music");
-    MUSIC_APPS.forEach(a=>wrap.appendChild(optBtn(a.key,a.icon+" "+a.name)));
-    highlight(wrap,settings.musicSrc);
-    bindOpts(wrap,v=>{settings.musicSrc=v;highlight(wrap,v);syncMusicSrcTag();syncMusicLaunch(); if(typeof saveSettings==="function")saveSettings();});
-    syncMusicSrcTag();syncMusicLaunch();
+  const pick=document.createElement("button");
+  pick.className="set-opt pick"; pick.id="musicPickApp"; pick.textContent="📂 选择应用";
+  wrap.appendChild(pick);
+  const isLocal=LOCAL_MUSIC.some(s=>s.key===settings.musicSrc);
+  highlight(wrap, isLocal?settings.musicSrc:null);
+  pick.onclick=()=>openAppPicker("music", a=>{
+    settings.musicSrc=a.key||a.pkg;
+    highlight(wrap,null);
+    syncMusicSrcTag();syncMusicLaunch();renderMusicSrcCur();
+    if(typeof saveSettings==="function")saveSettings();
   });
+  // 仍拉取已装音乐 App，供 musicSrcName 解析显示名（不在卡片平铺，改用抽屉选取）
+  window.L6Native.getInstalledApps(apps=>{ MUSIC_APPS=apps.filter(x=>x.type==="music"); syncMusicSrcTag(); renderMusicSrcCur(); });
+  renderMusicSrcCur();
 }
-// 导航源：只列出车机**实际已安装**的导航 App（不再有「系统默认」这类非应用选项）
+function renderMusicSrcCur(){
+  const el=$("#musicSrcCur"); if(!el)return;
+  el.textContent="当前音乐源：" + musicSrcName();
+}
+// 导航源：点「选择应用」从已装导航 App 中选取（安卓抽屉式），显示当前源
 function buildNavApp(){
   const wrap=$("#setNavApp");wrap.innerHTML="";
+  const pick=document.createElement("button");
+  pick.className="set-opt pick"; pick.id="navPickApp"; pick.textContent="📂 选择应用";
+  wrap.appendChild(pick);
+  pick.onclick=()=>openAppPicker("nav", a=>{
+    const k=a.key||a.pkg;
+    settings.navApp=k; navApp=k; NAV_APPS=[a]; renderNavSrcCur();
+    if(typeof saveSettings==="function")saveSettings();
+  });
   window.L6Native.getInstalledApps(apps=>{
     const navs=apps.filter(a=>a.type==="nav");
     NAV_APPS=navs;                              // 供 startNav 取显示名
-    if(!navs.length){
-      wrap.innerHTML='<span class="set-empty">未检测到已安装的导航应用</span>';
-      settings.navApp="";navApp="";
-    }else{
-      navs.forEach(a=>wrap.appendChild(optBtn(a.key,a.icon+" "+a.name)));
-      if(!navs.some(a=>a.key===settings.navApp))settings.navApp=navs[0].key;   // 默认选中第一个识别到的
-      navApp=settings.navApp;
-      highlight(wrap,settings.navApp);
-      bindOpts(wrap,v=>{settings.navApp=v;navApp=v;highlight(wrap,v); if(typeof saveSettings==="function")saveSettings();});
-    }
+    if(!navs.some(a=>a.key===settings.navApp) && navs.length) settings.navApp=navs[0].key;
+    navApp=settings.navApp;
+    renderNavSrcCur();
   });
+  renderNavSrcCur();
+}
+function renderNavSrcCur(){
+  const el=$("#navSrcCur"); if(!el)return;
+  const v=settings.navApp;
+  const a=NAV_APPS.filter(x=>x.key===v)[0];
+  el.textContent = a ? ("当前导航源："+a.name) : "未选择导航应用";
 }
 buildMusicSrc();buildNavApp();buildDockApps();buildDockAppsSetting();
 // 音乐源「启动/唤醒」按钮：用户主动点才前台拉起选中的音乐 App（接管播放），不挂返回按钮
@@ -829,25 +862,41 @@ function buildDockAppsSetting(){
     });
   });
 }
-// 打开应用列表抽屉（列全部已装应用）
-function openAppList(){
-  var d=$("#appList"); if(!d)return;
-  var body=$("#appListBody"); if(!body)return;
+// 安卓抽屉式应用选择器：type='music'|'nav' 只列该类应用；type=null 列全部已装应用
+function openAppPicker(type, onPick){
+  var d=$("#appList"), sc=$("#appScrim"), body=$("#appListBody"), tt=$("#appListTitle");
+  if(!d||!body)return;
+  if(tt) tt.textContent = type==="music" ? "📋 选择音乐应用" : type==="nav" ? "📋 选择导航应用" : "📋 应用列表";
+  var open=function(){ d.classList.add("open"); if(sc)sc.classList.add("open"); };
+  var fill=function(apps){
+    var list=type? apps.filter(function(a){return a.type===type;}) : apps;
+    body.innerHTML="";
+    if(!list.length){
+      body.innerHTML='<div class="al-empty">未检测到已安装的应用</div>';
+    }else{
+      list.forEach(function(a){
+        var it=document.createElement("div"); it.className="al-item";
+        it.innerHTML='<div class="ai-ic">'+(a.icon||"▦")+'</div><div class="ai-nm">'+a.name+'</div>';
+        it.onclick=function(){ if(typeof onPick==="function")onPick(a); closeAppList(); };
+        body.appendChild(it);
+      });
+    }
+    open();
+  };
   body.innerHTML="";
-  var n=l6n(); if(!n||!n.getInstalledApps)return;
-  n.getInstalledApps(function(apps){
-    apps.forEach(function(a){
-      var it=document.createElement("div"); it.className="al-item";
-      it.innerHTML='<div class="ai-ic">'+(a.icon||"▦")+'</div><div class="ai-nm">'+a.name+'</div>';
-      it.onclick=function(){ launchAppPkg(a.pkg); d.hidden=true; };
-      body.appendChild(it);
-    });
-  });
-  d.hidden=false;
+  var n=l6n(); if(!n){ open(); return; }
+  if(type){ if(n.getInstalledApps) n.getInstalledApps(fill); }
+  else { if(n.getAllApps) n.getAllApps(fill); else if(n.getInstalledApps) n.getInstalledApps(fill); }
 }
+function closeAppList(){
+  var d=$("#appList"), sc=$("#appScrim");
+  if(d)d.classList.remove("open"); if(sc)sc.classList.remove("open");
+}
+// dock 最右「打开应用列表」：安卓抽屉列全部已装应用，点按即拉起
+function openAppList(){ openAppPicker(null, function(a){ launchAppPkg(a.pkg); }); }
 (function(){
-  var c=document.getElementById("appListClose");
-  if(c)c.onclick=function(){ var d=$("#appList"); if(d)d.hidden=true; };
+  var c=document.getElementById("appListClose"); if(c)c.onclick=closeAppList;
+  var sc=document.getElementById("appScrim"); if(sc)sc.onclick=closeAppList;
 })();
 
 /* ===== 壁纸：静态 / 动态 两个列表 + 上传（合并为一个模块） ===== */
@@ -860,6 +909,7 @@ document.querySelectorAll("#setWall .set-opt").forEach(b=>b.onclick=()=>{
   settings.wall=b.dataset.v;
   document.querySelectorAll("#setWall .set-opt").forEach(x=>x.classList.toggle("on",x===b));
   renderWallList();
+  if(typeof saveSettings==="function")saveSettings();   // 持久化「静态/动态」选择，重启后沿用
   setWallForPage(idx===0);   // 设置页(idx=2)不显示壁纸，回主页时自动应用
 });
 function wallCurrentItem(){
@@ -878,7 +928,7 @@ function renderWallList(){
       ? '<div class="wi-thumb" style="background-image:url(\''+it.src+'\')"></div>'
       : '<div class="wi-thumb">'+(it.vid?"🎞️":(settings.wall==="dynamic"?"🌈":"🖼️"))+'</div>';
     el.innerHTML=thumb+'<div class="wi-name">'+(it.name||"壁纸")+'</div>';
-    el.onclick=()=>{settings.pick[settings.wall]=it.id;renderWallList();setWallForPage(idx===0);};
+    el.onclick=()=>{settings.pick[settings.wall]=it.id;renderWallList(); if(typeof saveSettings==="function")saveSettings(); setWallForPage(idx===0);};
     box.appendChild(el);
   });
 }
@@ -924,6 +974,7 @@ function bindWallUpload(input,kind){
       settings.wall=kind;                      // 切到该类型的视图，让用户立刻看到新壁纸
       document.querySelectorAll("#setWall .set-opt").forEach(x=>x.classList.toggle("on",x.dataset.v===kind));
       saveWallpaper(kind,r.result,f.name);
+      if(typeof saveSettings==="function")saveSettings();   // 持久化上传后的类型/选中项
       renderWallList();setWallForPage(idx===0);
       upName.textContent="已上传 → "+WALL_DIR[kind]+"/"+f.name;
       this.value="";
@@ -934,7 +985,8 @@ function bindWallUpload(input,kind){
 bindWallUpload(wallUploadStatic,"static");
 bindWallUpload(wallUploadDyn,"dynamic");
 
-// 初始：应用壁纸（导航源 / 导航页由 buildNavApp → renderNavApps 异步渲染）
+// 初始：按已保存的「静态/动态」还原开关选中态，再应用壁纸（导航源异步渲染）
+document.querySelectorAll("#setWall .set-opt").forEach(x=>x.classList.toggle("on",x.dataset.v===settings.wall));
 renderWallList();applyWall();
 
 /* ---- 原生桥字符串解码 ----
