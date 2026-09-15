@@ -528,11 +528,19 @@ public class MainActivity extends Activity {
                     toast("未找到可启动的导航 App（车机未安装导航应用）");
                     return;
                 }
-                // 地图/导航是直接全屏盖住本界面的外部 App。返回主页由系统负责：
-                // 用户把本应用设为默认桌面后，按 HOME 键即回本界面（见「系统权限」卡片的「设为默认桌面」）。
-                // 不再挂原生悬浮返回按钮（已取消最上方的悬浮导航）。
+                // 地图/导航是直接全屏盖住本界面的外部 App。返回主页有两条路：
+                //   ① 用户把本应用设为默认桌面后，按 HOME 键即回本界面（见「系统权限」卡片的「设为默认桌面」）；
+                //   ② 多数车机 ROM 锁死系统桌面、不让第三方应用设为默认桌面，此时挂一个
+                //      左下角「🏠 返回」悬浮按钮（底部、非顶部、可拖动避让），点击即把本应用拉回前台。
+                // 悬浮按钮需 SYSTEM_ALERT_WINDOW 授权，未授权则降级提示、不阻塞导航启动。
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);
+                runOnUiThread(() -> {
+                    boolean ok = FloatNav.show(getApplicationContext(), "返回");
+                    if (!ok) {
+                        toast("未授予悬浮窗权限：返回主页请到设置页「系统权限 → 悬浮窗」授权，或把本应用设为默认桌面");
+                    }
+                });
             } catch (Throwable e) {
                 toast("启动导航失败：" + e.getMessage());
             }

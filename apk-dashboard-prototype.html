@@ -511,9 +511,9 @@ function startLyrics(){
   },2600);
 }
 function loadTrack(){const x=tracks[cur];$("#npTitle").textContent=x.t;$("#npArtist").textContent=x.a;
-  $("#npSrc").textContent=x.src;$("#tDur").textContent=x.d;
+  syncMusicSrcTag();$("#tDur").textContent=x.d;
   lyrIdx=0;renderLyrics();}
-loadTrack();startLyrics();
+/* 初始渲染延后到 buildMusicSrc/buildNavApp 之后（见文件末尾），确保音乐源标签能用已识别的应用名 */
 $("#play").textContent=playing?'⏸':'▶';   // 初始同步播放按钮文案（未播放显示 ▶）
 
 /* 传输控制：接了真实数据就转给系统播放器（状态由原生事件回推），否则走本地演示 */
@@ -734,6 +734,9 @@ if(!window.L6Native.getInstalledApps){
   };
 }
 const LOCAL_MUSIC=[{key:"usb",name:"U盘",icon:"💾"},{key:"bt",name:"蓝牙",icon:"🔵"}];
+// 音乐栏源标签：显示「当前选中的音乐源」名（U盘/蓝牙/酷狗音乐…），而非演示曲目的写死来源
+function musicSrcName(){const v=settings.musicSrc;const l=LOCAL_MUSIC.filter(s=>s.key===v)[0];if(l)return l.name;const a=MUSIC_APPS.filter(x=>x.key===v)[0];if(a)return a.name;return "U盘";}
+function syncMusicSrcTag(){const el=$("#npSrc");if(el)el.textContent=musicSrcName();}
 function optBtn(val,label){const b=document.createElement("button");b.className="set-opt";b.dataset.v=val;b.textContent=label;return b;}
 function highlight(wrap,val){wrap.querySelectorAll(".set-opt").forEach(x=>x.classList.toggle("on",x.dataset.v===val));}
 function bindOpts(wrap,onpick){wrap.querySelectorAll(".set-opt").forEach(b=>b.onclick=()=>onpick(b.dataset.v));}
@@ -743,9 +746,11 @@ function buildMusicSrc(){
   const wrap=$("#setMusicSrc");wrap.innerHTML="";
   LOCAL_MUSIC.forEach(s=>wrap.appendChild(optBtn(s.key,s.icon+" "+s.name)));
   window.L6Native.getInstalledApps(apps=>{
-    apps.filter(a=>a.type==="music").forEach(a=>wrap.appendChild(optBtn(a.key,a.icon+" "+a.name)));
+    MUSIC_APPS=apps.filter(a=>a.type==="music");
+    MUSIC_APPS.forEach(a=>wrap.appendChild(optBtn(a.key,a.icon+" "+a.name)));
     highlight(wrap,settings.musicSrc);
-    bindOpts(wrap,v=>{settings.musicSrc=v;highlight(wrap,v);});
+    bindOpts(wrap,v=>{settings.musicSrc=v;highlight(wrap,v);syncMusicSrcTag();});
+    syncMusicSrcTag();
   });
 }
 // 导航源：只列出车机**实际已安装**的导航 App（不再有「系统默认」这类非应用选项）
@@ -767,6 +772,7 @@ function buildNavApp(){
   });
 }
 buildMusicSrc();buildNavApp();
+loadTrack();startLyrics();
 
 /* ===== 壁纸：静态 / 动态 两个列表 + 上传（合并为一个模块） ===== */
 const WALL_DIR={static:"Download/L6/壁纸/静态",dynamic:"Download/L6/壁纸/动态"};
