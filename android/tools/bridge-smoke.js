@@ -54,6 +54,8 @@ const NativeRaw = {
   goHome() { this.calls.push(['goHome']); },
   defaultHome: false,
   isDefaultHome() { return this.defaultHome === true; },
+  // 真实应用图标桥（桩）：任何包名都回一个 PNG data URL，用于验证页面确实走了桥并渲染 <img class="app-ic">
+  getAppIcon(pkg) { this.calls.push(['getAppIcon', pkg]); return pkg ? 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' : ''; },
   nightMode: true,
   isNightMode() { return this.nightMode === true; },
 };
@@ -120,8 +122,15 @@ setTimeout(() => {
   }
   const sysAccOk = !!(d.getElementById('sysAcc') && d.getElementById('sysAccBtn'));
 
-  // 「重新识别应用」按钮 + 「启动后自动播放」按钮 + 默认桌面桥接
-  const rescanOk = !!d.getElementById('rescanApps');
+  // 「🔄 重新识别应用」按钮已移除（v1.4.9）→ 断言它确实不在了；「启动后自动播放」+ 默认桌面桥接
+  const rescanGone = !d.getElementById('rescanApps');
+  // 源卡片新布局：一行两栏 —— 左「当前源」、紧右「📂 选择应用」按钮
+  const srcRowOk = ['musicSrcCur', 'navSrcCur'].every(id => {
+    const el = d.getElementById(id); if (!el) return false;
+    const row = el.closest('.src-row'); if (!row) return false;
+    const btn = row.querySelector('.set-opt.pick');
+    return !!btn && row.firstElementChild === el && el.nextElementSibling === btn;
+  });
   const autoPlayBtn = d.getElementById('autoPlayBtn');
   const autoPlayOk = !!autoPlayBtn;
   const autoPlayBefore = autoPlayBtn ? autoPlayBtn.textContent : '';
@@ -136,6 +145,14 @@ setTimeout(() => {
   if (musicPick) musicPick.onclick();
   const musicItems = appListEl ? [...appListEl.querySelectorAll('.al-item')].map(e => e.textContent) : [];
   const musicOnlyMusic = musicItems.length === 2 && musicItems.some(x => x.includes('酷狗音乐')) && !musicItems.some(x => x.includes('和平精英'));
+  // 真实应用图标：原生 icon 字段只是 emoji → 页面改用 getAppIcon 取 PNG
+  const iconBridgeOk = typeof window.L6Native.getAppIcon === 'function';
+  const iconUrl = window.eval("appIconSrc('com.kugou.android')");
+  const iconDataOk = typeof iconUrl === 'string' && iconUrl.indexOf('data:image/png') === 0;
+  const iconSlotsOk = appListEl ? appListEl.querySelectorAll('.ai-ic[data-pkg]').length >= 2 : false;  // 抽屉每项留 data-pkg 供 fillIcons 补图
+  // 当前源渲染成真实图标（renderMusicSrcCur → iconHTML → 同步取）
+  window.eval("settings.musicSrc='kugou';MUSIC_APPS=[{pkg:'com.kugou.android',key:'kugou',name:'酷狗音乐',icon:'🎵',type:'music'}];renderMusicSrcCur();");
+  const srcIconOk = !!d.querySelector('#musicSrcCur img.app-ic');
   // 抽屉每项都应绑定长按（用于钉入 dock 快捷方式）
   const drawerItems = appListEl ? [...appListEl.querySelectorAll('.al-item')] : [];
   const lpBound = drawerItems.length > 0 && drawerItems.every(el => el.__lp === true);
@@ -194,8 +211,9 @@ setTimeout(() => {
   const ok = listOk && launched && launched[1] === 'baidu'
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
-    && barOk && ovOk && homeOk && sysAccOk && rescanOk && autoPlayOk
+    && barOk && ovOk && homeOk && sysAccOk && rescanGone && srcRowOk && autoPlayOk
     && autoPlayToggle && homeBridgeOk && musicLaunchBtnGone && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic && localNoLaunch
+    && iconBridgeOk && iconDataOk && iconSlotsOk && srcIconOk
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
     && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk
     && homeLeftOfMore && goHomeBridgeOk && goHomeCalled
@@ -212,7 +230,9 @@ setTimeout(() => {
   console.log('壁纸列表 + 双上传按钮 ->', wallListOk, '/', wallUpOk);
   console.log('上传按钮位置(动态右侧) ->', barOk, '(' + barSeq.join(' | ') + ')');
   console.log('系统权限卡: 通知/悬浮窗/默认桌面 ->', sysAccOk, '/', ovOk, '/', homeOk);
-  console.log('重新识别应用按钮 ->', rescanOk);
+  console.log('重新识别应用按钮已移除 ->', rescanGone);
+  console.log('源卡片布局(当前源在左 / 选择应用在右) ->', srcRowOk);
+  console.log('真实图标: 桥 ->', iconBridgeOk, '| 取到 PNG ->', iconDataOk, '| 抽屉 data-pkg 占位 ->', iconSlotsOk, '| 当前源显图标 ->', srcIconOk);
   console.log('启动后自动播放按钮 ->', autoPlayOk, '(', autoPlayBefore, '→', autoPlayAfter, ')');
   console.log('默认桌面桥接 openHomeSettings ->', homeBridgeOk);
   console.log('默认桌面状态读取 isDefaultHome ->', homeStateBridgeOk, '| 已设置显示 ->', homeStateSet, '| 未设置显示 ->', homeStateUnset);

@@ -288,6 +288,20 @@
   .set-cur .src-ic{font-size:16px;line-height:1}
   .set-cur b{color:var(--txt);font-weight:700}
   .set-opt.pick{background:rgba(255,255,255,.08);border:1px dashed var(--acc);color:var(--acc)}
+  /* 源卡片一行两栏：左「当前源」撑满，右「选择应用」按钮紧随其后 */
+  .src-row{display:flex;align-items:center;gap:8px;margin:8px 0 2px}
+  .src-row .set-cur{flex:1 1 auto;min-width:0;margin:0}
+  .src-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .src-row .set-opt.pick{flex:0 0 auto;white-space:nowrap}
+  /* 真实应用图标（原生 getAppIcon 返回 PNG data URL）；取不到时回落 emoji 占位 */
+  .app-ic{width:20px;height:20px;border-radius:5px;object-fit:contain;display:inline-block;
+    vertical-align:middle;background:rgba(255,255,255,.06)}
+  .app-ic.src-ic{width:18px;height:18px}
+  .app-ic-fb{font-size:16px;line-height:1}
+  .al-item .app-ic{width:34px;height:34px;border-radius:9px}
+  .al-item .app-ic-fb{font-size:26px}
+  .dock-app .app-ic{width:24px;height:24px;border-radius:6px}
+  html[data-theme="light"] .app-ic{background:rgba(0,0,0,.05)}
   .nav-app.def{border-color:var(--acc)}
   /* 动态壁纸 */
   body.dynwall{background:linear-gradient(120deg,#0b0e14,#15233f,#241433,#0f1f17);
@@ -396,17 +410,20 @@
           <div class="set-scroll">
             <div class="set-sec">
               <div class="set-label">音乐源</div>
-              <div class="set-opts" id="setMusicSrc"><!-- 车机本地源（U盘/蓝牙） --></div>
-              <div class="set-cur" id="musicSrcCur"></div>
-              <div class="set-actions">
-                <button class="set-opt" id="rescanApps">🔄 重新识别应用</button>
+              <!-- 一行两栏：左「当前源」（图标+名称），右「选择应用」（点按开安卓抽屉选已装音乐 App） -->
+              <div class="src-row">
+                <div class="set-cur" id="musicSrcCur"></div>
+                <button class="set-opt pick" id="musicPickApp">📂 选择应用</button>
               </div>
-              <div class="set-hint">识别不全时点「重新识别应用」。</div>
+              <div class="set-opts" id="setMusicSrc"><!-- 车机本地源（U盘/蓝牙） --></div>
+              <div class="set-hint">车机本地源（U盘 / 蓝牙）直接点选；要选具体音乐 App 请点右侧「选择应用」。</div>
             </div>
             <div class="set-sec">
               <div class="set-label">导航源</div>
-              <div class="set-opts" id="setNavApp"><!-- 导航源选应用按钮 --></div>
-              <div class="set-cur" id="navSrcCur"></div>
+              <div class="src-row">
+                <div class="set-cur" id="navSrcCur"></div>
+                <button class="set-opt pick" id="navPickApp">📂 选择应用</button>
+              </div>
               <div class="set-hint">点「选择应用」从已安装导航 App 中选取；<b>dock 导航按钮</b>或<b>主页上滑</b>直接拉起该 App。</div>
             </div>
             <!-- 悬浮窗权限已并入下方「系统权限」卡片 -->
@@ -449,11 +466,12 @@
                   <span class="ota-cur">悬浮窗权限：<b id="ovAcc">读取中…</b></span>
                   <button class="set-opt" id="ovAccBtn">🔓 去授权</button>
                 </div>
-                <div class="ota-status" id="ovMsg">设为默认桌面后，导航 App 全屏时可用系统返回键回到本界面；悬浮窗权限作备用。</div>
+                <div class="ota-status" id="ovMsg">返回主页的可靠方式：导航 App 全屏后点左下角悬浮「返回」按钮。需先授予本权限。</div>
                 <div class="ota-row">
                   <span class="ota-cur">默认桌面：<b id="homeState">未设置</b></span>
                   <button class="set-opt" id="homeBtn">🖥️ 设为默认桌面</button>
                 </div>
+                <div class="ota-status" id="homeMsg">⚠️ 不建议把老六中控设为默认桌面：车机导航 App（高德/百度车机版这类）启动完成后常会自己回到桌面，占了桌面就会把地图顶掉，表现为「导航打开后自动返回」。返回主页请用上面的悬浮「返回」按钮。</div>
                 <div class="ota-actions">
                   <button class="set-opt" id="sysRefresh">🔄 刷新</button>
                 </div>
@@ -611,7 +629,8 @@ function startNav(key){
   if(key===lastNavKey && now-lastNavStart<600)return;
   lastNavStart=now;lastNavKey=key;
   navApp=key;settings.navApp=key; if(typeof saveSettings==="function")saveSettings();
-  highlight($("#setNavApp"),key);
+  const navWrap=$("#setNavApp"); if(navWrap)highlight(navWrap,key);   // #setNavApp 已随布局改版移除
+  renderNavSrcCur();
   const it=NAV_APPS.filter(x=>x.key===key)[0];
   REAL.nav.app=it?it.name:"";            // 迷你导航卡要显示是哪个 App 在导航
   try{window.L6Native.launchApp(key);}catch(e){}
@@ -807,7 +826,24 @@ function optBtn(val,label){const b=document.createElement("button");b.className=
 function highlight(wrap,val){wrap.querySelectorAll(".set-opt").forEach(x=>x.classList.toggle("on",x.dataset.v===val));}
 function bindOpts(wrap,onpick){wrap.querySelectorAll(".set-opt").forEach(b=>b.onclick=()=>onpick(b.dataset.v));}
 
-// 音乐源：车机本地源（U盘/蓝牙，恒定可用）+ 实际已安装的音乐 App
+/* ---- 真实应用图标：走原生 L6Native.getAppIcon(包名 | 短key) 取 PNG data URL ---- */
+const ICON_CACHE={};
+function appIconSrc(pkg){
+  if(!pkg)return "";
+  if(ICON_CACHE[pkg]!==undefined)return ICON_CACHE[pkg];
+  let s="";
+  try{ const n=l6n(); if(n&&typeof n.getAppIcon==="function") s=n.getAppIcon(pkg)||""; }catch(e){}
+  ICON_CACHE[pkg]=s; return s;
+}
+// 拿不到真实图标时回落到 emoji 占位
+function iconHTML(pkg,emoji,cls){
+  const s=appIconSrc(pkg);
+  const c=cls?" "+cls:"";
+  if(s)return '<img class="app-ic'+c+'" src="'+s+'" alt="">';
+  return '<span class="app-ic-fb'+c+'">'+(emoji||"▦")+'</span>';
+}
+
+// 音乐源：车机本地源（U盘/蓝牙，恒定可用）+ 抽屉选已装音乐 App
 function buildMusicSrc(){
   const wrap=$("#setMusicSrc");wrap.innerHTML="";
   // 车机本地源（U盘/蓝牙）：点击即设为当前音乐源（v1.4.6 改抽屉时漏了绑定，导致点了没反应）
@@ -821,18 +857,17 @@ function buildMusicSrc(){
     };
     wrap.appendChild(b);
   });
-  const pick=document.createElement("button");
-  pick.className="set-opt pick"; pick.id="musicPickApp"; pick.textContent="📂 选择应用";
-  wrap.appendChild(pick);
   const isLocal=LOCAL_MUSIC.some(s=>s.key===settings.musicSrc);
   highlight(wrap, isLocal?settings.musicSrc:null);
-  pick.onclick=()=>openAppPicker("music", a=>{
+  // 「选择应用」现为静态 DOM（#musicPickApp，就在「当前源」右侧），这里只绑一次点击
+  const pick=$("#musicPickApp");
+  if(pick)pick.onclick=()=>openAppPicker("music", a=>{
     settings.musicSrc=a.key||a.pkg;
     highlight(wrap,null);
     syncMusicSrcTag();renderMusicSrcCur();
     if(typeof saveSettings==="function")saveSettings();
   });
-  // 仍拉取已装音乐 App，供 musicSrcName 解析显示名（不在卡片平铺，改用抽屉选取）
+  // 仍拉取已装音乐 App，供 musicSrcName / 图标解析（不在卡片平铺，改用抽屉选取）
   window.L6Native.getInstalledApps(apps=>{ MUSIC_APPS=apps.filter(x=>x.type==="music"); syncMusicSrcTag(); renderMusicSrcCur(); });
   renderMusicSrcCur();
 }
@@ -840,23 +875,21 @@ function buildMusicSrc(){
 function musicSrcItem(){
   const v=settings.musicSrc;
   const l=LOCAL_MUSIC.filter(s=>s.key===v)[0];
-  if(l)return {icon:l.icon,name:l.name};
+  if(l)return {icon:l.icon,name:l.name,pkg:""};
   const a=MUSIC_APPS.filter(x=>(x.key||x.pkg)===v)[0];
-  if(a)return {icon:a.icon||"🎵",name:a.name};
-  return {icon:"🎵",name:musicSrcName()};
+  if(a)return {icon:a.icon||"🎵",name:a.name,pkg:a.pkg};
+  return {icon:"🎵",name:musicSrcName(),pkg:""};
 }
 function renderMusicSrcCur(){
   const el=$("#musicSrcCur"); if(!el)return;
   const it=musicSrcItem();
-  el.innerHTML='当前音乐源：<span class="src-ic">'+it.icon+'</span><b>'+it.name+'</b>';
+  el.innerHTML='当前音乐源：'+iconHTML(it.pkg,it.icon,'src-ic')+'<b>'+it.name+'</b>';
 }
 // 导航源：点「选择应用」从已装导航 App 中选取（安卓抽屉式），显示当前源
 function buildNavApp(){
-  const wrap=$("#setNavApp");wrap.innerHTML="";
-  const pick=document.createElement("button");
-  pick.className="set-opt pick"; pick.id="navPickApp"; pick.textContent="📂 选择应用";
-  wrap.appendChild(pick);
-  pick.onclick=()=>openAppPicker("nav", a=>{
+  // 容器 #setNavApp 已移除，「选择应用」改为静态 DOM #navPickApp（在「当前源」右侧）
+  const pick=$("#navPickApp");
+  if(pick)pick.onclick=()=>openAppPicker("nav", a=>{
     const k=a.key||a.pkg;
     settings.navApp=k; navApp=k; NAV_APPS=[a]; renderNavSrcCur();
     if(typeof saveSettings==="function")saveSettings();
@@ -874,7 +907,7 @@ function renderNavSrcCur(){
   const el=$("#navSrcCur"); if(!el)return;
   const a=NAV_APPS.filter(x=>(x.key||x.pkg)===settings.navApp)[0];
   if(!a){ el.textContent="未选择导航应用"; return; }
-  el.innerHTML='当前导航源：<span class="src-ic">'+(a.icon||"🧭")+'</span><b>'+a.name+'</b>';
+  el.innerHTML='当前导航源：'+iconHTML(a.pkg,a.icon||"🧭",'src-ic')+'<b>'+a.name+'</b>';
 }
 buildMusicSrc();buildNavApp();buildDockApps();
 loadTrack();startLyrics();
@@ -901,7 +934,11 @@ function buildDockApps(){
       var a=apps.filter(function(x){return x.pkg===pkg;})[0];
       var b=document.createElement("button");
       b.className="dock-app";
-      b.title=(a?a.name:pkg)+"（长按移除）"; b.textContent=a?a.icon||"▦":"▦";
+      b.title=(a?a.name:pkg)+"（长按移除）";
+      // 原生 icon 字段只是 emoji 占位 → 用 getAppIcon 取真实 PNG；取不到再回落 emoji
+      var isrc=appIconSrc(pkg);
+      if(isrc){ b.innerHTML='<img class="app-ic" src="'+isrc+'" alt="">'; }
+      else{ b.textContent=(a&&a.icon)||"▦"; }
       b.onclick=function(){ if(b.__lpFired && b.__lpFired()) return; launchAppPkg(pkg); };
       onLongPress(b, function(){ toggleDockPin(pkg); });      // 长按 dock 图标 → 移出快捷方式
       box.appendChild(b);
@@ -959,6 +996,23 @@ function onLongPress(el, fn){
   el.__lpFired=function(){ var f=fired; fired=false; return f; };
 }
 // 安卓抽屉式应用选择器：type='music'|'nav' 只列该类应用；type=null 列全部已装应用
+// 给抽屉/dock 里的占位图标补真实图标。
+// 原生 getAppIcon 每次都要解码+编码位图，几十个同步做完会明显卡住抽屉展开，所以先渲染
+// emoji 占位、抽屉展开后每片 6 个逐片补，界面全程可交互。appIconSrc 自带缓存，重复打开不再取。
+function fillIcons(root){
+  var slots=[].slice.call(root.querySelectorAll(".ai-ic[data-pkg]:not([data-done])"));
+  var i=0;
+  (function step(){
+    var end=Math.min(i+6, slots.length);
+    for(;i<end;i++){
+      var el=slots[i];
+      el.setAttribute("data-done","1");
+      var s=appIconSrc(el.getAttribute("data-pkg"));
+      if(s) el.innerHTML='<img class="app-ic" src="'+s+'" alt="">';
+    }
+    if(i<slots.length) setTimeout(step,0);
+  })();
+}
 function openAppPicker(type, onPick){
   var d=$("#appList"), sc=$("#appScrim"), body=$("#appListBody"), tt=$("#appListTitle");
   if(!d||!body)return;
@@ -973,7 +1027,8 @@ function openAppPicker(type, onPick){
       list.forEach(function(a){
         var it=document.createElement("div"); it.className="al-item";
         if(isDockPinned(a.pkg)) it.className+=" pinned";       // 已在 dock 快捷方式里 → 加标记
-        it.innerHTML='<div class="ai-ic">'+(a.icon||"▦")+'</div><div class="ai-nm">'+a.name+'</div>';
+        // data-pkg 留给 fillIcons() 补真实图标（原生 icon 字段只是 emoji 占位）
+        it.innerHTML='<div class="ai-ic" data-pkg="'+a.pkg+'">'+(a.icon||"▦")+'</div><div class="ai-nm">'+a.name+'</div>';
         it.onclick=function(){
           if(it.__lpFired && it.__lpFired()) return;            // 长按已处理 → 忽略随后的点击
           if(typeof onPick==="function")onPick(a); closeAppList();
@@ -987,6 +1042,7 @@ function openAppPicker(type, onPick){
       });
     }
     open();
+    fillIcons(body);      // 抽屉先展开，图标随后逐片补上
   };
   body.innerHTML="";
   var n=l6n(); if(!n){ open(); return; }
@@ -1393,10 +1449,9 @@ readOvState();
 // 补读一次：WebView 的 SHIM 注入发生在页面加载后，首次同步读可能赶在桥接就绪之前
 setTimeout(readOvState,1200);
 
-/* ---- 重新识别已安装应用（音乐 / 导航） ---- */
-$("#rescanApps").onclick=function(){
-  try{buildMusicSrc();buildNavApp();buildDockApps();}catch(e){}
-};
+/* 「🔄 重新识别应用」按钮已移除（v1.4.9）：抽屉每次打开都用 getAllApps/getInstalledApps
+   实时枚举，无需手动重扫。注意按钮 DOM 删了就不能再留 $("#rescanApps").onclick 赋值 ——
+   对 null 赋属性会抛错并中断后面整段脚本。 */
 
 /* ---- 启动后自动播放音乐（持久化到 localStorage） ---- */
 function syncAutoPlay(){
@@ -1412,12 +1467,16 @@ syncAutoPlay();
 
 /* ---- 默认桌面状态：读取 + 显示（设为默认桌面后不应再显示「未设置」） ---- */
 function setHomeState(isHome){
-  const el=$("#homeState"),btn=$("#homeBtn");
+  const el=$("#homeState"),btn=$("#homeBtn"),msg=$("#homeMsg");
   if(el){
     el.textContent=isHome?"已设置 ✓":"未设置";
     el.style.color=isHome?"var(--acc2)":"var(--red)";
   }
-  if(btn)btn.textContent=isHome?"✅ 已是默认桌面":"🖥️ 设为默认桌面";
+  if(btn)btn.textContent=isHome?"✅ 已是默认桌面（点此改回原桌面）":"🖥️ 设为默认桌面";
+  // 已是默认桌面 → 把说明换成针对当前状态的处置建议（导航 App 回桌面会把地图顶掉）
+  if(msg&&isHome){
+    msg.innerHTML='⚠️ 当前<b>老六中控就是车机默认桌面</b>：车机导航 App 启动完成后常会回到桌面，会把地图顶掉（表现为「导航打开后自动返回」）。建议点上面按钮进系统设置<b>改回车机原桌面</b>，返回主页改用悬浮「返回」按钮。';
+  }
 }
 function readHomeState(){
   const n=l6n();

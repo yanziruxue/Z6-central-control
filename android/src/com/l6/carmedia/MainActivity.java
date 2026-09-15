@@ -96,6 +96,7 @@ public class MainActivity extends Activity {
             "window.L6Native={" +
             "getInstalledApps:function(cb){try{cb(JSON.parse(R.getInstalledAppsJson()));}catch(e){cb([]);}}," +
             "getAllApps:function(cb){try{cb(JSON.parse(R.getAllAppsJson()));}catch(e){cb([]);}}," +
+            "getAppIcon:function(v){try{return R.getAppIcon(v)||'';}catch(e){return '';}}," +
             "saveWallpaper:function(t,b,n){try{R.saveWallpaper(t,b,n);}catch(e){}}," +
             "launchApp:function(k){try{R.launchApp(k);}catch(e){}}," +
             "launchMusic:function(k){try{R.launchMusic(k);}catch(e){}}," +
@@ -175,14 +176,39 @@ public class MainActivity extends Activity {
                 }
                 filePathCallback = cb;
                 try {
+                    // ⚠️ 不能只取 accept[0]：动态壁纸的 input 是 accept="image/*,video/*"，
+                    //    只取第一个会退化成 image/*，选择器把 mp4 全部过滤掉
+                    //    —— 这正是「上传动态壁纸看不到 mp4 文件」的根因。
                     String[] accept = params.getAcceptTypes();
-                    String type = "*/*";
-                    if (accept != null && accept.length > 0 && accept[0] != null && !accept[0].isEmpty()) {
-                        type = accept[0];
+                    java.util.ArrayList<String> types = new java.util.ArrayList<>();
+                    boolean anyAll = false;
+                    if (accept != null) {
+                        for (String a : accept) {
+                            if (a == null) continue;
+                            String t = a.trim();
+                            if (t.isEmpty()) continue;
+                            if ("*/*".equals(t)) { anyAll = true; break; }
+                            if (!types.contains(t)) types.add(t);
+                        }
+                    }
+                    // 部分车机把 mp4 的 MIME 报成 application/octet-stream，一并附上才不会把视频藏掉
+                    boolean hasVideo = false;
+                    for (String t : types) {
+                        if (t.startsWith("video/")) { hasVideo = true; break; }
+                    }
+                    if (hasVideo && !types.contains("application/octet-stream")) {
+                        types.add("application/octet-stream");
                     }
                     Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                     i.addCategory(Intent.CATEGORY_OPENABLE);
-                    i.setType(type);
+                    if (anyAll || types.isEmpty()) {
+                        i.setType("*/*");
+                    } else if (types.size() == 1) {
+                        i.setType(types.get(0));
+                    } else {
+                        i.setType("*/*");
+                        i.putExtra(Intent.EXTRA_MIME_TYPES, types.toArray(new String[0]));
+                    }
                     i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
                     startActivityForResult(Intent.createChooser(i, "\u9009\u62e9\u6587\u4ef6"), REQ_FILE);
                 } catch (Exception e) {
@@ -289,7 +315,7 @@ public class MainActivity extends Activity {
             navLaunching = false;
             boolean ok = FloatNav.show(getApplicationContext(), "返回");
             if (!ok) {
-                toast("未授予悬浮窗权限：返回主页请到设置页「系统权限 → 悬浮窗」授权，或把本应用设为默认桌面");
+                toast("未授予悬浮窗权限：返回主页请到设置页「系统权限 → 悬浮窗」授权");
             }
         }
     }
@@ -358,7 +384,7 @@ public class MainActivity extends Activity {
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
             if (web == null) {
-                finish();
+                leaveOrStay();
                 return true;
             }
             web.evaluateJavascript(
@@ -367,12 +393,42 @@ public class MainActivity extends Activity {
                     "return 'exit';}catch(e){return 'exit';}})()",
                     value -> {
                         if (value != null && value.contains("exit")) {
-                            finish();
+                            leaveOrStay();
                         }
                     });
             return true;
         }
         return super.onKeyDown(keyCode, event);
+    }
+
+    /** 主页返回键提示节流：长按 BACK 会重复触发 onKeyDown，不节流会排出一长串 Toast。 */
+    private long lastLeaveToastAt = 0L;
+
+    /**
+     * 在主页（idx==0）按下返回键时的去向。
+     * ⚠️ 绝不能用 finish()：本应用常被设为车机默认桌面，Activity 一销毁，系统会立刻把
+     *    桌面（还是本应用）重新拉起来 —— 表现就是「按返回键后界面回到初始状态、壁纸与
+     *    已选源全部丢失」（用户反馈过）。这里只压后台 / 原地不动，Activity 与 WebView
+     *    状态原样保留。
+     */
+    private void leaveOrStay() {
+        try {
+            if (isDefaultHomeOf(this)) {
+                // 自己就是桌面：压后台会把桌面也压走，保持不动；顺便去重，避免按键重复刷屏
+                long now = System.currentTimeMillis();
+                if (now - lastLeaveToastAt > 1500L) {
+                    lastLeaveToastAt = now;
+                    toast("已在主页");
+                }
+            } else {
+                moveTaskToBack(true);         // 非桌面：退回车机上一层
+            }
+        } catch (Throwable e) {
+            try {
+                moveTaskToBack(true);
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     @Override
@@ -406,12 +462,50 @@ public class MainActivity extends Activity {
      */
     static boolean isDefaultHomeOf(android.content.Context ctx) {
         try {
+            String self = ctx.getPackageName();
+            // ① Android 10+：HOME 由 RoleManager 统一管理，isRoleHeld 才是权威判据。
+            //    车机 ROM 上 resolveActivity 经常解析不到（明明已设成默认桌面却报「未设置」），
+            //    所以不能只靠 ②。
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                try {
+                    android.app.role.RoleManager rm = (android.app.role.RoleManager)
+                            ctx.getSystemService(android.content.Context.ROLE_SERVICE);
+                    if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)
+                            && rm.isRoleHeld(android.app.role.RoleManager.ROLE_HOME)) {
+                        return true;
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+            // ② 传统判据：ACTION_MAIN + CATEGORY_HOME 解析出的默认 Activity 是否是自己
             Intent i = new Intent(Intent.ACTION_MAIN);
             i.addCategory(Intent.CATEGORY_HOME);
             android.content.pm.ResolveInfo r = ctx.getPackageManager()
                     .resolveActivity(i, PackageManager.MATCH_DEFAULT_ONLY);
-            return r != null && r.activityInfo != null
-                    && ctx.getPackageName().equals(r.activityInfo.packageName);
+            if (r != null && r.activityInfo != null && self.equals(r.activityInfo.packageName)) {
+                return true;
+            }
+            // ③ 兜底：系统里只有本应用声明了 HOME（没有别的桌面可选 → 必然是我们）
+            java.util.List<android.content.pm.ResolveInfo> rs = ctx.getPackageManager()
+                    .queryIntentActivities(i, PackageManager.MATCH_DEFAULT_ONLY);
+            if (rs != null) {
+                boolean mine = false;
+                int others = 0;
+                for (android.content.pm.ResolveInfo x : rs) {
+                    if (x == null || x.activityInfo == null) {
+                        continue;
+                    }
+                    if (self.equals(x.activityInfo.packageName)) {
+                        mine = true;
+                    } else {
+                        others++;
+                    }
+                }
+                if (mine && others == 0) {
+                    return true;
+                }
+            }
+            return false;
         } catch (Throwable e) {
             return false;
         }
@@ -525,6 +619,52 @@ public class MainActivity extends Activity {
             } catch (Throwable ignored) {
             }
             return out.toString();
+        }
+
+        /** 应用图标缓存（按包名）——抽屉里有几十个 App，缓存后避免重复编码。 */
+        private final java.util.HashMap<String, String> iconCache = new java.util.HashMap<>();
+
+        /**
+         * 取一个应用的真实图标，返回 "data:image/png;base64,..."（失败返回空串）。
+         * 入参可以是包名，也可以是白名单短 key（如 kugou），会先解析成包名再取。
+         * 页面原来只能拿到 emoji（🎵/🧭/📦），所以应用列表和「当前源」都没有真图标 —— 本桥补上。
+         */
+        @JavascriptInterface
+        public String getAppIcon(String pkgOrKey) {
+            try {
+                if (pkgOrKey == null || pkgOrKey.isEmpty()) {
+                    return "";
+                }
+                String pkg = pkgOrKey;
+                if (pkg.indexOf('.') <= 0) {                  // 短 key → 包名
+                    for (String[] m : APP_MAP) {
+                        if (m[1].equals(pkgOrKey)) {
+                            pkg = m[0];
+                            break;
+                        }
+                    }
+                }
+                String hit = iconCache.get(pkg);
+                if (hit != null) {
+                    return hit;
+                }
+                android.graphics.drawable.Drawable d = getPackageManager().getApplicationIcon(pkg);
+                int size = Math.max(48, (int) (40 * getResources().getDisplayMetrics().density));
+                android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(size, size,
+                        android.graphics.Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas cv = new android.graphics.Canvas(bmp);
+                d.setBounds(0, 0, size, size);
+                d.draw(cv);
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bos);
+                bmp.recycle();
+                String url = "data:image/png;base64," + android.util.Base64
+                        .encodeToString(bos.toByteArray(), android.util.Base64.NO_WRAP);
+                iconCache.put(pkg, url);
+                return url;
+            } catch (Throwable t) {
+                return "";
+            }
         }
 
         /** 低置信度归类：仅按名称/包名关键词猜音乐或导航。 */
