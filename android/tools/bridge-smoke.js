@@ -51,6 +51,7 @@ const NativeRaw = {
   launchApp(k) { this.calls.push(['launchApp', k]); },
   launchMusic(k) { this.calls.push(['launchMusic', k]); },
   launchPkg(p) { this.calls.push(['launchPkg', p]); },
+  goHome() { this.calls.push(['goHome']); },
 };
 
 const errs = [];
@@ -137,6 +138,13 @@ setTimeout(() => {
   const dockAppsBox = d.getElementById('dockApps');
   const dockRendered = !!dockAppsBox && dockAppsBox.querySelectorAll('.dock-app').length >= 1; // 至少「打开应用列表」按钮
   const moreBtn = dockAppsBox && dockAppsBox.querySelector('.dock-app.more');
+  // 「返回原桌面」：必须在「打开应用列表」左侧，点按触发原生 goHome
+  const homeBtn = dockAppsBox && dockAppsBox.querySelector('.dock-app.home');
+  const dockBtns = dockAppsBox ? [...dockAppsBox.querySelectorAll('.dock-app')] : [];
+  const homeLeftOfMore = !!homeBtn && !!moreBtn && dockBtns.indexOf(homeBtn) < dockBtns.indexOf(moreBtn);
+  const goHomeBridgeOk = typeof window.L6Native.goHome === 'function';
+  if (homeBtn) homeBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const goHomeCalled = NativeRaw.calls.some(c => c[0] === 'goHome');
   if (moreBtn) moreBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const appList = d.getElementById('appList');
   const appListOpened = !!appList && appList.classList.contains('open');   // 安卓抽屉：用 open 类
@@ -151,7 +159,8 @@ setTimeout(() => {
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
     && barOk && ovOk && homeOk && sysAccOk && rescanOk && autoPlayOk
     && autoPlayToggle && homeBridgeOk && musicLaunchBtnOk && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic
-    && dockSetOk && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk;
+    && dockSetOk && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk
+    && homeLeftOfMore && goHomeBridgeOk && goHomeCalled;
 
   console.log('音乐源卡片 ->', music.join(' / '));
   console.log('导航源卡片 ->', nav.join(' / '));
@@ -171,6 +180,7 @@ setTimeout(() => {
   console.log('dock 渲染(含打开应用列表) ->', dockRendered);
   console.log('应用列表抽屉打开 ->', appListOpened, '| 项 ->', appListItems);
   console.log('dock 点应用 → launchPkg ->', launchPkgOk, '(' + (launchedPkg ? launchedPkg[1] : '') + ')');
+  console.log('返回原桌面按钮(在打开应用列表左侧) ->', homeLeftOfMore, '| 桥 goHome ->', goHomeBridgeOk, '| 点按触发 ->', goHomeCalled);
   console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));

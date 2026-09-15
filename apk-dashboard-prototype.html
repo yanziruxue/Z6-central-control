@@ -817,6 +817,10 @@ loadTrack();startLyrics();
 function launchAppPkg(pkg){
   try{ if(window.L6Native&&window.L6Native.launchPkg) window.L6Native.launchPkg(pkg); }catch(e){}
 }
+// 「返回原桌面」：切回车机系统 Launcher（原生 goHome 会显式挑一个非本应用的桌面，避免绕回自己）
+function returnHome(){
+  try{ if(window.L6Native&&window.L6Native.goHome) window.L6Native.goHome(); }catch(e){}
+}
 // 渲染 dock 右侧：已钉应用图标 + 最右侧「打开应用列表」
 function buildDockApps(){
   var box=$("#dockApps"); if(!box)return; box.innerHTML="";
@@ -830,6 +834,11 @@ function buildDockApps(){
       b.onclick=function(){ launchAppPkg(pkg); };
       box.appendChild(b);
     });
+    // 「打开应用列表」左侧：「返回原桌面」（切回车机系统 Launcher）
+    var homeb=document.createElement("button");
+    homeb.className="dock-app home"; homeb.title="返回原桌面"; homeb.textContent="🏠";
+    homeb.onclick=returnHome;
+    box.appendChild(homeb);
     var more=document.createElement("button");
     more.className="dock-app more"; more.title="打开应用列表"; more.textContent="📋";
     more.onclick=openAppList;

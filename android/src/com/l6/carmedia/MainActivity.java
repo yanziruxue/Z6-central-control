@@ -113,7 +113,8 @@ public class MainActivity extends Activity {
             // ---- 悬浮窗权限（已并入「系统权限」卡片，作返回主页备用通道）；默认桌面设置入口 ----
             "hasOverlay:function(){try{return !!R.hasOverlayPermission();}catch(e){return false;}}," +
             "openOverlay:function(){try{R.openOverlaySettings();}catch(e){}}," +
-            "openHomeSettings:function(){try{R.openHomeSettings();}catch(e){}}" +
+            "openHomeSettings:function(){try{R.openHomeSettings();}catch(e){}}," +
+            "goHome:function(){try{R.goHome();}catch(e){}}" +
             "};" +
             "try{buildMusicSrc();buildNavApp();}catch(e){}" +
             "}catch(e){}})()";
@@ -767,6 +768,48 @@ public class MainActivity extends Activity {
                     h.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     startActivity(h);
                 } catch (Throwable ignored) {
+                }
+            }
+        }
+
+        /**
+         * 返回车机「原桌面」（系统 Launcher）。
+         * 与 openHomeSettings（跳设置页让用户改默认桌面）不同：这里直接切回原桌面。
+         * 关键：显式挑一个<b>非本应用</b>的 HOME App 启动 —— 本应用若已被设为默认桌面，
+         * 无脑 startActivity(CATEGORY_HOME) 会绕回自己，等于没反应。
+         * 优先取包名含 launcher / .home 的桌面；若车机没有任何第三方桌面（本应用即唯一桌面），
+         * 退化为 moveTaskToBack 把本界面压到后台，露出系统上一层。
+         */
+        @JavascriptInterface
+        public void goHome() {
+            try {
+                PackageManager pm = getPackageManager();
+                Intent home = new Intent(Intent.ACTION_MAIN);
+                home.addCategory(Intent.CATEGORY_HOME);
+                home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                java.util.List<android.content.pm.ResolveInfo> rs = pm.queryIntentActivities(home, 0);
+                String self = getPackageName();
+                android.content.pm.ResolveInfo pick = null;
+                if (rs != null) {
+                    for (android.content.pm.ResolveInfo r : rs) {
+                        if (r.activityInfo == null) continue;
+                        String p = r.activityInfo.packageName;
+                        if (p.equals(self)) continue;                 // 跳过自己，保证回到「原桌面」
+                        String lp = p.toLowerCase();
+                        boolean isLauncher = lp.contains("launcher") || lp.contains(".home")
+                                || lp.contains("homescreen") || lp.contains("desktop");
+                        if (pick == null || isLauncher) pick = r;
+                        if (isLauncher) break;                         // 命中真正的桌面就定下来
+                    }
+                }
+                if (pick != null) {
+                    home.setClassName(pick.activityInfo.packageName, pick.activityInfo.name);
+                    startActivity(home);
+                } else {
+                    moveTaskToBack(true);                              // 车机没有独立桌面 → 压后台
+                }
+            } catch (Throwable e) {
+                try { moveTaskToBack(true); } catch (Throwable ignored) {
                 }
             }
         }
