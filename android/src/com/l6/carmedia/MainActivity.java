@@ -105,14 +105,12 @@ public class MainActivity extends Activity {
             "refreshSys:function(){try{R.refreshSys();}catch(e){}}," +
             "mediaControl:function(a){try{R.mediaControl(a);}catch(e){}}," +
             "requestLyrics:function(t,a){try{R.requestLyrics(t,a);}catch(e){}}," +
-            // ---- 悬浮窗权限：调起外部导航 App 后显示「返回主页」悬浮按钮 ----
+            // ---- 悬浮窗权限（已并入「系统权限」卡片，作返回主页备用通道）；默认桌面设置入口 ----
             "hasOverlay:function(){try{return !!R.hasOverlayPermission();}catch(e){return false;}}," +
-            "openOverlay:function(){try{R.openOverlaySettings();}catch(e){}}" +
+            "openOverlay:function(){try{R.openOverlaySettings();}catch(e){}}," +
+            "openHomeSettings:function(){try{R.openHomeSettings();}catch(e){}}" +
             "};" +
             "try{buildMusicSrc();buildNavApp();}catch(e){}" +
-            "var B=document.getElementById('btnLaunch');" +
-            "if(B&&!B.__l6bound){B.__l6bound=1;B.addEventListener('click',function(){" +
-            "try{R.launchApp((typeof navApp!=='undefined')?navApp:'');}catch(e){}},false);}" +
             "}catch(e){}})()";
 
     @Override
@@ -242,10 +240,13 @@ public class MainActivity extends Activity {
             }
         } catch (Throwable ignored) {
         }
-        // 回到本界面（点了悬浮按钮 / 系统返回键 / 从悬浮窗授权页返回）→ 悬浮按钮必须撤掉，
-        // 否则它会悬在本 App 上面挡操作。同时把最新授权状态刷到设置页。
+        // 回到本界面（系统 HOME 键 / 从授权页返回）→ 通知页面复位迷你导航卡片，
+        // 并把最新悬浮窗授权状态刷到设置页（悬浮窗权限已并入「系统权限」卡片）。
         try {
-            FloatNav.hide(this);
+            if (web != null) {
+                web.evaluateJavascript(
+                        "(function(){try{if(window.L6NavReturn)window.L6NavReturn();}catch(e){}})()", null);
+            }
         } catch (Throwable ignored) {
         }
         try {
@@ -402,12 +403,21 @@ public class MainActivity extends Activity {
         /** 低置信度归类：仅按名称/包名关键词猜音乐或导航。 */
         private String guessType(String label, String pkg) {
             String z = (label + " " + pkg).toLowerCase(Locale.ROOT);
+            // 音乐类：覆盖常见音乐/收音/听书/播客关键词与包名片段（白名单之外的音乐 App 也认得出）
             if (z.contains("\u97f3\u4e50") || z.contains("music") || z.contains("radio")
-                    || z.contains("\u542c\u4e66") || z.contains("audio")) {
+                    || z.contains("\u542c\u4e66") || z.contains("audio") || z.contains("player")
+                    || z.contains("song") || z.contains("fm") || z.contains("\u7535\u53f0")
+                    || z.contains("\u871c\u67d0") || z.contains("xmly") || z.contains("kg")
+                    || z.contains("kugou") || z.contains("qqmusic") || z.contains("netease")
+                    || z.contains("spotify") || z.contains("podcast") || z.contains("\u64ad\u5ba2")
+                    || z.contains("\u871c\u8702") || z.contains("\u8702\u9e1f") || z.contains("ximalaya")) {
                 return "music";
             }
+            // 导航类：覆盖常见地图/导航关键词与包名片段（车机版/定制版导航也认得出）
             if (z.contains("\u5730\u56fe") || z.contains("\u5bfc\u822a") || z.contains("map")
-                    || z.contains("navi") || z.contains("gps")) {
+                    || z.contains("navi") || z.contains("gps") || z.contains("amap")
+                    || z.contains("baidumap") || z.contains("tencentmap") || z.contains("\u9ad8\u5fb7")
+                    || z.contains("\u767e\u5ea6\u5730\u56fe") || z.contains("\u817e\u8baf\u5730\u56fe")) {
                 return "nav";
             }
             return "other";
@@ -518,34 +528,13 @@ public class MainActivity extends Activity {
                     toast("未找到可启动的导航 App（车机未安装导航应用）");
                     return;
                 }
+                // 地图/导航是直接全屏盖住本界面的外部 App。返回主页由系统负责：
+                // 用户把本应用设为默认桌面后，按 HOME 键即回本界面（见「系统权限」卡片的「设为默认桌面」）。
+                // 不再挂原生悬浮返回按钮（已取消最上方的悬浮导航）。
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                final ComponentName cn = i.getComponent();
-                final String pkg = (cn != null && cn.getPackageName() != null) ? cn.getPackageName() : "";
                 startActivity(i);
-                // 地图是全屏外部 App，车机未必有物理返回键 —— 挂一个悬浮按钮保证随时能回到本界面。
-                // 必须回主线程：WindowManager.addView 只在 UI 线程合法。
-                runOnUiThread(() -> {
-                    boolean ok = FloatNav.show(getApplicationContext(), appLabel(pkg));
-                    if (!ok) {
-                        toast("未授予悬浮窗权限，返回主页需在设置页「悬浮窗权限」里授权");
-                    }
-                });
             } catch (Throwable e) {
                 toast("启动导航失败：" + e.getMessage());
-            }
-        }
-
-        /** 取应用显示名；取不到就返回空串（悬浮按钮只显示图标）。 */
-        private String appLabel(String pkg) {
-            try {
-                if (pkg.isEmpty()) {
-                    return "";
-                }
-                ApplicationInfo ai = getPackageManager().getApplicationInfo(pkg, 0);
-                CharSequence lb = getPackageManager().getApplicationLabel(ai);
-                return lb == null ? "" : lb.toString();
-            } catch (Throwable ignored) {
-                return "";
             }
         }
 
@@ -610,9 +599,9 @@ public class MainActivity extends Activity {
             });
         }
 
-        /* ==================== 悬浮窗权限（导航返回主页按钮） ==================== */
+        /* ==================== 悬浮窗权限 + 默认桌面 ==================== */
 
-        /** 是否已授予悬浮窗权限（"显示在其他应用上层"）。未授权时悬浮按钮不会显示。 */
+        /** 是否已授予悬浮窗权限（"显示在其他应用上层"）。未授权时不影响使用（用系统 HOME 返回）。 */
         @JavascriptInterface
         public boolean hasOverlayPermission() {
             return FloatNav.canDrawOverlay(MainActivity.this);
@@ -622,6 +611,28 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openOverlaySettings() {
             FloatNav.openOverlaySettings(MainActivity.this);
+        }
+
+        /**
+         * 跳系统的「默认应用」设置页，让用户把本应用设为默认桌面（HOME）。
+         * 返回主页机制依赖此设置：设为本应用后，系统 HOME 键 / 上滑回桌面都会回到本界面。
+         * 老版本无 MANAGE_DEFAULT_APPS_SETTINGS 常量时，退化为直接拉起 HOME 选择。
+         */
+        @JavascriptInterface
+        public void openHomeSettings() {
+            try {
+                Intent i = new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Throwable e) {
+                try {
+                    Intent h = new Intent(Intent.ACTION_MAIN);
+                    h.addCategory(Intent.CATEGORY_HOME);
+                    h.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(h);
+                } catch (Throwable ignored) {
+                }
+            }
         }
 
         /* ==================== 真实系统数据（音乐 / 导航） ==================== */

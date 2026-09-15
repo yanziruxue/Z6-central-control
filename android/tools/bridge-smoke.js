@@ -64,49 +64,58 @@ setTimeout(() => {
 
   // 导航源只列「车机实际已安装」的导航 App：桩里 2 个 nav → 页面 2 项，且不含「系统默认」
   const navOnlyInstalled = nav.length === 2 && !nav.some(x => x.includes('系统默认'));
-  // 导航页 #navApps 同步动态渲染（不再是硬编码的 amap/baidu/sys 三项）
-  const navPageItems = [...d.querySelectorAll('#navApps .nav-app')].map(e => e.dataset.app);
-  const navPageOk = navPageItems.length === 2 && !navPageItems.includes('sys');
+  // 导航页已整块移除（不再有 #navApps / #btnLaunch）
+  const navPageGone = !d.getElementById('navApps') && !d.getElementById('btnLaunch');
 
+  // 选中「百度地图」→ 点 dock 导航按钮（data-go=nav）直接拉起该 App（不再进导航页）
   const baidu = [...d.querySelectorAll('#setNavApp .set-opt')].find(b => b.textContent.includes('百度地图'));
   if (baidu) baidu.onclick();
-  d.getElementById('btnLaunch').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  const dockNav = d.querySelector('[data-go="nav"]');
+  if (dockNav) dockNav.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   const launched = NativeRaw.calls.filter(c => c[0] === 'launchApp').pop();
 
   // 「布局和显示」模块已整块移除；壁纸改为列表式（#wallList + 两个独立上传按钮）
   const layoutGone = !d.getElementById('setModules');
   const wallListOk = !!d.getElementById('wallList') && d.querySelectorAll('#wallList .wall-item').length >= 1;
   const wallUpOk = !!d.getElementById('wallUploadStatic') && !!d.getElementById('wallUploadDyn');
-  // 上传按钮必须紧跟在「动态壁纸」右侧（同一行 .wall-bar 内，且顺序为 静态/动态/上传静态/上传动态）
   const bar = d.getElementById('setWall') && d.getElementById('setWall').parentElement;
   const barSeq = bar ? [...bar.children].map(e => e.id || e.className) : [];
   const barOk = barSeq[0] === 'setWall' && barSeq[1] === 'wallUpStatic' && barSeq[2] === 'wallUpDyn';
 
-  // 悬浮窗权限卡片（导航返回主页按钮的前提）
-  const ovOk = !!(d.getElementById('ovAcc') && d.getElementById('ovAccBtn') && d.getElementById('ovRefresh'));
+  // 「系统权限」合并卡片：通知使用权 + 悬浮窗权限 + 默认桌面 三项都在
+  // （悬浮窗权限的手动刷新已并入卡片内的「刷新」按钮 #sysRefresh，不再单列 #ovRefresh）
+  const ovOk = !!(d.getElementById('ovAcc') && d.getElementById('ovAccBtn'));
+  const homeOk = !!(d.getElementById('homeState') && d.getElementById('homeBtn'));
+  const sysAccOk = !!(d.getElementById('sysAcc') && d.getElementById('sysAccBtn'));
 
-  // 导航页：点击列表项即直接拉起 App（不再需要先选再点「启动导航」）
-  NativeRaw.calls.length = 0;
-  const navItem = [...d.querySelectorAll('#navApps .nav-app')].find(e => e.dataset.app === 'amap');
-  if (navItem) navItem.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-  const clickLaunched = NativeRaw.calls.filter(c => c[0] === 'launchApp').pop();
-  const clickLaunchOk = !!clickLaunched && clickLaunched[1] === 'amap';
+  // 「重新识别应用」按钮 + 「启动后自动播放」按钮 + 默认桌面桥接
+  const rescanOk = !!d.getElementById('rescanApps');
+  const autoPlayBtn = d.getElementById('autoPlayBtn');
+  const autoPlayOk = !!autoPlayBtn;
+  const autoPlayBefore = autoPlayBtn ? autoPlayBtn.textContent : '';
+  if (autoPlayBtn) autoPlayBtn.onclick();
+  const autoPlayAfter = autoPlayBtn ? autoPlayBtn.textContent : '';
+  const autoPlayToggle = autoPlayBefore !== autoPlayAfter;
+  const homeBridgeOk = typeof window.L6Native.openHomeSettings === 'function';
 
   const ok = listOk && launched && launched[1] === 'baidu'
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
-    && navOnlyInstalled && navPageOk && layoutGone && wallListOk && wallUpOk
-    && barOk && ovOk && clickLaunchOk;
+    && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
+    && barOk && ovOk && homeOk && sysAccOk && rescanOk && autoPlayOk
+    && autoPlayToggle && homeBridgeOk;
 
   console.log('原生音乐源 ->', music.join(' / '));
   console.log('原生导航项 ->', nav.join(' / '));
   console.log('导航源只列已装 ->', navOnlyInstalled);
-  console.log('导航页动态项 ->', navPageItems.join(' / '), '(无 sys =', !navPageItems.includes('sys'), ')');
+  console.log('导航页已移除 ->', navPageGone);
   console.log('布局/显示模块已移除 ->', layoutGone);
   console.log('壁纸列表 + 双上传按钮 ->', wallListOk, '/', wallUpOk);
   console.log('上传按钮位置(动态右侧) ->', barOk, '(' + barSeq.join(' | ') + ')');
-  console.log('悬浮窗权限卡片 ->', ovOk);
-  console.log('点列表项直接启动 ->', clickLaunchOk, '(' + (clickLaunched ? clickLaunched[1] : '未触发') + ')');
-  console.log('启动导航 key ->', launched ? launched[1] : '(未触发)');
+  console.log('系统权限卡: 通知/悬浮窗/默认桌面 ->', sysAccOk, '/', ovOk, '/', homeOk);
+  console.log('重新识别应用按钮 ->', rescanOk);
+  console.log('启动后自动播放按钮 ->', autoPlayOk, '(', autoPlayBefore, '→', autoPlayAfter, ')');
+  console.log('默认桌面桥接 openHomeSettings ->', homeBridgeOk);
+  console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));
   console.log(ok ? '✓ 桥接冒烟测试通过' : '✗ 桥接冒烟测试失败');

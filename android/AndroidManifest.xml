@@ -18,7 +18,7 @@
         tools:ignore="QueryAllPackagesPermission" />
     <!-- OTA 升级安装新版本需要 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <!-- 悬浮窗：调起外部导航 App 后，在屏幕上显示「返回主页」悬浮按钮（API 23+ 需用户手动授权） -->
+    <!-- 悬浮窗权限：已不作为返回主页主通道（改用系统默认桌面）；仅保留作备用通道的授权入口 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
@@ -54,6 +54,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- 设为默认桌面：用户在系统「默认应用 → 主屏幕应用」里选本应用后，
+                 按 HOME 键 / 上滑回桌面都会回到本界面（导航 App 全屏后也能正常返回）。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

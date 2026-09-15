@@ -115,11 +115,13 @@ const DELAY = ms => new Promise(r => setTimeout(r, ms));
   ok('迷你卡片预计用时', txt('#mEta') === '12 分钟', txt('#mEta'));
   ok('转向 + 道路名', txt('#mTurn').includes('滨江大道'), txt('#mTurn'));
   ok('目的地', txt('#mDest') === '公司', txt('#mDest'));
-  // 假地图全屏层已删除：真实导航数据改落到迷你卡片与导航状态行（外部 App 全屏时本页不可见）
-  ok('导航 App 名显示在导航状态行', txt('#navState').includes('高德地图'), txt('#navState'));
+  // 导航页已移除、假地图层已删除：真实导航数据落到顶部迷你卡片，仅导航激活时显示
+  ok('真实导航时迷你卡片显示', $('#miniNav').classList.contains('show'), 'show=' + $('#miniNav').classList.contains('show'));
   ok('假地图节点已全部移除',
     !d.querySelector('#navOverlay') && !d.querySelector('#extBadge') && !d.querySelector('#extEta'),
     'navOverlay/extBadge/extEta 均已不存在');
+  ok('旧导航页节点已移除', !d.getElementById('navApps') && !d.getElementById('btnLaunch'),
+    'navApps/btnLaunch 均已不存在');
 
   // 演示用模拟导航是 1.5s 一跳，等 1.8s 看它有没有被真实数据压住
   await DELAY(1800);
