@@ -149,6 +149,7 @@ public class Ota {
                             ? why
                             : "所有 OTA 信息源均不可用（已尝试：" + why + "）");
                     result.put("tried", why);
+                    L6Log.e("L6Ota", "检查更新失败：" + why);
                     cb.emit(result.toString());
                     return;
                 }
@@ -161,6 +162,8 @@ public class Ota {
                 String newVer = remote.optString("versionName", "0");
                 // newCode 必须 > 0：tag 解析失败（0）时不能误判成“有更新”
                 boolean hasUpdate = newCode > 0 && newCode > curCode;
+                if (hasUpdate) L6Log.i("L6Ota", "发现新版本 v" + newVer + "（当前 v" + curVer + "）");
+                else L6Log.i("L6Ota", "已是最新（v" + curVer + "）");
                 result.put("hasUpdate", hasUpdate);
                 result.put("versionName", newVer);
                 result.put("versionCode", newCode);
@@ -227,6 +230,7 @@ public class Ota {
             }
             if (!ok) {
                 emitError(cb, lastErr.isEmpty() ? "下载失败（HTTP 或网络错误）" : lastErr);
+                L6Log.e("L6Ota", "下载安装失败：" + (lastErr.isEmpty() ? "HTTP 或网络错误" : lastErr));
                 return;
             }
 
@@ -238,6 +242,7 @@ public class Ota {
                 }
             }
             emit(cb, "kind", "downloaded", "size", out.length());
+            L6Log.i("L6Ota", "下载完成，准备安装（" + out.length() + " 字节）");
 
             act.runOnUiThread(() -> installOrAskPermission(act, out, cb));
         }, "L6OtaDownload").start();

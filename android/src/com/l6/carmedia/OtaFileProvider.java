@@ -29,8 +29,20 @@ public class OtaFileProvider extends ContentProvider {
     }
 
     private File resolve(Uri uri) {
+        String seg = uri.getLastPathSegment() == null ? "" : uri.getLastPathSegment();
+        // logs/<name> → Download/L6/logs/<name>（运行日志文件，供「下载日志」导出）
+        if (seg.startsWith("logs/")) {
+            File dir = new File(android.os.Environment
+                    .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "L6/logs");
+            return new File(dir, seg.substring("logs/".length()));
+        }
+        // extlogs/<name> → 应用私有 files/logs/<name>（高版本系统写不进公共目录时的回落）
+        if (seg.startsWith("extlogs/")) {
+            File dir = new File(getContext().getExternalFilesDir(null), "logs");
+            return new File(dir, seg.substring("extlogs/".length()));
+        }
         File dir = new File(getContext().getFilesDir(), "update");
-        return new File(dir, uri.getLastPathSegment() == null ? "" : uri.getLastPathSegment());
+        return new File(dir, seg);
     }
 
     @Override
@@ -45,6 +57,8 @@ public class OtaFileProvider extends ContentProvider {
 
     @Override
     public String getType(Uri uri) {
+        String seg = uri.getLastPathSegment() == null ? "" : uri.getLastPathSegment();
+        if (seg.endsWith(".log")) return "text/plain";
         return "application/vnd.android.package-archive";
     }
 

@@ -492,6 +492,25 @@
               </div>
             </div>
             <div class="set-sec">
+              <div class="set-label">运行日志（Tasker 收集）</div>
+              <div class="ota-card">
+                <div class="ota-row">
+                  <span class="ota-cur">推送到 Tasker：<b id="logPush">读取中…</b></span>
+                  <button class="set-opt" id="logPushBtn">● 开启</button>
+                </div>
+                <div class="ota-status" id="logMsg">每条运行日志都会广播给 Tasker（Action: com.l6.carmedia.LOG，含 level/tag/msg/time），Tasker 用「Intent Received」事件即可实时收集。</div>
+                <div class="ota-row">
+                  <span class="ota-cur">日志文件：<b id="logPath">--</b></span>
+                </div>
+                <div class="ota-status" id="logPathMsg">日志落盘到 Download/L6/logs（高版本系统不可写时回落应用私有目录）。</div>
+                <div class="ota-actions">
+                  <button class="set-opt" id="logViewBtn">📜 查看日志</button>
+                  <button class="set-opt" id="logDownBtn">⬇ 下载日志</button>
+                  <button class="set-opt ghost" id="logClearBtn">🗑 清空</button>
+                </div>
+              </div>
+            </div>
+            <div class="set-sec">
               <div class="set-label">在线更新</div>
               <div class="ota-card">
                 <div class="ota-row">
@@ -560,6 +579,38 @@
     <div class="al-grip"></div>
     <div class="al-head"><span id="appListTitle">📋 应用列表</span><button class="al-close" id="appListClose">✕</button></div>
     <div class="al-grid" id="appListBody"></div>
+  </div>
+</div>
+
+<!-- 运行日志弹层：实时查看 / 复制 / 清空 / 下载（下载经原生分享面板保存到任意应用） -->
+<style>
+#logModal{position:fixed;inset:0;z-index:90;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
+#logModal.open{display:flex}
+#logModal .lm-box{width:min(900px,94vw);max-height:84vh;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden}
+#logModal .lm-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+#logModal .lm-title{font-size:15px;font-weight:700;flex:1}
+#logModal .lm-count{font-size:12px;color:var(--sub)}
+#logModal .lm-body{flex:1;overflow:auto;padding:10px 14px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.7}
+#logModal .lm-row{white-space:pre-wrap;word-break:break-word;padding:2px 0;border-bottom:1px solid var(--line)}
+#logModal .lm-row .lv{font-weight:700;margin-right:4px}
+#logModal .lv-INFO{color:var(--acc2)} #logModal .lv-WARN{color:var(--warn)} #logModal .lv-ERROR{color:var(--red)}
+#logModal .lm-foot{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line);flex-wrap:wrap}
+html[data-theme="light"] #logModal .lm-box{background:rgba(255,255,255,.98);box-shadow:0 -12px 40px rgba(0,0,0,.22)}
+</style>
+<div id="logModal">
+  <div class="lm-box">
+    <div class="lm-head">
+      <span class="lm-title">📜 运行日志</span>
+      <span class="lm-count" id="lmCount"></span>
+      <button class="set-opt ghost" id="lmClose">✕</button>
+    </div>
+    <div class="lm-body" id="lmBody"></div>
+    <div class="lm-foot">
+      <button class="set-opt" id="lmRefresh">🔄 刷新</button>
+      <button class="set-opt" id="lmCopy">📋 复制</button>
+      <button class="set-opt ghost" id="lmClear">🗑 清空</button>
+      <button class="set-opt" id="lmDown">⬇ 下载</button>
+    </div>
   </div>
 </div>
 
@@ -1553,6 +1604,50 @@ function readTheme(){
 window.L6ThemeEvent=function(isDark){ applyTheme(!!isDark); };
 readTheme();
 setTimeout(readTheme,1200);   // SHIM 注入晚于页面解析，补读一次
+
+/* ---- 运行日志（收集 + 推送 Tasker） ---- */
+function escL6(s){ s=(s==null?"":String(s)); return s.replace(/[&<>]/g,function(c){return c==="&"?"&amp;":c==="<"?"&lt;":c===">"?"&gt;";}); }
+function renderLog(){
+  var n=l6n(); var box=$("#lmBody"); if(!box)return;
+  var arr=[]; try{ arr=(n&&n.getLog)?n.getLog(300):[]; }catch(e){ arr=[]; }
+  if(!arr||!arr.length){ box.innerHTML='<div class="ota-status">暂无日志（运行事件会自动出现）</div>'; if($("#lmCount"))$("#lmCount").textContent=""; return; }
+  var html="";
+  for(var i=0;i<arr.length;i++){ var e=arr[i];
+    html+='<div class="lm-row"><span class="lv lv-'+e.level+'">'+e.level+'</span>'+escL6(e.time)+' · '+escL6(e.tag)+'：'+escL6(e.msg)+'</div>';
+  }
+  box.innerHTML=html; box.scrollTop=box.scrollHeight;
+  if($("#lmCount"))$("#lmCount").textContent="共 "+arr.length+" 条";
+}
+function openLogModal(){ renderLog(); $("#logModal").classList.add("open"); }
+function closeLogModal(){ $("#logModal").classList.remove("open"); }
+$("#logViewBtn").onclick=openLogModal;
+$("#lmClose").onclick=closeLogModal;
+$("#lmRefresh").onclick=renderLog;
+$("#lmClear").onclick=function(){ try{l6n().clearLog();}catch(e){} renderLog(); };
+$("#lmDown").onclick=function(){ try{l6n().exportLog();}catch(e){} };
+$("#lmCopy").onclick=function(){
+  var box=$("#lmBody"); if(!box)return; var txt=box.innerText||box.textContent||"";
+  try{ var ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }catch(e){}
+};
+/* 设置页直接「下载日志」+「清空」 */
+$("#logDownBtn").onclick=function(){ try{l6n().exportLog();}catch(e){} };
+$("#logClearBtn").onclick=function(){ try{l6n().clearLog();}catch(e){} renderLog(); };
+function syncLogPush(){
+  var n=l6n(); var b=true; try{ b=n&&n.isLogBroadcast?n.isLogBroadcast():true; }catch(e){}
+  var el=$("#logPush"); if(el){ el.textContent=b?"已开启":"已关闭"; el.style.color=b?"var(--acc2)":"var(--red)"; }
+  var btn=$("#logPushBtn"); if(btn)btn.textContent=b?"● 开启":"○ 关闭";
+}
+$("#logPushBtn").onclick=function(){
+  var n=l6n(); if(!n||typeof n.setLogBroadcast!=="function")return;
+  var cur=true; try{cur=n.isLogBroadcast();}catch(e){}
+  n.setLogBroadcast(!cur); syncLogPush();
+};
+function syncLogPath(){
+  var n=l6n(); var p="--"; try{ p=n&&n.getLogPath?n.getLogPath():"--"; }catch(e){}
+  if(p&&p.length>42)p="…"+p.slice(-42);
+  if($("#logPath"))$("#logPath").textContent=p||"--";
+}
+syncLogPush(); syncLogPath();
 
 /* ---- 设为默认桌面：跳系统「默认应用」设置页 ---- */
 $("#homeBtn").onclick=function(){

@@ -2,6 +2,7 @@ package com.l6.carmedia;
 
 import android.app.Activity;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
@@ -55,6 +56,8 @@ public class MainActivity extends Activity {
     private long lastBackAt = 0L;
     /** 即将调起导航 App：onPause 时若确实离开本界面，才挂「返回」悬浮按钮（导航未成功接管则不留按钮）。 */
     private boolean navLaunching = false;
+    /** 全局 Context（Application 级），供 L6Log 发广播 / 落盘使用。 */
+    private static Context appCtx = null;
 
     /* ==================== 导航保活（HOME 请求回弹） ==================== */
 
@@ -164,7 +167,14 @@ public class MainActivity extends Activity {
             "openHomeSettings:function(){try{R.openHomeSettings();}catch(e){}}," +
             "isDefaultHome:function(){try{return !!R.isDefaultHome();}catch(e){return false;}}," +
             "isNightMode:function(){try{return !!R.isNightMode();}catch(e){return true;}}," +
-            "goHome:function(){try{R.goHome();}catch(e){}}" +
+            "goHome:function(){try{R.goHome();}catch(e){}}," +
+            // ---- 运行日志（收集 + 推送 Tasker）----
+            "getLog:function(n){try{return JSON.parse(R.getLogJson(n||50));}catch(e){return [];}}," +
+            "clearLog:function(){try{R.clearLog();}catch(e){}}," +
+            "getLogPath:function(){try{return R.getLogPath()||'';}catch(e){return '';}}," +
+            "setLogBroadcast:function(b){try{R.setLogBroadcast(!!b);}catch(e){}}," +
+            "isLogBroadcast:function(){try{return !!R.isLogBroadcast();}catch(e){return true;}}," +
+            "exportLog:function(){try{R.exportLog();}catch(e){}}" +
             "};" +
             "try{buildMusicSrc();buildNavApp();}catch(e){}" +
             "}catch(e){}})()";
@@ -174,6 +184,9 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         enterImmersive();
+        appCtx = getApplicationContext();
+        L6Log.init(this);
+        L6Log.i("L6", "应用启动");
 
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#0B0E14"));
@@ -478,6 +491,8 @@ public class MainActivity extends Activity {
             if (navGuardHits >= 1 && now - navGuardBounceAt < NAV_GUARD_GRACE_MS) {
                 android.util.Log.i("L6Nav", "回弹后 " + (now - navGuardBounceAt)
                         + "ms 再次收到 HOME → 判为用户按键，留在主页");
+                L6Log.i("L6Nav", "回弹后 " + (now - navGuardBounceAt)
+                        + "ms 再次收到 HOME → 判为用户按键，留在主页");
                 disarmNavGuard();
                 toast("已停留在主页");
                 return false;
@@ -490,6 +505,7 @@ public class MainActivity extends Activity {
             navBounceLeft = false;
             navGuardBounceAt = now;     // 记下回弹时刻 → 下一次 HOME 据此识别「用户按键」
             android.util.Log.i("L6Nav", "HOME 请求被拦截，回弹导航（第 " + navGuardHits + " 次）");
+            L6Log.i("L6Nav", "HOME 请求被拦截，回弹导航（第 " + navGuardHits + " 次）");
             toast("已切回导航；如需回到主页请再按一次 HOME");
             final Intent nav = new Intent(navGuardIntent);
             moveTaskToBack(true);
@@ -505,6 +521,7 @@ public class MainActivity extends Activity {
             }, 700L);
             return true;
         } catch (Throwable t) {
+            L6Log.e("L6Nav", "回弹处理异常: " + t);
             return false;
         }
     }
@@ -1111,6 +1128,8 @@ public class MainActivity extends Activity {
                 // onPause（确证导航 App 已接管前台）时再挂。这样导航 App 没完全启动 / 启动失败、
                 // 本界面没被盖住时，按钮不会出现；即便出现，点击 hide+bringToFront 也一定能回本界面。
                 navLaunching = true;
+                String l6pkg = (target != null) ? target : (key.indexOf('.') > 0 ? key : "兜底导航App");
+                L6Log.i("L6Nav", "调起导航: " + l6pkg);
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);
                 // 记下导航 App 的启动 Intent 并开启保活窗口：导航启动完成后若发 HOME 请求回桌面，
@@ -1119,6 +1138,7 @@ public class MainActivity extends Activity {
             } catch (Throwable e) {
                 navLaunching = false;   // 启动抛异常：本次不算「去导航」，onPause 不会误挂按钮
                 toast("启动导航失败：" + e.getMessage());
+                L6Log.e("L6Nav", "启动导航失败: " + e.getMessage());
             }
         }
 
@@ -1155,9 +1175,11 @@ public class MainActivity extends Activity {
                 }
                 i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 startActivity(i);   // 用户主动「启动/唤醒」→ 拉起该 App 成为活跃媒体会话
+                L6Log.i("L6Music", "启动音乐 " + key);
                 bringSelfToFront();  // 唤醒后立刻把仪表盘拉回前台：音乐 App 接管播放但留在后台
             } catch (Throwable e) {
                 toast("启动音乐 App 失败：" + e.getMessage());
+                L6Log.e("L6Music", "启动音乐 App 失败: " + e.getMessage());
             }
         }
 
@@ -1270,6 +1292,7 @@ public class MainActivity extends Activity {
         /** 检查更新；进度/结果通过 window.L6OtaEvent 推送到页面（事件由主线程 evaluateJavascript 派发）。 */
         @JavascriptInterface
         public void checkOtaUpdate() {
+            L6Log.i("L6Ota", "检查更新");
             Ota.checkUpdate(MainActivity.this, json -> {
                 final String js = Ota.safeJs(json);
                 web.post(() -> web.evaluateJavascript(js, null));
@@ -1279,6 +1302,7 @@ public class MainActivity extends Activity {
         /** 下载并安装；进度通过 window.L6OtaEvent 推送。 */
         @JavascriptInterface
         public void installOtaUpdate(String url, String sha256) {
+            L6Log.i("L6Ota", "下载并安装: " + (url == null ? "" : url));
             Ota.downloadAndInstall(MainActivity.this, url, sha256, json -> {
                 final String js = Ota.safeJs(json);
                 web.post(() -> web.evaluateJavascript(js, null));
@@ -1313,6 +1337,7 @@ public class MainActivity extends Activity {
          */
         @JavascriptInterface
         public void openHomeSettings() {
+            L6Log.i("L6Home", "打开默认桌面设置");
             // ① Android 10+：RoleManager 直接申请 HOME 角色
             try {
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
@@ -1477,6 +1502,57 @@ public class MainActivity extends Activity {
                     SysHub.pushJson(json);
                 });
             } catch (Throwable ignored) {
+            }
+        }
+
+        /* ==================== 运行日志（收集 + 推送 Tasker） ==================== */
+
+        /** 最近 n 条日志（JSON 数组，每条含 time/level/tag/msg）。供设置页弹层实时展示。 */
+        @JavascriptInterface
+        public String getLogJson(int n) {
+            return L6Log.recentJson(n).toString();
+        }
+
+        /** 清空内存缓冲（不影响已落盘的历史日志文件）。 */
+        @JavascriptInterface
+        public void clearLog() {
+            L6Log.clear();
+        }
+
+        /** 当天日志文件绝对路径（便于人工/工具从 Download/L6/logs 收集）。 */
+        @JavascriptInterface
+        public String getLogPath() {
+            return L6Log.getLogPath();
+        }
+
+        /** 是否把每条日志实时广播给 Tasker（com.l6.carmedia.LOG）。默认开。 */
+        @JavascriptInterface
+        public void setLogBroadcast(boolean b) {
+            L6Log.setBroadcastEnabled(b);
+        }
+
+        @JavascriptInterface
+        public boolean isLogBroadcast() {
+            return L6Log.isBroadcastEnabled();
+        }
+
+        /** 下载/导出当天日志文件：经 OtaFileProvider 暴露 content://，用系统分享面板保存到任意应用。 */
+        @JavascriptInterface
+        public void exportLog() {
+            try {
+                File f = L6Log.logFile();
+                if (f == null || !f.exists()) {
+                    toast("暂无日志文件（先产生一些运行日志）");
+                    return;
+                }
+                Uri u = Uri.parse("content://" + OtaFileProvider.AUTHORITY + "/logs/" + f.getName());
+                Intent i = new Intent(Intent.ACTION_SEND);
+                i.setType("text/plain");
+                i.putExtra(Intent.EXTRA_STREAM, u);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(Intent.createChooser(i, "下载 / 分享日志"));
+            } catch (Throwable e) {
+                toast("导出日志失败：" + (e.getMessage() == null ? "未知" : e.getMessage()));
             }
         }
     }
