@@ -174,7 +174,9 @@ public class MainActivity extends Activity {
             "getLogPath:function(){try{return R.getLogPath()||'';}catch(e){return '';}}," +
             "setLogBroadcast:function(b){try{R.setLogBroadcast(!!b);}catch(e){}}," +
             "isLogBroadcast:function(){try{return !!R.isLogBroadcast();}catch(e){return true;}}," +
-            "exportLog:function(){try{R.exportLog();}catch(e){}}" +
+            "exportLog:function(){try{R.exportLog();}catch(e){}}," +
+            "uploadLog:function(){try{R.uploadLog();}catch(e){}}," +
+            "getUploadStatus:function(){try{return JSON.parse(R.getUploadStatus()||'null');}catch(e){return null;}}" +
             "};" +
             "try{buildMusicSrc();buildNavApp();}catch(e){}" +
             "}catch(e){}})()";
@@ -186,6 +188,14 @@ public class MainActivity extends Activity {
         enterImmersive();
         appCtx = getApplicationContext();
         L6Log.init(this);
+        // 每次上传结果推回页面：设置页「运行日志」卡片实时显示「上次上传」状态
+        L6Log.setUploadListener(json -> {
+            if (web != null) {
+                final String js = "try{if(typeof L6LogUploadStatus==='function')L6LogUploadStatus("
+                        + json.toString() + ");}catch(e){}";
+                web.post(() -> web.evaluateJavascript(js, null));
+            }
+        });
         L6Log.i("L6", "应用启动");
 
         web = new WebView(this);
@@ -1554,6 +1564,18 @@ public class MainActivity extends Activity {
             } catch (Throwable e) {
                 toast("导出日志失败：" + (e.getMessage() == null ? "未知" : e.getMessage()));
             }
+        }
+
+        /** 手动触发一次日志上传（每 60s 还会自动上传；网络在后台线程执行）。 */
+        @JavascriptInterface
+        public void uploadLog() {
+            L6Log.uploadNow();
+        }
+
+        /** 最近一次上传结果 JSON（{ok,msg,ts}），供设置页显示「上次上传」。 */
+        @JavascriptInterface
+        public String getUploadStatus() {
+            return L6Log.getUploadStatus();
         }
     }
 }
