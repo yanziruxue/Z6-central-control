@@ -60,8 +60,29 @@ public final class L6Log {
 
     /** 日志上传到服务器的目标接口（API 形态：POST JSON）。改这里即可换地址/路径。 */
     private static final String LOG_UPLOAD_URL = "https://yanzi-api.ziruxue.top/api/l6zk/log";
-    /** 自动上传间隔（秒）。用户要求每分钟一次。 */
+    /** 自动上传间隔（秒）。用户要求每分钟一次（成功后就是这个节奏）。 */
     private static final int UPLOAD_INTERVAL_SEC = 60;
+    /** 失败退避上限（秒）。服务端持久性错误（如 403 路径不放行）时逐级拉长，避免每 60s 白打一次。 */
+    private static final int UPLOAD_BACKOFF_MAX_SEC = 600;
+    /** 退避窗口：早于这个时间点不发自动上报（手动「立即上报」不受限）。 */
+    private static long nextAllowedAt = 0;
+    /** 连续失败次数，用来算退避阶梯；成功即清零。 */
+    private static int failStreak = 0;
+
+    /** 失败登记：按 60→120→240→480→600s 指数退避，返回本次要等多久（秒）。 */
+    private static int noteFailure() {
+        failStreak++;
+        int mult = 1 << Math.min(failStreak, 4);   // 2/4/8/16 倍，超过由 MAX 兜住
+        int wait = (int) Math.min((long) UPLOAD_INTERVAL_SEC * mult, UPLOAD_BACKOFF_MAX_SEC);
+        nextAllowedAt = System.currentTimeMillis() + wait * 1000L;
+        return wait;
+    }
+
+    /** 成功登记：链路恢复，立刻回到每 60s 一次的节奏。 */
+    private static void noteSuccess() {
+        failStreak = 0;
+        nextAllowedAt = 0;
+    }
     private static ScheduledExecutorService scheduler;
     private static long sentOffset = 0;          // 已发送到服务器的字节偏移（增量上传）
     private static String sentFile = "";         // 当前正在追的日志文件名（跨天换文件自动从头）
@@ -292,7 +313,15 @@ public final class L6Log {
     }
 
     private static void uploadOnce(boolean force) {
-        if (!force && !apiUploadEnabled) return;   // 设置页关闭了「上报api接口」：自动上报完全不打服务器
+        if (force) {
+            // 手动「立即上报」：跳过退避窗口，也不受开关限制（否则点了没反应，像 bug）
+            nextAllowedAt = 0;
+            failStreak = 0;
+        } else {
+            if (!apiUploadEnabled) return;   // 设置页关闭了「上报api接口」：自动上报完全不打服务器
+            // 退避窗口内：上一轮失败还没到重试时间，静默跳过（状态行保留上次失败原因）
+            if (System.currentTimeMillis() < nextAllowedAt) return;
+        }
         try {
             File f = logFile();
             if (f == null || !f.exists()) { setStatus(false, "无日志文件"); return; }
@@ -342,28 +371,32 @@ public final class L6Log {
                     doneBatches++;
                     continue;
                 }
+                int wait = noteFailure();   // 按 60→120→240→480→600s 退避；已成功的批次不会重发
                 if (r.code < 0) {
                     // 根本没连上（DNS/TLS/超时/reset）：没有 HTTP 状态码可显示，回显网络异常
-                    setStatus(false, "上传失败（网络异常：" + r.err + "）");
+                    setStatus(false, "上传失败（网络异常：" + r.err + "）· " + wait + "s 后重试");
                     w("L6LogUp", "上传失败（网络异常）" + r.err + " → " + LOG_UPLOAD_URL);
                 } else {
                     // 服务端有回应但不是 2xx：把 HTTP 状态码 + 服务端 error 原文直接回显到车机状态行
-                    setStatus(false, "上传失败 HTTP " + r.code + errDetail(r.resp));
+                    setStatus(false, "上传失败 HTTP " + r.code + errDetail(r.resp)
+                            + " · " + wait + "s 后重试");
                     w("L6LogUp", "上传失败 HTTP " + r.code + " " + r.resp + " → " + LOG_UPLOAD_URL);
                 }
                 // 失败即停，且不推进 sentOffset —— 已成功的批次不会重发，未发的下一轮从断点续
                 if (sentLines > 0) {
                     setStatus(false, "部分成功：" + sentLines + " 行已上传，第 " + (doneBatches + 1)
-                            + "/" + chunks.length + " 批失败");
+                            + "/" + chunks.length + " 批失败 · " + wait + "s 后重试");
                 }
                 return;
             }
             if (sentLines > 0) {
+                noteSuccess();   // 有一批成功就说明链路通了，立刻回到每 60s 一次
                 setStatus(true, "已上传 " + sentLines + " 行"
                         + (chunks.length > 1 ? "（" + chunks.length + " 批）" : ""));
                 i("L6LogUp", "上传成功 " + sentLines + " 行 → " + LOG_UPLOAD_URL);
             }
         } catch (Throwable t) {
+            noteFailure();   // 本地异常（读文件/拼 JSON）也要退避，否则每 60s 炸一次
             setStatus(false, "异常:" + (t.getMessage() == null ? "?" : t.getMessage()));
         }
     }
