@@ -130,10 +130,10 @@ public class LogicSmoke {
         batchCase("纯空行不产生批次", "\n\n\n", new int[0], 0);
         batchCase("空行被跳过但仍计入偏移", "a\n\nb\n", new int[]{2}, 2);
 
-        // 超过单批上限才切
-        batchCase("2500 行切成 1000/1000/500", lines(2500), new int[]{1000, 1000, 500}, 2500);
-        batchCase("正好 1000 行只切一批", lines(1000), new int[]{1000}, 1000);
-        batchCase("2000 行切两批", lines(2000), new int[]{1000, 1000}, 2000);
+        // 超过单批上限才切（上限 500 行，见 LogBatch.MAX_LINES_PER_BATCH）
+        batchCase("2500 行切成 5 批", lines(2500), new int[]{500, 500, 500, 500, 500}, 2500);
+        batchCase("正好 500 行只切一批", lines(500), new int[]{500}, 500);
+        batchCase("501 行切两批", lines(501), new int[]{500, 1}, 501);
 
         // 内容保真
         LogBatch.Chunk[] cs = LogBatch.split("a\r\nb\r\n", 1000);
@@ -146,6 +146,27 @@ public class LogicSmoke {
         LogBatch.Chunk[] c2 = LogBatch.split(cn, 1000);
         report("中文 offset 按 UTF-8 字节算（4 字 + 换行 = 13）",
                 c2.length == 1 && c2[0].endOffset == 13);
+
+        // 光限行数不够：服务端 ECONNRESET 是按体积触发的，长行必须再按字节切
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 10; i++) sb.append("x".repeat(50)).append('\n');
+        LogBatch.Chunk[] c3 = LogBatch.split(sb.toString(), 1000, 120);   // 每行 50B，限额 120B
+        report("长行按字节切批（每行 50B / 限额 120B → 3,3,3,1）",
+                c3.length == 4 && c3[0].lines.length == 3 && c3[1].lines.length == 3
+                        && c3[2].lines.length == 3 && c3[3].lines.length == 1);
+
+        StringBuilder big = new StringBuilder();
+        for (int i = 0; i < 400; i++) big.append("y".repeat(2048)).append('\n');   // 每行 2KB，共 ~800KB
+        LogBatch.Chunk[] c4 = LogBatch.split(big.toString());
+        boolean sizeOk = c4.length > 1;
+        for (LogBatch.Chunk c : c4) {
+            int bytes = 0;
+            for (String ln : c.lines) bytes += ln.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (bytes > LogBatch.MAX_BYTES_PER_BATCH) { sizeOk = false; break; }
+        }
+        report("2KB 超长行：切成多批且每批都在字节上限内", sizeOk);
+        report("默认字节上限远低于服务端 ECONNRESET 阈值(~1.6MB)",
+                LogBatch.MAX_BYTES_PER_BATCH < 1600 * 1024);
     }
 
     private static String lines(int n) {

@@ -345,7 +345,7 @@ public final class L6Log {
             if (chunks.length == 0) { setStatus(true, "无新增"); return; }
 
             final long baseOffset = sentOffset;   // endOffset 是相对本次 text 起点，不是相对文件头
-            int doneBatches = 0, sentLines = 0;
+            int doneBatches = 0, sentLines = 0, sentKb = 0;
             for (int bi = 0; bi < chunks.length; bi++) {
                 LogBatch.Chunk ck = chunks[bi];
                 if (ck.lines.length == 0) continue;
@@ -364,22 +364,27 @@ public final class L6Log {
                 body.put("ts", System.currentTimeMillis());
                 body.put("lines", lines);
 
-                PostResult r = postJson(LOG_UPLOAD_URL, body.toString());
+                String json = body.toString();
+                int kb = json.getBytes(StandardCharsets.UTF_8).length / 1024;
+                PostResult r = postJson(LOG_UPLOAD_URL, json);
                 if (r.ok()) {
                     sentOffset = baseOffset + ck.endOffset;
                     sentLines += ck.lines.length;
                     doneBatches++;
                     continue;
                 }
+                // 把体积回显出来：弱网 RST 排查时，「多大被掐掉」是关键信息
+                sentKb += kb;
                 int wait = noteFailure();   // 按 60→120→240→480→600s 退避；已成功的批次不会重发
                 if (r.code < 0) {
                     // 根本没连上（DNS/TLS/超时/reset）：没有 HTTP 状态码可显示，回显网络异常
-                    setStatus(false, "上传失败（网络异常：" + r.err + "）· " + wait + "s 后重试");
-                    w("L6LogUp", "上传失败（网络异常）" + r.err + " → " + LOG_UPLOAD_URL);
+                    setStatus(false, "上传失败（网络异常：" + r.err + "）· 本次 " + kb
+                            + "KB · " + wait + "s 后重试");
+                    w("L6LogUp", "上传失败（网络异常）" + r.err + " " + kb + "KB → " + LOG_UPLOAD_URL);
                 } else {
                     // 服务端有回应但不是 2xx：把 HTTP 状态码 + 服务端 error 原文直接回显到车机状态行
                     setStatus(false, "上传失败 HTTP " + r.code + errDetail(r.resp)
-                            + " · " + wait + "s 后重试");
+                            + " · 本次 " + kb + "KB · " + wait + "s 后重试");
                     w("L6LogUp", "上传失败 HTTP " + r.code + " " + r.resp + " → " + LOG_UPLOAD_URL);
                 }
                 // 失败即停，且不推进 sentOffset —— 已成功的批次不会重发，未发的下一轮从断点续
@@ -391,7 +396,7 @@ public final class L6Log {
             }
             if (sentLines > 0) {
                 noteSuccess();   // 有一批成功就说明链路通了，立刻回到每 60s 一次
-                setStatus(true, "已上传 " + sentLines + " 行"
+                setStatus(true, "已上传 " + sentLines + " 行 / " + sentKb + "KB"
                         + (chunks.length > 1 ? "（" + chunks.length + " 批）" : ""));
                 i("L6LogUp", "上传成功 " + sentLines + " 行 → " + LOG_UPLOAD_URL);
             }

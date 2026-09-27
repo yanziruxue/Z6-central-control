@@ -18,8 +18,19 @@ import java.util.List;
  */
 public final class LogBatch {
 
-    /** 单批行数上限。服务端 2000，留一半余量，避免边界抖动。 */
-    public static final int MAX_LINES_PER_BATCH = 1000;
+    /**
+     * 单批行数上限。服务端 2000，这里压到 500。
+     * 压这么低不是为了服务端（它 2000 行/203KB 实测都是 200 OK），而是为了**弱网**：
+     * 移动网络/NAT 上的中间设备会主动 RST 掉较大的 HTTPS POST，包越小越不容易被掐。
+     */
+    public static final int MAX_LINES_PER_BATCH = 500;
+
+    /**
+     * 单批字节上限。
+     * 光限行数不够：服务端 ECONNRESET 是**按体积**触发的（实测约 1.6MB 起），
+     * 如果单行特别长，1000 行照样能撑到 MB 级并被 reset。256KB 离阈值有足够安全距离。
+     */
+    public static final int MAX_BYTES_PER_BATCH = 256 * 1024;
 
     /** 单轮最多发几批。日志大量积压时防止一轮占住上传线程太久，剩下的下一轮继续。 */
     public static final int MAX_BATCHES_PER_ROUND = 10;
@@ -45,13 +56,25 @@ public final class LogBatch {
      * @param maxPerBatch 单批最多几行
      * @return 若干批；各批 endOffset 递增，最后一批的 endOffset == text 的 UTF-8 字节数
      */
+    /** 便捷入口：按默认的行数与字节上限切批。 */
     public static Chunk[] split(String text, int maxPerBatch) {
+        return split(text, maxPerBatch, MAX_BYTES_PER_BATCH);
+    }
+
+    /**
+     * @param text             到最后一个 '\n' 为止的完整内容（半行不该传进来）
+     * @param maxPerBatch      单批最多几行
+     * @param maxBytesPerBatch 单批最多几字节（按 UTF-8 算的实际行内容，不含换行符）
+     */
+    public static Chunk[] split(String text, int maxPerBatch, int maxBytesPerBatch) {
         if (text == null || text.isEmpty()) return new Chunk[0];
         if (maxPerBatch <= 0) throw new IllegalArgumentException("maxPerBatch 必须为正数");
+        if (maxBytesPerBatch <= 0) throw new IllegalArgumentException("maxBytesPerBatch 必须为正数");
 
         String[] arr = text.split("\n", -1);
         List<Chunk> out = new ArrayList<>();
         List<String> cur = new ArrayList<>();
+        int curBytes = 0;   // 本批已攒的行内容字节数
         int cursor = 0;
 
         for (int i = 0; i < arr.length; i++) {
@@ -66,12 +89,17 @@ public final class LogBatch {
             // 换行符本身也要算进偏移；split 的最后一个元素不带分隔符
             int step = ln.getBytes(StandardCharsets.UTF_8).length + (lastElem ? 0 : 1);
 
-            if (!s.isEmpty()) cur.add(s);
+            if (!s.isEmpty()) {
+                cur.add(s);
+                curBytes += s.getBytes(StandardCharsets.UTF_8).length;
+            }
 
             cursor += step;
-            if (cur.size() >= maxPerBatch) {
+            // 达到行数上限**或**字节上限都要切一刀 —— 服务端两样都会拒
+            if (cur.size() >= maxPerBatch || curBytes >= maxBytesPerBatch) {
                 out.add(new Chunk(cur.toArray(new String[0]), cursor));
                 cur.clear();
+                curBytes = 0;
             }
         }
         if (!cur.isEmpty()) out.add(new Chunk(cur.toArray(new String[0]), cursor));
