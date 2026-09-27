@@ -152,9 +152,19 @@ setTimeout(() => {
   const autoPlayBtn = d.getElementById('autoPlayBtn');
   const autoPlayOk = !!autoPlayBtn;
   const autoPlayBefore = autoPlayBtn ? autoPlayBtn.textContent : '';
+  // 「启动后自动播放」现在带当前状态位 #autoPlayState（写法对齐「上报api接口：已开启」）
+  const autoPlayStateEl = d.getElementById('autoPlayState');
+  const autoPlayStateBefore = autoPlayStateEl ? autoPlayStateEl.textContent : '';
   if (autoPlayBtn) autoPlayBtn.onclick();
   const autoPlayAfter = autoPlayBtn ? autoPlayBtn.textContent : '';
   const autoPlayToggle = autoPlayBefore !== autoPlayAfter;
+  const autoPlayStateAfter = autoPlayStateEl ? autoPlayStateEl.textContent : '';
+  const autoPlayStateDirty = autoPlayStateEl ? (autoPlayStateEl.style.color || '') : '';
+  const autoPlayStateOk = !!autoPlayStateEl
+    && /已开启|已关闭/.test(autoPlayStateBefore)
+    && autoPlayStateBefore !== autoPlayStateAfter
+    && /已开启|已关闭/.test(autoPlayStateAfter)
+    && autoPlayStateDirty.indexOf('var(') >= 0;   // 状态位要有颜色区分（绿=开启 / 红=关闭）
   const homeBridgeOk = typeof window.L6Native.openHomeSettings === 'function';
 
   // 音乐源：点「选择应用」→ 抽屉只列 2 个音乐 App（不含游戏）→ 选酷狗 → 按播放键自动后台拉起它接管
@@ -245,7 +255,7 @@ setTimeout(() => {
     && typeof window.L6Native.saveWallpaper === 'function' && errs.length === 0
     && navOnlyInstalled && navPageGone && layoutGone && wallListOk && wallUpOk
     && barOk && ovOk && homeOk && sysAccOk && rescanGone && srcRowOk && autoPlayOk
-    && autoPlayToggle && homeBridgeOk && musicLaunchBtnGone && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic && localNoLaunch
+    && autoPlayToggle && autoPlayStateOk && homeBridgeOk && musicLaunchBtnGone && launchMusicBridgeOk && musicLaunchCall && musicOnlyMusic && localNoLaunch
     && iconBridgeOk && iconDataOk && iconSlotsOk && srcIconOk
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
     && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk && emptyDiagOk

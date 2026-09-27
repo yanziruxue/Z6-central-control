@@ -306,7 +306,7 @@
   .src-row .set-cur{flex:0 1 auto;min-width:0;margin:0}
   .src-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .src-row .set-opt.pick{flex:0 0 auto;white-space:nowrap;margin-left:auto}
-  /* 手势配置行：方向名 + 当前绑定 + [跟随导航源] [选择应用] [清空] */
+  /* 手势配置行：方向名 + 当前绑定 + [选择应用] [清除] */
   .ges-row{display:flex;align-items:center;gap:8px;margin:6px 0}
   .ges-dir{flex:0 0 auto;width:46px;font-size:13px;opacity:.75}
   .ges-row .set-cur{flex:1 1 auto;min-width:0;margin:0}
@@ -442,7 +442,7 @@
             <div class="set-sec">
               <div class="set-label">手势</div>
               <div id="setGestures"><!-- 由 renderGestures() 生成四行 --></div>
-              <div class="set-hint">需从屏幕中心 1520×520 区域内起手才生效。绑定<b>「跟随导航源」</b>时，随上面导航源一起变。</div>
+              <div class="set-hint">需从屏幕中心 1520×520 区域内起手才生效。默认<b>「下滑」跟随导航源</b>（跟着上面导航源变），点「选择应用」可换成任意已装应用。</div>
             </div>
             <!-- 悬浮窗权限已并入下方「系统权限」卡片 -->
             <div class="set-sec">
@@ -470,7 +470,7 @@
               <div class="set-label">启动后自动播放音乐</div>
               <div class="ota-card">
                 <div class="ota-row">
-                  <span class="ota-cur">应用启动后自动开始播放</span>
+                  <span class="ota-cur">应用启动后自动开始播放：<b id="autoPlayState">读取中…</b></span>
                   <button class="set-opt" id="autoPlayBtn">○ 关闭</button>
                 </div>
                 <div class="ota-status" id="autoPlayMsg">开启后，每次打开本应用会自动后台唤醒当前音乐源播放，不拉起音乐 App 界面，也不会出现悬浮返回按钮。</div>
@@ -1245,14 +1245,14 @@ function renderGestures(){
     const nm=document.createElement("div"); nm.className="ges-dir"; nm.textContent=dir.n;
     const cur=document.createElement("div"); cur.className="set-cur";
     cur.innerHTML=iconHTML(it.pkg,it.icon,'src-ic')+'<b>'+it.name+'</b>';
-    const bNav=document.createElement("button"); bNav.className="set-opt"; bNav.textContent="跟随导航源";
+    // 只剩「选择应用 / 清除」两个按钮：「跟随导航源」入口已按需求移除，
+    // 但它仍是 "nav" 这一绑定值的语义（默认下滑就是它），所以 gestureItem 里那支仍要保留。
     const bPick=document.createElement("button"); bPick.className="set-opt"; bPick.textContent="📂 选择应用";
     const bClr=document.createElement("button"); bClr.className="set-opt"; bClr.textContent="清除";
-    bNav.onclick=function(){ setGesture(dir.k,"nav"); };
     bPick.onclick=function(){ openAppPicker(null,function(a){ setGesture(dir.k,a.key||a.pkg); }); };
     bClr.onclick=function(){ setGesture(dir.k,""); };
     row.appendChild(nm); row.appendChild(cur);
-    row.appendChild(bNav); row.appendChild(bPick); row.appendChild(bClr);
+    row.appendChild(bPick); row.appendChild(bClr);
     box.appendChild(row);
   });
 }
@@ -1693,16 +1693,23 @@ setTimeout(readOvState,1200);
    实时枚举，无需手动重扫。注意按钮 DOM 删了就不能再留 $("#rescanApps").onclick 赋值 ——
    对 null 赋属性会抛错并中断后面整段脚本。 */
 
-/* ---- 启动后自动播放音乐（持久化到 localStorage） ---- */
+/* ---- 启动后自动播放音乐（持久化到 localStorage） ----
+   写法对齐「上报api接口：<已开启/已关闭>」：左侧状态位 + 右侧开关按钮。 */
 function syncAutoPlay(){
-  var b=$("#autoPlayBtn"); if(!b)return;
-  b.textContent=settings.autoPlay?"● 开启":"○ 关闭";
+  var b=!!settings.autoPlay;
+  var el=$("#autoPlayState");
+  if(el){ el.textContent=b?"已开启":"已关闭"; el.style.color=b?"var(--acc2)":"var(--red)"; }
+  var btn=$("#autoPlayBtn"); if(btn)btn.textContent=b?"● 开启":"○ 关闭";
 }
-$("#autoPlayBtn").onclick=function(){
-  settings.autoPlay=!settings.autoPlay;
-  if(typeof saveSettings==="function")saveSettings();
-  syncAutoPlay();
-};
+// 绑定必须判空：按钮 DOM 一旦被删，直接 onclick 赋值会让整段脚本中断
+var apBtn=$("#autoPlayBtn");
+if(apBtn){
+  apBtn.onclick=function(){
+    settings.autoPlay=!settings.autoPlay;
+    if(typeof saveSettings==="function")saveSettings();
+    syncAutoPlay();
+  };
+}
 syncAutoPlay();
 
 /* ---- 壁纸压暗层（持久化）：关掉后壁纸原图显示，不加任何蒙层 ---- */

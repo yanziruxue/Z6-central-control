@@ -130,9 +130,17 @@ setTimeout(() => {
     G() === JSON.stringify({ up: '', down: 'nav', left: '', right: '' }), G());
   check('手势卡片渲染出 4 行', d.querySelectorAll('#setGestures .ges-row').length === 4,
     `实得 ${d.querySelectorAll('#setGestures .ges-row').length} 行`);
-  check('每行有 3 个操作按钮',
+  check('每行只有「选择应用 / 清除」2 个按钮',
     d.querySelectorAll('#setGestures .ges-row').length > 0 &&
-    [...d.querySelectorAll('#setGestures .ges-row')].every(r => r.querySelectorAll('button').length === 3));
+    [...d.querySelectorAll('#setGestures .ges-row')].every(r => r.querySelectorAll('button').length === 2),
+    `实得 ${[...d.querySelectorAll('#setGestures .ges-row')].map(r => r.querySelectorAll('button').length).join('/')}`);
+  // 「跟随导航源」按钮已按需求移除；但它仍是 "nav" 绑定值的语义（默认下滑）， UI 上不能再出现入口
+  check('「跟随导航源」按钮已移除',
+    !/跟随导航源/.test([...d.querySelectorAll('#setGestures button')].map(b => b.textContent).join('|')),
+    [...d.querySelectorAll('#setGestures button')].map(b => b.textContent).join(' / '));
+  check('默认下滑仍显示为「跟随导航源」（保留 nav 语义）',
+    /跟随导航源/.test(d.querySelectorAll('#setGestures .ges-row')[1].textContent || ''),
+    (d.querySelectorAll('#setGestures .ges-row')[1] || {}).textContent);
 
   /* ---------- ④ 默认：下滑 → 调导航 ---------- */
   toHome(); reset();
