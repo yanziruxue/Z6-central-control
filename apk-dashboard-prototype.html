@@ -110,6 +110,8 @@
   .ota-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
   .ota-cur{font-size:12px;color:var(--sub)}.ota-cur b{color:var(--txt);font-weight:700}
   .ota-status{font-size:12px;color:var(--sub);min-height:18px}
+  /* 上报失败文案会带上 HTTP 码与服务端 error 原文，变长后必须允许断行，否则溢出卡片 */
+  #logUpMsg{word-break:break-all;line-height:1.45}
   .ota-status.ok{color:var(--acc2)}.ota-status.err{color:var(--red)}
   .ota-new-v{font-size:14px;font-weight:700;color:var(--acc2);margin-top:4px}
   .ota-cl{font-size:12px;color:var(--sub)}.ota-cl summary{cursor:pointer;padding:4px 0;user-select:none}

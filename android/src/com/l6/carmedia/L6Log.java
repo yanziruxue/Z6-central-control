@@ -323,22 +323,37 @@ public final class L6Log {
             body.put("file", name);
             body.put("ts", System.currentTimeMillis());
             body.put("lines", lines);
-            boolean ok = postJson(LOG_UPLOAD_URL, body.toString());
-            if (ok) {
+            PostResult r = postJson(LOG_UPLOAD_URL, body.toString());
+            if (r.ok()) {
                 sentOffset += compBytes.length;
                 setStatus(true, "已上传 " + lines.length() + " 行");
                 i("L6LogUp", "上传成功 " + lines.length() + " 行 → " + LOG_UPLOAD_URL);
+            } else if (r.code < 0) {
+                // 根本没连上（DNS/TLS/超时）：没有 HTTP 状态码可显示，回显网络异常
+                setStatus(false, "上传失败（网络异常：" + r.err + "）");
+                w("L6LogUp", "上传失败（网络异常）" + r.err + " → " + LOG_UPLOAD_URL);
             } else {
-                setStatus(false, "上传失败（HTTP 错误）");
-                w("L6LogUp", "上传失败 → " + LOG_UPLOAD_URL);
+                // 服务端有回应但不是 2xx：把 HTTP 状态码 + 服务端 error 原文直接回显到车机状态行
+                setStatus(false, "上传失败 HTTP " + r.code + errDetail(r.resp));
+                w("L6LogUp", "上传失败 HTTP " + r.code + " " + r.resp + " → " + LOG_UPLOAD_URL);
             }
         } catch (Throwable t) {
             setStatus(false, "异常:" + (t.getMessage() == null ? "?" : t.getMessage()));
         }
     }
 
-    /** POST JSON 到指定 URL（沿用 Ota/Lyrics 的 HttpURLConnection 风格）。返回是否 2xx。 */
-    private static boolean postJson(String url, String json) {
+    /** POST 结果：HTTP 状态码 + 服务端响应体 + 网络异常信息（用于让车机状态行显示真实失败原因）。 */
+    private static final class PostResult {
+        int code = -1;      // HTTP 状态码；<0 表示根本没连上（DNS/TLS/超时/未知主机）
+        String resp = "";   // 服务端响应体（最多 512 字符），失败时里面有 error 原文
+        String err = "";    // 网络异常信息（code<0 时有效）
+
+        boolean ok() { return code >= 200 && code < 300; }
+    }
+
+    /** POST JSON 到指定 URL（沿用 Ota/Lyrics 的 HttpURLConnection 风格）。返回状态码与响应体。 */
+    private static PostResult postJson(String url, String json) {
+        PostResult r = new PostResult();
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL(url).openConnection();
@@ -350,16 +365,36 @@ public final class L6Log {
             OutputStream os = c.getOutputStream();
             os.write(json.getBytes(StandardCharsets.UTF_8));
             os.close();
-            int code = c.getResponseCode();
+            r.code = c.getResponseCode();
+            // 失败时服务端会在响应体里给出 error 原文，读出来回显到车机；成功时也要读完以释放连接
             BufferedReader br = new BufferedReader(new InputStreamReader(
-                    code < 400 ? c.getInputStream() : c.getErrorStream(), StandardCharsets.UTF_8));
-            while (br.readLine() != null) { }
+                    r.code < 400 ? c.getInputStream() : c.getErrorStream(), StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String ln;
+            while ((ln = br.readLine()) != null) sb.append(ln).append('\n');
             br.close();
-            return code >= 200 && code < 300;
+            r.resp = sb.length() > 512 ? sb.substring(0, 512) : sb.toString();
         } catch (Throwable t) {
-            return false;
+            r.code = -1;
+            r.err = t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
         } finally {
             if (c != null) try { c.disconnect(); } catch (Throwable ignored) { }
+        }
+        return r;
+    }
+
+    /** 从服务端响应体里摘一句人类可读原因（优先 error，其次 message），取不到则返回空串。 */
+    private static String errDetail(String resp) {
+        if (resp == null || resp.isEmpty()) return "";
+        try {
+            JSONObject o = new JSONObject(resp);
+            String s = o.optString("error", "");
+            if (s.isEmpty()) s = o.optString("message", "");
+            if (s.isEmpty()) return "";
+            if (s.length() > 60) s = s.substring(0, 60) + "…";
+            return "：" + s;
+        } catch (Throwable t) {
+            return "";
         }
     }
 }
