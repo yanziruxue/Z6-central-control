@@ -56,6 +56,13 @@
   /* transform 使 #stage 成为内部 position:fixed 元素（壁纸层/抽屉/弹层/Toast）的包含块，全部随画布缩放 */
   #stage{position:fixed;left:50%;top:50%;width:1920px;height:720px;
     transform:translate(-50%,-50%) scale(var(--l6s,1));transform-origin:center center;overflow:hidden}
+  /* ===== 主页「下滑调导航」热区：1520x520 居中于 1920x720 画布（左上 200,100）=====
+     仅为命中判定提供 rect —— 不可见、不拦截事件（pointer-events:none）。
+     ★ 绝不能 display:none：那样 getBoundingClientRect() 全为 0，判定永远失败。
+     ★ rect 已含 #stage 的 scale 变换，因此不必手工乘缩放系数。
+     调试时可临时加 outline:1px solid #0f0 看范围 */
+  #navHot{position:absolute;left:200px;top:100px;width:1520px;height:520px;
+    pointer-events:none;z-index:0}
   body{background:#05070b}
 
   /* ===== 顶部状态栏（含负载/温度/延时） ===== */
@@ -299,6 +306,12 @@
   .src-row .set-cur{flex:0 1 auto;min-width:0;margin:0}
   .src-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .src-row .set-opt.pick{flex:0 0 auto;white-space:nowrap;margin-left:auto}
+  /* 手势配置行：方向名 + 当前绑定 + [跟随导航源] [选择应用] [清空] */
+  .ges-row{display:flex;align-items:center;gap:8px;margin:6px 0}
+  .ges-dir{flex:0 0 auto;width:46px;font-size:13px;opacity:.75}
+  .ges-row .set-cur{flex:1 1 auto;min-width:0;margin:0}
+  .ges-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ges-row .set-opt{flex:0 0 auto;padding:6px 10px;font-size:12px;white-space:nowrap}
   /* 真实应用图标（原生 getAppIcon 返回 PNG data URL）；取不到时回落 emoji 占位 */
   .app-ic{width:20px;height:20px;border-radius:5px;object-fit:contain;display:inline-block;
     vertical-align:middle;background:rgba(255,255,255,.06)}
@@ -345,6 +358,8 @@
 <body data-page-node-id="rFqGwwoKWLaLOhDIUFuGcx">
 <div id="rotate" data-page-node-id="Z248YuTFGhL7E6BaXs8eri"><div class="ico" data-page-node-id="7RGS5n8CDlfOsKEsaNg2Ar">📱</div><div data-page-node-id="QHzHioYH6b9JQfsiKcGHij">请旋转设备为横屏</div></div>
 <div id="stage">
+<!-- 主页下滑调导航的命中热区（1520x520 居中），纯判定用、不可见 -->
+<div id="navHot" aria-hidden="true"></div>
 <div id="wallMedia"></div>
 <video id="wallVideo" autoplay loop muted playsinline></video>
 <div id="wallScrim"></div>
@@ -421,7 +436,13 @@
                 <div class="set-cur" id="navSrcCur"></div>
                 <button class="set-opt pick" id="navPickApp">📂 选择应用</button>
               </div>
-              <div class="set-hint">点「选择应用」从已安装导航 App 中选取；<b>dock 导航按钮</b>或<b>主页上滑</b>直接拉起该 App。</div>
+              <div class="set-hint">点「选择应用」从已安装导航 App 中选取；<b>dock 导航按钮</b>或<b>主页下滑</b>直接拉起该 App。</div>
+            </div>
+            <!-- 手势：四个方向各绑一个应用；默认「下滑 = 跟随导航源」，其余未绑定 -->
+            <div class="set-sec">
+              <div class="set-label">手势</div>
+              <div id="setGestures"><!-- 由 renderGestures() 生成四行 --></div>
+              <div class="set-hint">需从屏幕中心 1520×520 区域内起手才生效。绑定<b>「跟随导航源」</b>时，随上面导航源一起变。</div>
             </div>
             <!-- 悬浮窗权限已并入下方「系统权限」卡片 -->
             <div class="set-sec">
@@ -484,6 +505,8 @@
               <div class="ota-card">
                 <div class="ota-row">
                   <span class="ota-cur">上报api接口：<b id="logUpState">读取中…</b></span>
+                  <!-- 立即上报：手动发一次，即使开关关闭也会强制发送（开关只管每 60s 的自动上报） -->
+                  <button class="set-opt" id="logNowBtn">立即上报</button>
                   <button class="set-opt" id="logApiBtn">● 开启</button>
                 </div>
                 <div class="ota-status" id="logUpMsg">每分钟自动上报一次到日志接口（首次约 5s 后开始）。</div>
@@ -766,24 +789,65 @@ function setWallForPage(onHome){
   if(!onHome){wm.style.display="none";wv.style.display="none";if(ws)ws.style.display="none";document.body.style.background="var(--bg)";}
   else{applyWall();}
 }
-let sy=0,sv=false;
-vp.addEventListener("touchstart",e=>{sy=e.touches[0].clientY;sv=true},{passive:true});
-vp.addEventListener("touchmove",e=>{if(!sv)return;const dy=e.touches[0].clientY-sy;
-  if(Math.abs(dy)>40){navSwipe(dy);sv=false;}},{passive:true});
+/* ===== 主页「下滑」调起导航的热区判定（1520x520 居中于 1920x720 画布）=====
+   触点坐标是真实窗口像素，而界面在 #stage 内被 scale 缩放 —— 不能直接比像素。
+   这里取 #navHot 的 getBoundingClientRect()（本身已含缩放），坐标换算交由浏览器完成，
+   既避开 vh/vw 不受 transform 影响的坑，也避免手写 scale 系数与实际渲染不同步。 */
+function inNavHot(cx,cy){
+  try{
+    const h=document.getElementById("navHot");
+    if(h){
+      const r=h.getBoundingClientRect();
+      return r.width>0 && cx>=r.left && cx<=r.right && cy>=r.top && cy<=r.bottom;
+    }
+  }catch(e){}
+  // 兜底：热区元素缺失时按 #stage 还原设计坐标，再与 200,100 → 1720,620 比较
+  try{
+    const st=document.getElementById("stage");
+    if(!st)return false;
+    const r=st.getBoundingClientRect();
+    if(!r.width||!r.height)return false;
+    const dx=(cx-r.left)/r.width*1920, dy=(cy-r.top)/r.height*720;
+    return dx>=200 && dx<=1720 && dy>=100 && dy<=620;
+  }catch(e){ return false; }
+}
+const SWIPE_MIN=40;   // 手势触发阈值（设计像素）
+let sx=0,sy=0,sv=false,svHot=false;
+vp.addEventListener("touchstart",e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;sv=true;
+  svHot=inNavHot(sx,sy)},{passive:true});
+vp.addEventListener("touchmove",e=>{if(!sv)return;
+  const dx=e.touches[0].clientX-sx, dy=e.touches[0].clientY-sy;
+  if(Math.max(Math.abs(dx),Math.abs(dy))>SWIPE_MIN){handleSwipe(dx,dy,svHot);sv=false;}},{passive:true});
 vp.addEventListener("touchend",()=>sv=false);
-vp.addEventListener("wheel",e=>{if(Math.abs(e.deltaY)<8)return;navSwipe(e.deltaY);},{passive:true});
-// 鼠标拖拽上下滑动切换页面（桌面预览无触摸/滚轮被外层吞掉时可用）；设置页禁用滑动，仅可点 dock 返回
-let psy=0,psv=false;
-vp.addEventListener("pointerdown",e=>{if(e.pointerType==="touch")return;psy=e.clientY;psv=true;},{passive:true});
-vp.addEventListener("pointermove",e=>{if(!psv||e.pointerType==="touch")return;const dy=e.clientY-psy;
-  if(Math.abs(dy)>40){navSwipe(dy);psv=false;}},{passive:true});
+// 滚轮只有纵向：向下滚(deltaY>0)=下滑，向上滚=上滑
+vp.addEventListener("wheel",e=>{if(Math.abs(e.deltaY)<8)return;
+  handleSwipe(0,e.deltaY,inNavHot(e.clientX,e.clientY));},{passive:true});
+// 鼠标拖拽滑动（桌面预览无触摸/滚轮被外层吞掉时可用）；设置页禁用滑动，仅可点 dock 返回
+let psx=0,psy=0,psv=false,psvHot=false;
+vp.addEventListener("pointerdown",e=>{if(e.pointerType==="touch")return;psx=e.clientX;psy=e.clientY;psv=true;
+  psvHot=inNavHot(psx,psy);},{passive:true});
+vp.addEventListener("pointermove",e=>{if(!psv||e.pointerType==="touch")return;
+  const dx=e.clientX-psx, dy=e.clientY-psy;
+  if(Math.max(Math.abs(dx),Math.abs(dy))>SWIPE_MIN){handleSwipe(dx,dy,psvHot);psv=false;}},{passive:true});
 vp.addEventListener("pointerup",()=>psv=false);
 vp.addEventListener("pointercancel",()=>psv=false);
-// 滑动分发：设置页(idx 末页)禁用滑动；主页上滑 → 直接调起导航 App；其余上下切页
-function navSwipe(dy){
-  if(idx===pages.length-1)return;                  // 设置页：只能用 dock 返回
-  if(dy<0 && idx===0){ startNav(navApp); return; } // 主页上滑 → 直接调起导航
-  go(idx+(dy<0?1:-1));
+/**
+ * 滑动分发：调 x/y 位移取主方向，再查该方向绑了什么。
+ *   hot = 按下点是否落在 1520×520 中心热区内。
+ *   设置页(末页)：完全禁用滑动，只能点 dock 返回；
+ *   非主页：照常纵向翻页（当前两页结构下不会走到，保留给以后加页）；
+ *   主页：必须命中热区，其余交 runGesture(dir) —— 未绑定则什么都不做。
+ */
+function handleSwipe(dx,dy,hot){   // 阈值由各输入路径把关：触摸/拖拽 40px，滚轮 8px
+  if(idx===pages.length-1)return;                     // 设置页：只能用 dock 返回
+  if(idx!==0){ go(idx+(dy<0?1:-1)); return; }         // 非主页：纵向翻页不受热区限制
+  if(!hot) return;                                    // 主页：热区外一律不响应（防误触）
+  const ax=Math.abs(dx), ay=Math.abs(dy);
+  if(ax===0&&ay===0) return;                // 无位移不响应（防止 dy=0 被判成「上滑」）
+  let dir;
+  if(ax>ay) dir = dx>0 ? "right" : "left";              // 横向分量占优
+  else      dir = dy>0 ? "down"  : "up";                // 纵向分量占优
+  runGesture(dir);
 }
 document.querySelectorAll(".dock-btn").forEach(b=>b.onclick=()=>{
   if(b.dataset.go==="home")go(0);
@@ -800,7 +864,12 @@ const settings={musicSrc:"usb",navApp:"",wall:"static",wallColor:"#0b0e14",autoP
   dockApps:{list:[],max:6},
   wallList:{static:[{id:"preset",name:"预设壁纸",src:DEFAULT_WALL}],
             dynamic:[{id:"preset",name:"预设动态壁纸",src:"",vid:false}]},
-  pick:{static:"preset",dynamic:"preset"}};
+  pick:{static:"preset",dynamic:"preset"},
+  /* 四方向手势绑定，取值语义：
+       ""    = 未绑定（什么都不做）
+       "nav" = 跟随「当前导航源」（运行时解析成 settings.navApp，用户换源即跟着换）
+       其它  = 应用 key 或包名 */
+  gestures:{up:"",down:"nav",left:"",right:""}};
 /* ---- 设置持久化（localStorage）：只存轻量字段 + 「上传的」壁纸项；内置预设不入库（由常量重建，避免超配额） ---- */
 // 只取「上传的」壁纸项（id 非 preset）
 function uploadedWalls(){
@@ -811,7 +880,7 @@ function saveSettings(){
   const data={ musicSrc:settings.musicSrc, navApp:settings.navApp, wall:settings.wall,
     wallColor:settings.wallColor, pick:settings.pick, autoPlay:settings.autoPlay,
     wallDim:settings.wallDim,
-    dockApps:settings.dockApps, wallList:uploadedWalls() };
+    dockApps:settings.dockApps, gestures:settings.gestures, wallList:uploadedWalls() };
   try{ localStorage.setItem("l6_settings_v1", JSON.stringify(data)); }
   catch(e){
     // 配额超限：退为只存元信息（丢弃壁纸数据），至少保住「类型 / 选中项 / 音乐源」等设置
@@ -841,6 +910,18 @@ function loadSettings(){ try{ const s=JSON.parse(localStorage.getItem("l6_settin
     });
   } }catch(e){} }
 loadSettings();
+/* 手势配置归一化：旧存档没有 gestures 时 Object.assign 会留 undefined，缺某个方向也会让
+   手势分发取到 undefined；这里统一补默认值，保证四个键永远是字符串。 */
+function normalizeGestures(){
+  const def={up:"",down:"nav",left:"",right:""};   // 默认：下滑=跟随导航源，其余未绑定
+  const g=(settings.gestures&&typeof settings.gestures==="object")?settings.gestures:{};
+  const out={};
+  ["up","down","left","right"].forEach(function(k){
+    out[k]=(typeof g[k]==="string")?g[k]:def[k];
+  });
+  settings.gestures=out;
+}
+normalizeGestures();
 /* --- 原生桥接：真实 APK 由 Android PackageManager 返回已装应用（pkg/key/name/icon/type） --- */
 window.L6Native = window.L6Native || {};
 if(!window.L6Native.getInstalledApps){
@@ -944,9 +1025,13 @@ function buildNavApp(){
 function renderNavSrcCur(){
   const el=$("#navSrcCur"); if(!el)return;
   const a=NAV_APPS.filter(x=>(x.key||x.pkg)===settings.navApp)[0];
-  if(!a){ el.textContent="未选择导航应用"; el.title=""; return; }
-  el.title="当前导航源："+a.name;   // 前缀移入 title：与「选择应用」同处一行，容不下长前缀
-  el.innerHTML=iconHTML(a.pkg,a.icon||"🧭",'src-ic')+'<b>'+a.name+'</b>';
+  if(!a){ el.textContent="未选择导航应用"; el.title=""; }
+  else{
+    el.title="当前导航源："+a.name;   // 前缀移入 title：与「选择应用」同处一行，容不下长前缀
+    el.innerHTML=iconHTML(a.pkg,a.icon||"🧭",'src-ic')+'<b>'+a.name+'</b>';
+  }
+  // 「跟随导航源」这一项要跟着导航源变，所以每次刷新导航源都重画手势行
+  if(typeof renderGestures==="function")renderGestures();
 }
 buildMusicSrc();buildNavApp();buildDockApps();
 loadTrack();startLyrics();
@@ -1113,6 +1198,102 @@ function openAppList(){ openAppPicker(null, function(a){ launchAppPkg(a.pkg); })
   var c=document.getElementById("appListClose"); if(c)c.onclick=closeAppList;
   var sc=document.getElementById("appScrim"); if(sc)sc.onclick=closeAppList;
 })();
+
+/* ==================== 手势配置（四方向） ====================
+   方向按中文语义命名：
+     up    上滑 = 手指从下往上（dy<0）
+     down  下滑 = 手指从上往下（dy>0）
+     left  左滑 = 手指从右往左（dx<0）
+     right 右滑 = 手指从左往右（dx>0）
+   绑定值："" 未绑定 / "nav" 跟随导航源 / 其它为应用 key 或包名。 */
+const GESTURE_DIRS=[{k:"up",n:"上滑"},{k:"down",n:"下滑"},{k:"left",n:"左滑"},{k:"right",n:"右滑"}];
+// 抽屉要从「全部已装应用」里挑，这里缓存一份用于把包名还原成显示名
+window.__ALL_APPS=[];
+function refreshGestureApps(){
+  try{
+    const n=window.L6Native;
+    if(!n||!n.getAllApps) return;
+    n.getAllApps(function(list){
+      window.__ALL_APPS=Array.isArray(list)?list:[];
+      if(typeof renderGestures==="function")renderGestures();
+    });
+  }catch(e){}
+}
+// 把某个方向的绑定值解析成可显示项
+function gestureItem(dir){
+  const v=(settings.gestures||{})[dir]||"";
+  if(!v) return {kind:"none",pkg:"",name:"未绑定",icon:"🚫"};
+  if(v==="nav"){
+    const a=NAV_APPS.filter(x=>(x.key||x.pkg)===settings.navApp)[0];
+    return {kind:"nav",pkg:a?(a.pkg||""):"",name:"跟随导航源"+(a?"（"+a.name+"）":""),icon:"🧭"};
+  }
+  const list=window.__ALL_APPS||[];
+  const a=list.filter(x=>(x.key||x.pkg)===v||x.pkg===v)[0];
+  return {kind:"pkg",pkg:v,name:a?a.name:v,icon:a?(a.icon||"▦"):"📦"};
+}
+// 画四行手势配置（每次绑定变化都会重画）
+function renderGestures(){
+  const box=$("#setGestures"); if(!box)return;
+  // ★ GESTURE_DIRS 是 const，存在 TDZ：本函数会被 buildNavApp→renderNavSrcCur 在它初始化之前调用，
+  //   直接访问会抛 ReferenceError 并让整段初始化链中断。这里必须 try/catch 兜住。
+  let dirs=[]; try{ dirs=GESTURE_DIRS; }catch(e){ return; }
+  if(!dirs||!dirs.length) return;
+  box.innerHTML="";
+  dirs.forEach(function(dir){
+    const it=gestureItem(dir.k);
+    const row=document.createElement("div"); row.className="ges-row";
+    const nm=document.createElement("div"); nm.className="ges-dir"; nm.textContent=dir.n;
+    const cur=document.createElement("div"); cur.className="set-cur";
+    cur.innerHTML=iconHTML(it.pkg,it.icon,'src-ic')+'<b>'+it.name+'</b>';
+    const bNav=document.createElement("button"); bNav.className="set-opt"; bNav.textContent="跟随导航源";
+    const bPick=document.createElement("button"); bPick.className="set-opt"; bPick.textContent="📂 选择应用";
+    const bClr=document.createElement("button"); bClr.className="set-opt"; bClr.textContent="清除";
+    bNav.onclick=function(){ setGesture(dir.k,"nav"); };
+    bPick.onclick=function(){ openAppPicker(null,function(a){ setGesture(dir.k,a.key||a.pkg); }); };
+    bClr.onclick=function(){ setGesture(dir.k,""); };
+    row.appendChild(nm); row.appendChild(cur);
+    row.appendChild(bNav); row.appendChild(bPick); row.appendChild(bClr);
+    box.appendChild(row);
+  });
+}
+// 写绑定 + 持久化 + 重画 + 轻提示
+function setGesture(dir,v){
+  if(!settings.gestures||typeof settings.gestures!=="object"){
+    settings.gestures={up:"",down:"nav",left:"",right:""};   // 防御：被意外置空时重建
+  }
+  settings.gestures[dir]=v||"";
+  if(typeof saveSettings==="function")saveSettings();
+  renderGestures();
+  if(typeof toastL6==="function")toastL6(dirName(dir)+"已设为"+(v==="nav"?"跟随导航源":gestureItem(dir).name));
+}
+// 方向 key → 中文名（同样要躲 const 的 TDZ）
+function dirName(k){
+  try{
+    const it=GESTURE_DIRS.filter(x=>x.k===k)[0];
+    return it?it.n:k;
+  }catch(e){ return k; }
+}
+/**
+ * 执行某个方向绑定的动作。
+ * 返回 false 表示「未绑定」，调用方可据此走兜底逻辑。
+ * 通道选择很关键：
+ *   nav → startNav()（原生 launchApp，带悬浮返回按钮 + HOME 保活，桌面场景下能回到导航）
+ *   其它 App → launchAppPkg()（原生 launchPkg，不挂按钮、不进保活，避免音乐等 App 被塞个返回悬浮窗）
+ */
+function runGesture(dir){
+  const v=(settings.gestures||{})[dir]||"";
+  if(!v) return false;
+  if(v==="nav"){
+    if(!navApp) return false;          // 还没识别出导航 App → 交给原生兜底逻辑去提示
+    startNav(navApp);
+    return true;
+  }
+  launchAppPkg(v);
+  return true;
+}
+// 手势四行初始化：必须放在 GESTURE_DIRS 定义之后（const 的 TDZ）
+renderGestures();
+refreshGestureApps();   // 拉全部已装应用，用于把包名还原成显示名
 
 /* ===== 壁纸：静态 / 动态 两个列表 + 上传（合并为一个模块） ===== */
 const WALL_DIR={static:"Download/L6/壁纸/静态",dynamic:"Download/L6/壁纸/动态"};
@@ -1578,11 +1759,41 @@ setTimeout(readTheme,1200);   // SHIM 注入晚于页面解析，补读一次
 
 /* ---- 运行日志：只保留「上报 api 接口」开关 + 上次上报状态 ----
    开关经原生桥 setApiUpload / isApiUpload 控制 L6Log 的定时上报（60s 一次）；Tasker 广播保持常开。 */
+/* ---- 「立即上报」：手动触发一次 API 上报 ----
+   原生侧 uploadLog() → L6Log.uploadNow(true)，绕过「上报api接口」开关强制发送；
+   开关的语义被限定为「是否每 60s 自动上报」，手动按钮永远可用。 */
+var logNowBusy=false, logNowTimer=0;
+var LOG_NOW_TIMEOUT=15000;   // 等待原生回推结果的上限；超时给兜底提示，避免永远停在「正在上报…」
+/* 收尾：撤销超时兜底 + 恢复按钮（结果回推 或 超时 都走这里） */
+function logNowFinish(){
+  if(logNowTimer){ clearTimeout(logNowTimer); logNowTimer=0; }
+  logNowBusy=false;
+  var b=$("#logNowBtn"); if(b){ b.disabled=false; b.textContent="立即上报"; }
+}
+var logNowEl=$("#logNowBtn");
+if(logNowEl){
+  logNowEl.onclick=function(){
+    if(logNowBusy)return;                       // 已有一次上报在飞 → 忽略重复点击（防连点）
+    var n=l6n(); if(!n||typeof n.uploadLog!=="function")return;
+    logNowBusy=true;
+    var b=$("#logNowBtn"); if(b){ b.disabled=true; b.textContent="上报中…"; }
+    var el=$("#logUpMsg"); if(el){ el.textContent="正在上报…"; el.style.color="var(--sub)"; }
+    try{ n.uploadLog(); }catch(e){ logNowFinish(); return; }
+    logNowTimer=setTimeout(function(){
+      logNowTimer=0; logNowBusy=false;
+      var b2=$("#logNowBtn"); if(b2){ b2.disabled=false; b2.textContent="立即上报"; }
+      var e2=$("#logUpMsg");
+      if(e2){ e2.textContent="⏳ 未收到上报结果（"+Math.max(1,Math.round(LOG_NOW_TIMEOUT/1000))+"s 超时），请检查服务端接口或网络";
+              e2.style.color="var(--red)"; }
+    },LOG_NOW_TIMEOUT);
+  };
+}
 /* 原生每次上报后回推的状态（{ok,msg,ts}），实时刷新卡片提示 */
 function L6LogUploadStatus(s){
   var el=$("#logUpMsg"); if(!el||!s)return;
   el.textContent=(s.ok?"✅ 上报成功":"⚠️ 上报失败")+"："+(s.msg||"")+" · "+new Date(s.ts).toLocaleTimeString();
   el.style.color=s.ok?"var(--acc2)":"var(--red)";
+  logNowFinish();          // 拿到结果 = 本次手动上报结束 → 恢复按钮并撤销超时兜底
 }
 /* 读取 API 上报开关状态并同步到界面 */
 function syncLogApi(){

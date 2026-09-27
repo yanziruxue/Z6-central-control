@@ -1580,10 +1580,14 @@ public class MainActivity extends Activity {
             }
         }
 
-        /** 手动触发一次日志上传（每 60s 还会自动上传；网络在后台线程执行）。 */
+        /**
+         * 手动触发一次日志上传（每 60s 还会自动上传；网络在后台线程执行）。
+         * 走的是 uploadNow(true)：即便「上报api接口」开关处于关闭，手动点按钮也要真的发出去，
+         * 否则在关闭态点击会完全静默 —— 不打服务器、也不回调状态，界面看起来像按钮坏了。
+         */
         @JavascriptInterface
         public void uploadLog() {
-            L6Log.uploadNow();
+            L6Log.uploadNow(true);
         }
 
         /** 最近一次上传结果 JSON（{ok,msg,ts}），供设置页显示「上次上传」。 */

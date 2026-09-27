@@ -68,7 +68,8 @@ public final class L6Log {
     private static String deviceId = "unknown";  // 设备标识（ANDROID_ID），多车机区分来源
     private static JSONObject lastStatus = new JSONObject();  // 最近一次上传结果，供页面读取
     private static UploadListener uploadListener;
-    private static final Runnable UPLOAD_TASK = L6Log::uploadOnce;
+    /** 定时任务的上传动作：受开关约束。手动上报另走 uploadNow(true) 的强制分支。 */
+    private static final Runnable UPLOAD_TASK = () -> uploadOnce(false);
     private static final SimpleDateFormat FMT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT);
     private static final SimpleDateFormat DATE = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
 
@@ -227,10 +228,23 @@ public final class L6Log {
     /** 页面读取最近一次上传状态（JSON：{ok,msg,ts}）。 */
     public static String getUploadStatus() { return lastStatus != null ? lastStatus.toString() : "{}"; }
 
-    /** 手动触发一次上传（供设置页「立即上传」按钮；网络在后台线程执行，不阻塞 UI）。 */
+    /**
+     * 手动触发一次上传（设置页「立即上报」按钮；网络在后台线程执行，不阻塞 UI）。
+     * 手动走 force=true —— 开关只管「每 60s 自动上报」，用户显式点按钮就该真的发出去；
+     * 若在这里被开关静默拦掉，表现就是「点了没反应」，极易被当成 bug。
+     */
     public static void uploadNow() {
-        if (scheduler != null) scheduler.execute(UPLOAD_TASK);
-        else new Thread(UPLOAD_TASK).start();
+        uploadNow(true);
+    }
+
+    /**
+     * 触发一次上传。
+     * @param force true = 忽略「上报api接口」开关强制发送（手动按钮）；false = 受开关约束（定时任务）
+     */
+    public static void uploadNow(boolean force) {
+        final Runnable task = () -> uploadOnce(force);
+        if (scheduler != null) scheduler.execute(task);
+        else new Thread(task).start();
     }
 
     /** 确定设备标识并启动每 60s 的周期性上传（首次延迟 5s，避免启动即打服务器）。 */
@@ -272,8 +286,13 @@ public final class L6Log {
      * 只发以 '\n' 结尾的完整行；最后一行尚未写完则等下一轮，避免半行/重复。
      * 跨天换文件（l6-YYYY-MM-DD.log）时 sentFile 不匹配 → 偏移归零、从头发新文件。
      */
+    /** 定时上报入口：受设置页开关约束。 */
     private static void uploadOnce() {
-        if (!apiUploadEnabled) return;   // 设置页关闭了「上报api接口」：完全不打服务器
+        uploadOnce(false);
+    }
+
+    private static void uploadOnce(boolean force) {
+        if (!force && !apiUploadEnabled) return;   // 设置页关闭了「上报api接口」：自动上报完全不打服务器
         try {
             File f = logFile();
             if (f == null || !f.exists()) { setStatus(false, "无日志文件"); return; }
