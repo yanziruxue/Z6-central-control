@@ -2,6 +2,7 @@ package com.l6.carmedia;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Environment;
 import android.provider.Settings;
@@ -53,10 +54,12 @@ public final class L6Log {
     private static final List<Entry> buf = new ArrayList<>();
     private static final Object lock = new Object();
     private static boolean broadcastEnabled = true;
+    /** 是否把日志上报到服务器接口（由设置页开关控制，持久化到 SharedPreferences，默认开）。 */
+    private static boolean apiUploadEnabled = true;
     private static Context ctx;
 
     /** 日志上传到服务器的目标接口（API 形态：POST JSON）。改这里即可换地址/路径。 */
-    private static final String LOG_UPLOAD_URL = "https://l6cc.ziruxue.top/api/log";
+    private static final String LOG_UPLOAD_URL = "https://yanzi-api.ziruxue.top/api/l6zk/log";
     /** 自动上传间隔（秒）。用户要求每分钟一次。 */
     private static final int UPLOAD_INTERVAL_SEC = 60;
     private static ScheduledExecutorService scheduler;
@@ -80,6 +83,7 @@ public final class L6Log {
     /** 在 MainActivity.onCreate 调用一次，提供广播与落盘所需的 Context，并启动定时上传。 */
     public static void init(Context c) {
         ctx = c != null ? c.getApplicationContext() : null;
+        apiUploadEnabled = loadApiUploadFlag();   // 恢复上次在设置页选的「上报api接口」开关
         startUploader();
     }
 
@@ -182,6 +186,39 @@ public final class L6Log {
     public static void setBroadcastEnabled(boolean b) { broadcastEnabled = b; }
     public static boolean isBroadcastEnabled() { return broadcastEnabled; }
 
+    /* ---------- 「上报api接口」开关（设置页控制，持久化到 SharedPreferences） ---------- */
+    /** 开关写入后立即生效；同时持久化，下次启动自动恢复。 */
+    public static void setApiUploadEnabled(boolean b) {
+        apiUploadEnabled = b;
+        saveApiUploadFlag(b);
+    }
+    public static boolean isApiUploadEnabled() { return apiUploadEnabled; }
+
+    /** 日志开关的持久化载体（无 Context 时返回 null，调用方需判空）。 */
+    private static SharedPreferences l6Prefs() {
+        return ctx != null ? ctx.getSharedPreferences("l6_log", Context.MODE_PRIVATE) : null;
+    }
+
+    private static void saveApiUploadFlag(boolean b) {
+        try {
+            SharedPreferences sp = l6Prefs();
+            if (sp != null) sp.edit().putBoolean("api_upload", b).apply();
+        } catch (Throwable e) {
+            android.util.Log.w("L6LogUp", "持久化上报开关失败", e);
+        }
+    }
+
+    /** 读取上次的开关状态（默认开；读失败也按「开」处理，避免静默丢日志）。 */
+    private static boolean loadApiUploadFlag() {
+        try {
+            SharedPreferences sp = l6Prefs();
+            return sp != null ? sp.getBoolean("api_upload", true) : true;
+        } catch (Throwable e) {
+            android.util.Log.w("L6LogUp", "读取上报开关失败", e);
+            return true;
+        }
+    }
+
     /* ===================== 上传到服务器（增量 + 定时） ===================== */
 
     /** 上传状态回调（可选）：原生侧每次上传后把结果推给页面（L6LogUploadStatus）。 */
@@ -236,6 +273,7 @@ public final class L6Log {
      * 跨天换文件（l6-YYYY-MM-DD.log）时 sentFile 不匹配 → 偏移归零、从头发新文件。
      */
     private static void uploadOnce() {
+        if (!apiUploadEnabled) return;   // 设置页关闭了「上报api接口」：完全不打服务器
         try {
             File f = logFile();
             if (f == null || !f.exists()) { setStatus(false, "无日志文件"); return; }

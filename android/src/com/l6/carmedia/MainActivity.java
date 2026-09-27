@@ -176,6 +176,8 @@ public class MainActivity extends Activity {
             "isLogBroadcast:function(){try{return !!R.isLogBroadcast();}catch(e){return true;}}," +
             "exportLog:function(){try{R.exportLog();}catch(e){}}," +
             "uploadLog:function(){try{R.uploadLog();}catch(e){}}," +
+            "setApiUpload:function(b){try{R.setApiUpload(!!b);}catch(e){}}," +
+            "isApiUpload:function(){try{return !!R.isApiUpload();}catch(e){return true;}}," +
             "getUploadStatus:function(){try{return JSON.parse(R.getUploadStatus()||'null');}catch(e){return null;}}" +
             "};" +
             "try{buildMusicSrc();buildNavApp();}catch(e){}" +
@@ -1544,6 +1546,18 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean isLogBroadcast() {
             return L6Log.isBroadcastEnabled();
+        }
+
+        /** 设置页开关：是否把日志定时上报到 LOG_UPLOAD_URL 接口（关闭后不再打服务器，状态持久化）。 */
+        @JavascriptInterface
+        public void setApiUpload(boolean b) {
+            L6Log.setApiUploadEnabled(b);
+            toast(b ? "已开启日志上报_api接口" : "已关闭日志上报_api接口");
+        }
+
+        @JavascriptInterface
+        public boolean isApiUpload() {
+            return L6Log.isApiUploadEnabled();
         }
 
         /** 下载/导出当天日志文件：经 OtaFileProvider 暴露 content://，用系统分享面板保存到任意应用。 */
