@@ -17,6 +17,10 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -64,15 +68,13 @@ public final class L6Log {
     private static final int UPLOAD_INTERVAL_SEC = 60;
     /** 失败退避上限（秒）。服务端持久性错误（如 403 路径不放行）时逐级拉长，避免每 60s 白打一次。 */
     private static final int UPLOAD_BACKOFF_MAX_SEC = 600;
-    /**
-     * 单批最多尝试几次（1 次原始 + 1 次立即重试）。
-     * 为什么立刻重试：nginx 日志实证「07:05:07 失败 → 退避 120s 后 07:07:17 一次就 200」，
-     * 说明这类 Connection reset 是**瞬时**的（手机侧链路/NAT 抖动），当场重发往往就过；
+    /*
+     * 单批最多尝试几次 + 每档重试延迟，统一由 LogDiag 定义（RETRY_DELAYS_MS，纯逻辑可单测）。
+     * 为什么立刻重试：这类 Connection reset 是**瞬时**链路抖动，当场重发往往就过；
      * 而 60→600s 的退避会把一次抖动放大成用户看到的连串失败。
+     * v1.5.7 起阶梯从「1 次 / 400ms」放宽为「2 次 / 0.4s + 2s」——
+     * 手机实测 400ms 后重发会落在同一个故障窗口里，两次一起失败。
      */
-    private static final int POST_ATTEMPTS = 2;
-    /** 立即重试前的短暂停顿（毫秒）：给链路一个喘息，又不至于让用户觉察到卡顿。 */
-    private static final long POST_RETRY_DELAY_MS = 400;
     /** 退避窗口：早于这个时间点不发自动上报（手动「立即上报」不受限）。 */
     private static long nextAllowedAt = 0;
     /** 连续失败次数，用来算退避阶梯；成功即清零。 */
@@ -258,6 +260,100 @@ public final class L6Log {
     /** 页面读取最近一次上传状态（JSON：{ok,msg,ts}）。 */
     public static String getUploadStatus() { return lastStatus != null ? lastStatus.toString() : "{}"; }
 
+    /* ===================== 「测试接口」连通性探针（v1.5.7） ===================== */
+
+    /** 探针结果回调：由 MainActivity 接上，经 window.L6LogProbeResult 推给设置页。 */
+    public interface ProbeListener { void onResult(JSONObject r); }
+    private static volatile ProbeListener probeListener;
+    public static void setProbeListener(ProbeListener l) { probeListener = l; }
+
+    /**
+     * 三段式连通性探针（独立线程执行，结果回抛）：
+     *   ① DNS —— 解析到哪些 IP、IPv4 还是 IPv6、耗时
+     *   ② TCP —— 裸 socket 建连（**不含 TLS**）：能区分「TCP 就不通」与「TCP 通但 TLS/HTTP 挂」
+     *   ③ 请求 —— 真发一次上报，把服务端真实响应（状态码 / error 原文）当场拿回来
+     *
+     * 存在的理由：上报失败只给一句「Connection reset」，看不出断在建立连接 / 写入 / 读取哪一段，
+     * 前几个版本因此只能靠猜（体积？UA？服务端？）。这个探针一次跑完就把三段摊开。
+     * 注意 ③ 会在服务端真实写入一行探针日志 —— 这是刻意的：只有真请求才能证明链路端到端通。
+     */
+    public static void probeLogApi() {
+        Thread t = new Thread(() -> {
+            JSONObject o = new JSONObject();
+            try {
+                URL u = new URL(LOG_UPLOAD_URL);
+                String host = u.getHost();
+                int port = u.getPort() > 0 ? u.getPort() : ("https".equals(u.getProtocol()) ? 443 : 80);
+                o.put("url", LOG_UPLOAD_URL).put("host", host).put("port", port);
+
+                // ① DNS：解析到什么、v4 还是 v6、多久
+                long tDns = System.currentTimeMillis();
+                String ips;
+                String family = "未知";
+                try {
+                    InetAddress[] all = InetAddress.getAllByName(host);
+                    StringBuilder sb = new StringBuilder();
+                    boolean v4 = false, v6 = false;
+                    for (InetAddress a : all) {
+                        if (sb.length() > 0) sb.append(' ');
+                        sb.append(a.getHostAddress());
+                        if (a instanceof Inet6Address) v6 = true; else v4 = true;
+                    }
+                    ips = sb.length() == 0 ? "无解析结果" : sb.toString();
+                    family = (v4 && v6) ? "双栈" : (v6 ? "IPv6" : "IPv4");
+                } catch (Throwable e) {
+                    ips = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "?" : e.getMessage());
+                }
+                long dnsMs = System.currentTimeMillis() - tDns;
+                o.put("dns", ips).put("family", family).put("dnsMs", dnsMs);
+
+                // ② TCP 裸建连（不含 TLS）
+                long tcpMs = -1;
+                String tcpErr = "";
+                Socket sk = null;
+                try {
+                    InetAddress first = InetAddress.getAllByName(host)[0];
+                    long tTcp = System.currentTimeMillis();
+                    sk = new Socket();
+                    sk.connect(new InetSocketAddress(first, port), 8000);
+                    tcpMs = System.currentTimeMillis() - tTcp;
+                } catch (Throwable e) {
+                    tcpErr = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "?" : e.getMessage());
+                } finally {
+                    if (sk != null) try { sk.close(); } catch (Throwable ignored) { }
+                }
+                o.put("tcpMs", tcpMs).put("tcpErr", tcpErr);
+
+                // ③ 真发一次请求（探针刻意不走重试：要的就是「这一次」的真实结果）
+                JSONObject body = new JSONObject();
+                body.put("device", deviceId);
+                body.put("app", "L6CC");
+                body.put("ver", appVer());
+                body.put("file", "probe");
+                body.put("ts", System.currentTimeMillis());
+                JSONArray lines = new JSONArray();
+                lines.put(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).format(new Date())
+                        + " [INFO] L6LogUp: 接口连通性测试（设置页手动触发）");
+                body.put("lines", lines);
+                PostResult r = postJson(LOG_UPLOAD_URL, body.toString());
+                o.put("code", r.code).put("phase", r.phase).put("err", r.err)
+                        .put("resp", r.resp).put("ms", r.ms).put("peer", r.peer);
+                o.put("ok", r.ok());
+                o.put("summary", LogDiag.probeSummary(r.ok(), dnsMs, tcpMs, r.ms));
+            } catch (Throwable t2) {
+                try {
+                    o.put("fatal", t2.getClass().getSimpleName() + ": "
+                            + (t2.getMessage() == null ? "?" : t2.getMessage()));
+                    o.put("summary", "探针自身异常：" + t2.getClass().getSimpleName());
+                } catch (Throwable ignored) { }
+            }
+            ProbeListener l = probeListener;
+            if (l != null) try { l.onResult(o); } catch (Throwable ignored) { }
+        }, "L6LogProbe");
+        t.setDaemon(true);
+        t.start();
+    }
+
     /**
      * 手动触发一次上传（设置页「立即上报」按钮；网络在后台线程执行，不阻塞 UI）。
      * 手动走 force=true —— 开关只管「每 60s 自动上报」，用户显式点按钮就该真的发出去；
@@ -385,18 +481,13 @@ public final class L6Log {
                 // 把体积回显出来：弱网 RST 排查时，「多大被掐掉」是关键信息
                 sentKb += kb;
                 int wait = noteFailure();   // 按 60→120→240→480→600s 退避；已成功的批次不会重发
-                // 失败原因必须带真材实料：网络异常回显异常原文，有 HTTP 响应的回显状态码 + 服务端 error 原文。
-                // 「试 N 次」也一并回显 —— 立即重试后仍失败才算真失败，这个数字对判断瞬时/持久很关键。
-                String reason;
-                if (r.code < 0) {
-                    // 根本没连上（DNS/TLS/超时/reset）：没有 HTTP 状态码可显示，回显网络异常
-                    reason = "上传失败（网络异常：" + r.err + "）";
-                    w("L6LogUp", reason + " " + kb + "KB / 试 " + r.attempts + " 次 → " + LOG_UPLOAD_URL);
-                } else {
-                    // 服务端有回应但不是 2xx：把 HTTP 状态码 + 服务端 error 原文直接回显到车机状态行
-                    reason = "上传失败 HTTP " + r.code + errDetail(r.resp);
-                    w("L6LogUp", reason + " " + r.resp + " → " + LOG_UPLOAD_URL);
-                }
+                // 失败原因必须带真材实料：网络异常回显「哪一段挂的 + 异常类 + 耗时 + 对端 IP」，
+                // 有 HTTP 响应的回显状态码 + 服务端 error 原文。v1.5.7 起不再只说「网络异常」——
+                // 前几版正是因为看不出断在 connect/write/read 哪一段，只能靠猜。
+                // 文案不再自带「上传失败」前缀：页面状态行已有「⚠️ 上报失败」徽标，重复会说两遍。
+                String reason = LogDiag.reason(r.code, r.err, r.phase, r.ms, errDetail(r.resp));
+                w("L6LogUp", "上传失败 " + reason + " / " + kb + "KB / 试 " + r.attempts + " 次 / 对端 "
+                        + (r.peer.isEmpty() ? "?" : r.peer) + " → " + LOG_UPLOAD_URL);
                 // 失败即停，且不推进 sentOffset —— 已成功的批次不会重发，未发的下一轮从断点续。
                 // 部分成功时把「哪一批挂了 + 为什么挂」一起回显，别让原因被「部分成功」盖掉。
                 String head = sentLines > 0
@@ -418,12 +509,18 @@ public final class L6Log {
         }
     }
 
-    /** POST 结果：HTTP 状态码 + 服务端响应体 + 网络异常信息（用于让车机状态行显示真实失败原因）。 */
+    /**
+     * POST 结果：HTTP 状态码 + 服务端响应体 + 网络异常信息，外加 v1.5.7 的诊断三件套
+     * （失败阶段 / 对端地址 / 耗时）—— 只回显一句「网络异常」时，根因无从判断。
+     */
     private static final class PostResult {
         int code = -1;      // HTTP 状态码；<0 表示根本没连上（DNS/TLS/超时/未知主机）
         String resp = "";   // 服务端响应体（最多 512 字符），失败时里面有 error 原文
-        String err = "";    // 网络异常信息（code<0 时有效）
+        String err = "";    // 网络异常信息（含异常类名，code<0 时有效）
         int attempts = 1;   // 实际尝试次数（含立即重试），用于状态行回显
+        String phase = "";  // 失败阶段：connect / write / read —— 决定根因方向
+        String peer = "";   // 本次连接到的对端地址（IPv6 加方括号），DNS 劫持时一眼可见
+        long ms = 0;        // 本次尝试耗时（含建连 + 收发），毫秒
 
         boolean ok() { return code >= 200 && code < 300; }
     }
@@ -432,8 +529,14 @@ public final class L6Log {
     private static PostResult postJson(String url, String json) {
         PostResult r = new PostResult();
         HttpURLConnection c = null;
+        long t0 = System.currentTimeMillis();
+        // 失败时用它定位：请求根本没出去？写一半被掐？还是响应没回来？
+        // 前几版就是因为只有一句「网络异常」，这三个阶段分不开，根因无从下手。
+        String phase = "connect";
         try {
-            c = (HttpURLConnection) new URL(url).openConnection();
+            URL u = new URL(url);
+            r.peer = resolvePeer(u.getHost());
+            c = (HttpURLConnection) u.openConnection();
             c.setRequestMethod("POST");
             c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             // 每批都用全新连接：Android 会复用 keep-alive 套接字，而弱网/车机侧的对端
@@ -442,9 +545,11 @@ public final class L6Log {
             c.setDoOutput(true);
             c.setConnectTimeout(15000);
             c.setReadTimeout(30000);
+            phase = "write";
             OutputStream os = c.getOutputStream();
             os.write(json.getBytes(StandardCharsets.UTF_8));
             os.close();
+            phase = "read";
             r.code = c.getResponseCode();
             // 失败时服务端会在响应体里给出 error 原文，读出来回显到车机；成功时也要读完以释放连接
             BufferedReader br = new BufferedReader(new InputStreamReader(
@@ -456,24 +561,59 @@ public final class L6Log {
             r.resp = sb.length() > 512 ? sb.substring(0, 512) : sb.toString();
         } catch (Throwable t) {
             r.code = -1;
-            r.err = t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+            r.phase = phase;
+            // 异常类名必须带上：SocketException("Connection reset") 与 SSLException / 各超时
+            // 指向完全不同的根因，只回显 message 会把这个关键区分丢掉。
+            r.err = t.getClass().getSimpleName() + ": "
+                    + (t.getMessage() == null ? "?" : t.getMessage());
         } finally {
+            r.ms = System.currentTimeMillis() - t0;
             if (c != null) try { c.disconnect(); } catch (Throwable ignored) { }
         }
         return r;
     }
 
     /**
-     * 带「立即重试一次」的 POST。只在**瞬时**失败时重试：
-     *   - code < 0：根本没连上（DNS/TLS/connect 超时/读超时/Connection reset）
-     *   - code >= 500：服务端或上游暂时性故障（502/503/504）
+     * 解析目标主机到 IP 列表（IPv6 加方括号便于辨认），供失败回显与探针使用。
+     * 带 5 分钟缓存：既让每次失败都带上「连的是哪个 IP」（DNS 被劫持 / 只给到 v6 这类问题一眼可见），
+     * 又不会让每批上报都多打一次 DNS —— 首次解析同时把系统 DNS 缓存喂热，后续建连直接命中。
+     */
+    private static volatile String peerCache = "";
+    private static volatile long peerCacheAt = 0;
+
+    private static String resolvePeer(String host) {
+        long now = System.currentTimeMillis();
+        if (!peerCache.isEmpty() && now - peerCacheAt < 300000L) return peerCache;
+        String out;
+        try {
+            InetAddress[] all = InetAddress.getAllByName(host);
+            StringBuilder sb = new StringBuilder();
+            for (InetAddress a : all) {
+                if (sb.length() > 0) sb.append(' ');
+                boolean v6 = a instanceof Inet6Address;
+                sb.append(v6 ? "[" : "").append(a.getHostAddress()).append(v6 ? "]" : "");
+            }
+            out = sb.length() == 0 ? "无解析结果" : sb.toString();
+        } catch (Throwable t) {
+            out = "解析失败(" + t.getClass().getSimpleName() + ")";
+        }
+        peerCache = out;
+        peerCacheAt = now;
+        return out;
+    }
+
+    /**
+     * 带「立即重试阶梯」的 POST（0.4s → 2s，最多 3 次；阶梯与判据都在 LogDiag，纯逻辑可单测）。
+     * 只在**瞬时**失败时重试：code &lt; 0（根本没连上）或 code &gt;= 500（上游暂时性故障）；
      * 4xx 是请求本身的问题（400 TOO_MANY_LINES / 403 / 413…），重发一模一样的内容毫无意义，直接返回。
      */
     private static PostResult postJsonWithRetry(String url, String json) {
         PostResult r = postJson(url, json);
-        for (int attempt = 1; attempt < POST_ATTEMPTS && isTransient(r); attempt++) {
+        for (int attempt = 1; attempt < LogDiag.maxAttempts() && LogDiag.isTransient(r.code); attempt++) {
+            long delay = LogDiag.delayAfter(attempt);
+            if (delay < 0) break;
             try {
-                Thread.sleep(POST_RETRY_DELAY_MS);
+                Thread.sleep(delay);
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 return r;
@@ -482,11 +622,6 @@ public final class L6Log {
             r.attempts = attempt + 1;
         }
         return r;
-    }
-
-    /** 是否属于「当场重发一次没准就好了」的瞬时故障。 */
-    private static boolean isTransient(PostResult r) {
-        return r.code < 0 || r.code >= 500;
     }
 
     /** 从服务端响应体里摘一句人类可读原因（优先 error，其次 message），取不到则返回空串。 */

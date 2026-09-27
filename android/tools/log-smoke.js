@@ -9,6 +9,7 @@
  *  ⑤ 原生回推结果后恢复：状态行显示成功/失败，按钮复位
  *  ⑥ 原生长时间不回推 → 15s 超时兜底提示（测试里把常量调小加速）
  *  ⑦ 前端不因为「上报api接口」开关关闭而拦截（force 在原生侧 uploadNow(true)）
+ *  ⑧ v1.5.7「测试接口」探针按钮：调用桥 / 进行中态 / 防连点 / 成功与失败结果渲染
  *
  * 用法： node tools/log-smoke.js
  * 依赖： jsdom（node 环境变量 NODE_PATH 指向已装 jsdom 的 node_modules）
@@ -38,6 +39,7 @@ const NativeRaw = {
   getLogJson: () => '[]',
   getLogPath: () => '/Download/L6/logs',
   uploadLog() { this.calls.push(['uploadLog']); },
+  testLogApi() { this.calls.push(['testLogApi']); },
   setApiUpload(b) { this.apiUpload = !!b; this.calls.push(['setApiUpload', !!b]); },
   isApiUpload() { return this.apiUpload; },
   setLogBroadcast() {}, clearLog() {}, exportLog() {},
@@ -114,6 +116,39 @@ setTimeout(() => {
   check('⑦ 开关关闭态仍能手动上报（前端不拦）', uploads() === 1, `调用 ${uploads()} 次`);
   window.L6LogUploadStatus({ ok: true, msg: 'forced', ts: Date.now() });   // 复位
   NativeRaw.apiUpload = true;
+
+  // ⑧ v1.5.7「测试接口」探针：上传失败只回一句「Connection reset」看不出断在哪一段，
+  //    这个按钮必须把 DNS / TCP / 请求三段摊开，并标出失败阶段。
+  const tbtn = d.getElementById('logTestBtn');
+  check('⑧ #logTestBtn 存在且紧挨「立即上报」', !!tbtn && tbtn.previousElementSibling === btn);
+  check('⑧ 按钮文案含「测试接口」', txt(tbtn).indexOf('测试接口') >= 0, txt(tbtn));
+  const tests = () => NativeRaw.calls.filter(c => c[0] === 'testLogApi').length;
+  NativeRaw.calls.length = 0;
+  click(tbtn);
+  check('⑧ 点击调用原生 testLogApi', tests() === 1, `调用 ${tests()} 次`);
+  check('⑧ 测试中：按钮 disabled + 文案「测试中…」',
+    tbtn.disabled === true && txt(tbtn).indexOf('测试中') >= 0, txt(tbtn));
+  check('⑧ 测试中：状态行提示三段进度(DNS/TCP)',
+    txt(msg).indexOf('DNS') >= 0 && txt(msg).indexOf('TCP') >= 0, txt(msg));
+  click(tbtn); click(tbtn);
+  check('⑧ 防连点：重复点击不重复调用', tests() === 1, `调用 ${tests()} 次`);
+
+  // 失败探针（典型：读响应阶段被 reset）→ 必须把阶段与异常原样摊开
+  window.L6LogProbeResult({ ok: false, url: 'https://x/api/l6zk/log', host: 'x', dns: '1.2.3.4',
+    family: 'IPv4', dnsMs: 12, tcpMs: 45, code: -1, phase: 'read',
+    err: 'SocketException: Connection reset', ms: 3021, resp: '' });
+  check('⑧ 失败探针：状态行标出失败阶段 + 异常原文',
+    txt(msg).indexOf('read') >= 0 && txt(msg).indexOf('Connection reset') >= 0, txt(msg));
+  check('⑧ 失败探针：显示解析到的 IP 与 IP 族',
+    txt(msg).indexOf('1.2.3.4') >= 0 && txt(msg).indexOf('IPv4') >= 0, txt(msg));
+  check('⑧ 失败探针：按钮复位', tbtn.disabled === false && txt(tbtn).indexOf('测试接口') >= 0, txt(tbtn));
+
+  // 成功探针 → 三段耗时都要出现
+  window.L6LogProbeResult({ ok: true, url: 'https://x/api/l6zk/log', host: 'x', dns: '1.2.3.4',
+    family: 'IPv4', dnsMs: 12, tcpMs: 45, code: 200, phase: '', err: '', ms: 218, resp: '{"ok":true}' });
+  check('⑧ 成功探针：状态行含 DNS/TCP/HTTP 三段',
+    txt(msg).indexOf('DNS 12ms') >= 0 && txt(msg).indexOf('TCP 45ms') >= 0
+      && txt(msg).indexOf('HTTP 200') >= 0, txt(msg));
 
   // ⑥ 超时兜底：把常量调小，避免测试真等 15s
   window.eval('LOG_NOW_TIMEOUT=150');

@@ -1,5 +1,6 @@
-import com.l6.carmedia.LrcParse;
 import com.l6.carmedia.LogBatch;
+import com.l6.carmedia.LogDiag;
+import com.l6.carmedia.LrcParse;
 import com.l6.carmedia.NavParse;
 
 import java.util.List;
@@ -12,7 +13,8 @@ import java.util.List;
  *
  * 运行（见 android/build.sh 或 skill 里的说明）：
  *   javac -encoding UTF-8 -d <tmp> src/com/l6/carmedia/NavParse.java \
- *         src/com/l6/carmedia/LrcParse.java tools/LogicSmoke.java
+ *         src/com/l6/carmedia/LrcParse.java src/com/l6/carmedia/LogBatch.java \
+ *         src/com/l6/carmedia/LogDiag.java tools/LogicSmoke.java
  *   java -cp <tmp> LogicSmoke
  */
 public class LogicSmoke {
@@ -54,6 +56,7 @@ public class LogicSmoke {
                 2, new int[]{5250, 6750});
 
         batch();
+        diag();
 
         System.out.println();
         System.out.println("结果: 通过 " + pass + " / 失败 " + fail);
@@ -175,6 +178,51 @@ public class LogicSmoke {
                 LogBatch.MAX_BYTES_PER_BATCH < 1600 * 1024);
     }
 
+    /* ---------------- 上传失败诊断（v1.5.7） ---------------- */
+
+    private static void diag() {
+        // 重试阶梯：0.4s → 2s，共 3 次尝试。放宽是为了不再让两次尝试落在同一个故障窗口里
+        // （手机实测：400ms 后重发两次一起失败）。
+        report("重试阶梯为 0.4s / 2s", LogDiag.RETRY_DELAYS_MS.length == 2
+                && LogDiag.RETRY_DELAYS_MS[0] == 400 && LogDiag.RETRY_DELAYS_MS[1] == 2000);
+        report("单批最多尝试 3 次（1 原始 + 2 重试）", LogDiag.maxAttempts() == 3);
+        report("第 1 次失败后等 400ms", LogDiag.delayAfter(1) == 400);
+        report("第 2 次失败后等 2000ms", LogDiag.delayAfter(2) == 2000);
+        report("用完阶梯后不再有延迟（-1）", LogDiag.delayAfter(3) == -1);
+
+        // 只在「当场重发没准就好」的瞬时故障上重试：4xx 重发毫无意义，还会白白放大请求量
+        report("code<0（没连上）算瞬时", LogDiag.isTransient(-1));
+        report("5xx 算瞬时", LogDiag.isTransient(500) && LogDiag.isTransient(502));
+        report("4xx 不算瞬时（不重发）",
+                !LogDiag.isTransient(400) && !LogDiag.isTransient(403) && !LogDiag.isTransient(413));
+        report("2xx 不算瞬时", !LogDiag.isTransient(200));
+
+        // 阶段名必须是中文，且三段各自可辨（回显给用户看的不是 connect/write/read）
+        report("connect 阶段显示为「建立连接」", "建立连接".equals(LogDiag.phaseLabel("connect")));
+        report("write 阶段显示为「写入请求体」", "写入请求体".equals(LogDiag.phaseLabel("write")));
+        report("read 阶段显示为「读取响应」", "读取响应".equals(LogDiag.phaseLabel("read")));
+
+        // 失败原因：网络异常要带「阶段 + 异常类 + 耗时」；HTTP 失败要带状态码 + 服务端原文
+        String net = LogDiag.reason(-1, "SocketException: Connection reset", "read", 3021, "");
+        report("网络异常回显含阶段/异常/耗时",
+                net.contains("读取响应") && net.contains("Connection reset") && net.contains("3021ms"), net);
+        report("网络异常不含 HTTP 状态码", net.indexOf("HTTP") < 0, net);
+        report("失败原因不再自带「上传失败」前缀（页面已有徽标，重复会说两遍）",
+                net.indexOf("上传失败") < 0, net);
+        String http = LogDiag.reason(400, "", "read", 210, "：TOO_MANY_LINES");
+        report("HTTP 失败回显状态码 + 服务端 error",
+                http.contains("400") && http.contains("TOO_MANY_LINES"), http);
+        report("err 为空时给兜底文案", LogDiag.reason(-1, "", "connect", 15, "").contains("未知网络异常"));
+        report("阶段缺失时兜底为「建立连接」", LogDiag.reason(-1, "boom", "", 5, "").contains("建立连接"));
+
+        // 探针结论：TCP 未测到（-1）时不应出现「TCP」字样，避免把「没测」说成「0ms」
+        String okSum = LogDiag.probeSummary(true, 12, 45, 218);
+        report("探针结论含三段耗时", okSum.contains("DNS 12ms") && okSum.contains("TCP 45ms")
+                && okSum.contains("请求 218ms"), okSum);
+        report("TCP 未测到时不显示 TCP 段", LogDiag.probeSummary(false, 3, -1, 0).indexOf("TCP") < 0);
+        report("失败结论用「接口不通」", LogDiag.probeSummary(false, 3, -1, 0).contains("接口不通"));
+    }
+
     private static String lines(int n) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < n; i++) sb.append("line").append(i).append('\n');
@@ -223,6 +271,18 @@ public class LogicSmoke {
         } else {
             fail++;
             System.out.println("  FAIL " + name);
+        }
+    }
+
+    /** 带补充信息的断言：失败时把实际值打出来，省得再改代码复现。 */
+    private static void report(String name, boolean ok, String detail) {
+        if (ok) {
+            pass++;
+            System.out.println("  ok   " + name);
+        } else {
+            fail++;
+            System.out.println("  FAIL " + name
+                    + (detail == null || detail.isEmpty() ? "" : "  → 实际: " + detail));
         }
     }
 }

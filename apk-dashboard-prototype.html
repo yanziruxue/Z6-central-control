@@ -509,6 +509,8 @@
                   <span class="ota-cur">上报api接口：<b id="logUpState">读取中…</b></span>
                   <!-- 立即上报：手动发一次，即使开关关闭也会强制发送（开关只管每 60s 的自动上报） -->
                   <button class="set-opt" id="logNowBtn">立即上报</button>
+                  <!-- 测试接口：一次性连通性探针（DNS → TCP → 真发一次请求），把失败段摊开 -->
+                  <button class="set-opt" id="logTestBtn">🔌 测试接口</button>
                   <button class="set-opt" id="logApiBtn">● 开启</button>
                 </div>
                 <div class="ota-status" id="logUpMsg">每分钟自动上报一次到日志接口（首次约 5s 后开始）。</div>
@@ -1803,6 +1805,53 @@ function L6LogUploadStatus(s){
   el.textContent=(s.ok?"✅ 上报成功":"⚠️ 上报失败")+"："+(s.msg||"")+" · "+new Date(s.ts).toLocaleTimeString();
   el.style.color=s.ok?"var(--acc2)":"var(--red)";
   logNowFinish();          // 拿到结果 = 本次手动上报结束 → 恢复按钮并撤销超时兜底
+}
+/* ---- 「测试接口」：一次性连通性探针（v1.5.7） ----
+   原生 probeLogApi() 依次做 DNS 解析 → TCP 建连 → 真发一次请求，三段结果 JSON 经
+   window.L6LogProbeResult 推回。加它的原因：上报失败只回一句「Connection reset」，
+   看不出断在建立连接 / 写入请求体 / 读取响应哪一段，前几版只能靠猜。 */
+var logTestBusy=false, logTestTimer=0;
+var LOG_TEST_TIMEOUT=20000;   // 三段串起来最坏要 8+30s；超时也给兜底文案，别永远停在「测试中…」
+function logTestFinish(){
+  if(logTestTimer){ clearTimeout(logTestTimer); logTestTimer=0; }
+  logTestBusy=false;
+  var b=$("#logTestBtn"); if(b){ b.disabled=false; b.textContent="🔌 测试接口"; }
+}
+var logTestEl=$("#logTestBtn");
+if(logTestEl){
+  logTestEl.onclick=function(){
+    if(logTestBusy)return;
+    var n=l6n();
+    var el=$("#logUpMsg");
+    if(!n||typeof n.testLogApi!=="function"){
+      if(el){ el.textContent="⚠️ 无原生桥接，装机后才能测试接口"; el.style.color="var(--red)"; }
+      return;
+    }
+    logTestBusy=true;
+    var b=$("#logTestBtn"); if(b){ b.disabled=true; b.textContent="测试中…"; }
+    if(el){ el.textContent="正在测试接口（DNS → TCP → 请求）…"; el.style.color="var(--sub)"; }
+    try{ n.testLogApi(); }catch(e){ logTestFinish(); return; }
+    logTestTimer=setTimeout(function(){
+      logTestTimer=0; logTestBusy=false;
+      var b2=$("#logTestBtn"); if(b2){ b2.disabled=false; b2.textContent="🔌 测试接口"; }
+      var e2=$("#logUpMsg");
+      if(e2){ e2.textContent="⏳ 未收到测试结果（"+Math.max(1,Math.round(LOG_TEST_TIMEOUT/1000))+"s 超时）"; e2.style.color="var(--red)"; }
+    },LOG_TEST_TIMEOUT);
+  };
+}
+/* 渲染探针结果：DNS / TCP / 请求三段逐段摊开，失败段原样带出 */
+function L6LogProbeResult(s){
+  logTestFinish();
+  var el=$("#logUpMsg"); if(!el||!s)return;
+  var seg=[];
+  seg.push("DNS "+(s.dnsMs==null?"?":s.dnsMs+"ms")+" → "+(s.dns||"?")+(s.family?("（"+s.family+"）"):""));
+  seg.push(s.tcpMs>=0?("TCP "+s.tcpMs+"ms"):("TCP 失败 "+(s.tcpErr||"")));
+  if(s.code>=0){ seg.push("HTTP "+s.code+"（"+(s.ms||0)+"ms）"); }
+  else { seg.push("请求失败·"+(s.phase||"?")+"："+(s.err||"?")); }
+  if(s.fatal){ seg.push("探针异常："+s.fatal); }
+  el.textContent=(s.ok?"✅ ":"❌ ")+(s.summary||"接口测试完成")+" ｜ "+seg.join(" ｜ ");
+  el.style.color=s.ok?"var(--acc2)":"var(--red)";
+  el.title="接口 "+(s.url||"")+(s.resp?("\n服务端响应："+s.resp):"");
 }
 /* 读取 API 上报开关状态并同步到界面 */
 function syncLogApi(){

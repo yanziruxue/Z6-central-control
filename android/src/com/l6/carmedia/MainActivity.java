@@ -176,6 +176,7 @@ public class MainActivity extends Activity {
             "isLogBroadcast:function(){try{return !!R.isLogBroadcast();}catch(e){return true;}}," +
             "exportLog:function(){try{R.exportLog();}catch(e){}}," +
             "uploadLog:function(){try{R.uploadLog();}catch(e){}}," +
+            "testLogApi:function(){try{R.testLogApi();}catch(e){}}," +
             "setApiUpload:function(b){try{R.setApiUpload(!!b);}catch(e){}}," +
             "isApiUpload:function(){try{return !!R.isApiUpload();}catch(e){return true;}}," +
             "getUploadStatus:function(){try{return JSON.parse(R.getUploadStatus()||'null');}catch(e){return null;}}" +
@@ -194,6 +195,14 @@ public class MainActivity extends Activity {
         L6Log.setUploadListener(json -> {
             if (web != null) {
                 final String js = "try{if(typeof L6LogUploadStatus==='function')L6LogUploadStatus("
+                        + json.toString() + ");}catch(e){}";
+                web.post(() -> web.evaluateJavascript(js, null));
+            }
+        });
+        // 探针结果推回页面（设置页「测试接口」按钮）
+        L6Log.setProbeListener(json -> {
+            if (web != null) {
+                final String js = "try{if(typeof L6LogProbeResult==='function')L6LogProbeResult("
                         + json.toString() + ");}catch(e){}";
                 web.post(() -> web.evaluateJavascript(js, null));
             }
@@ -1588,6 +1597,17 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void uploadLog() {
             L6Log.uploadNow(true);
+        }
+
+        /**
+         * 「测试接口」：一次性连通性探针（DNS 解析 → TCP 建连 → 真发一次请求），
+         * 结果经 window.L6LogProbeResult 回推页面。用来回答「请求到底走到哪一步挂的」——
+         * 上传失败只给一个「Connection reset」，只有把三段耗时与对端 IP 摊开才能定位。
+         */
+        @JavascriptInterface
+        public void testLogApi() {
+            L6Log.i("L6LogUp", "接口连通性测试");
+            L6Log.probeLogApi();
         }
 
         /** 最近一次上传结果 JSON（{ok,msg,ts}），供设置页显示「上次上传」。 */
