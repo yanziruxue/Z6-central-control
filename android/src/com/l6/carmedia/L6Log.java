@@ -64,6 +64,15 @@ public final class L6Log {
     private static final int UPLOAD_INTERVAL_SEC = 60;
     /** 失败退避上限（秒）。服务端持久性错误（如 403 路径不放行）时逐级拉长，避免每 60s 白打一次。 */
     private static final int UPLOAD_BACKOFF_MAX_SEC = 600;
+    /**
+     * 单批最多尝试几次（1 次原始 + 1 次立即重试）。
+     * 为什么立刻重试：nginx 日志实证「07:05:07 失败 → 退避 120s 后 07:07:17 一次就 200」，
+     * 说明这类 Connection reset 是**瞬时**的（手机侧链路/NAT 抖动），当场重发往往就过；
+     * 而 60→600s 的退避会把一次抖动放大成用户看到的连串失败。
+     */
+    private static final int POST_ATTEMPTS = 2;
+    /** 立即重试前的短暂停顿（毫秒）：给链路一个喘息，又不至于让用户觉察到卡顿。 */
+    private static final long POST_RETRY_DELAY_MS = 400;
     /** 退避窗口：早于这个时间点不发自动上报（手动「立即上报」不受限）。 */
     private static long nextAllowedAt = 0;
     /** 连续失败次数，用来算退避阶梯；成功即清零。 */
@@ -366,7 +375,7 @@ public final class L6Log {
 
                 String json = body.toString();
                 int kb = json.getBytes(StandardCharsets.UTF_8).length / 1024;
-                PostResult r = postJson(LOG_UPLOAD_URL, json);
+                PostResult r = postJsonWithRetry(LOG_UPLOAD_URL, json);
                 if (r.ok()) {
                     sentOffset = baseOffset + ck.endOffset;
                     sentLines += ck.lines.length;
@@ -376,22 +385,25 @@ public final class L6Log {
                 // 把体积回显出来：弱网 RST 排查时，「多大被掐掉」是关键信息
                 sentKb += kb;
                 int wait = noteFailure();   // 按 60→120→240→480→600s 退避；已成功的批次不会重发
+                // 失败原因必须带真材实料：网络异常回显异常原文，有 HTTP 响应的回显状态码 + 服务端 error 原文。
+                // 「试 N 次」也一并回显 —— 立即重试后仍失败才算真失败，这个数字对判断瞬时/持久很关键。
+                String reason;
                 if (r.code < 0) {
                     // 根本没连上（DNS/TLS/超时/reset）：没有 HTTP 状态码可显示，回显网络异常
-                    setStatus(false, "上传失败（网络异常：" + r.err + "）· 本次 " + kb
-                            + "KB · " + wait + "s 后重试");
-                    w("L6LogUp", "上传失败（网络异常）" + r.err + " " + kb + "KB → " + LOG_UPLOAD_URL);
+                    reason = "上传失败（网络异常：" + r.err + "）";
+                    w("L6LogUp", reason + " " + kb + "KB / 试 " + r.attempts + " 次 → " + LOG_UPLOAD_URL);
                 } else {
                     // 服务端有回应但不是 2xx：把 HTTP 状态码 + 服务端 error 原文直接回显到车机状态行
-                    setStatus(false, "上传失败 HTTP " + r.code + errDetail(r.resp)
-                            + " · 本次 " + kb + "KB · " + wait + "s 后重试");
-                    w("L6LogUp", "上传失败 HTTP " + r.code + " " + r.resp + " → " + LOG_UPLOAD_URL);
+                    reason = "上传失败 HTTP " + r.code + errDetail(r.resp);
+                    w("L6LogUp", reason + " " + r.resp + " → " + LOG_UPLOAD_URL);
                 }
-                // 失败即停，且不推进 sentOffset —— 已成功的批次不会重发，未发的下一轮从断点续
-                if (sentLines > 0) {
-                    setStatus(false, "部分成功：" + sentLines + " 行已上传，第 " + (doneBatches + 1)
-                            + "/" + chunks.length + " 批失败 · " + wait + "s 后重试");
-                }
+                // 失败即停，且不推进 sentOffset —— 已成功的批次不会重发，未发的下一轮从断点续。
+                // 部分成功时把「哪一批挂了 + 为什么挂」一起回显，别让原因被「部分成功」盖掉。
+                String head = sentLines > 0
+                        ? "部分成功（" + sentLines + " 行已上传，第 " + (doneBatches + 1) + "/" + chunks.length + " 批失败）："
+                        : "";
+                setStatus(false, head + reason + " · 本次 " + kb + "KB · 试 " + r.attempts
+                        + " 次 · " + wait + "s 后重试");
                 return;
             }
             if (sentLines > 0) {
@@ -411,6 +423,7 @@ public final class L6Log {
         int code = -1;      // HTTP 状态码；<0 表示根本没连上（DNS/TLS/超时/未知主机）
         String resp = "";   // 服务端响应体（最多 512 字符），失败时里面有 error 原文
         String err = "";    // 网络异常信息（code<0 时有效）
+        int attempts = 1;   // 实际尝试次数（含立即重试），用于状态行回显
 
         boolean ok() { return code >= 200 && code < 300; }
     }
@@ -423,9 +436,12 @@ public final class L6Log {
             c = (HttpURLConnection) new URL(url).openConnection();
             c.setRequestMethod("POST");
             c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            // 每批都用全新连接：Android 会复用 keep-alive 套接字，而弱网/车机侧的对端
+            // 可能已经单方面关掉旧连接，复用它的那一刻就是 Connection reset。
+            c.setRequestProperty("Connection", "close");
             c.setDoOutput(true);
-            c.setConnectTimeout(8000);
-            c.setReadTimeout(8000);
+            c.setConnectTimeout(15000);
+            c.setReadTimeout(30000);
             OutputStream os = c.getOutputStream();
             os.write(json.getBytes(StandardCharsets.UTF_8));
             os.close();
@@ -445,6 +461,32 @@ public final class L6Log {
             if (c != null) try { c.disconnect(); } catch (Throwable ignored) { }
         }
         return r;
+    }
+
+    /**
+     * 带「立即重试一次」的 POST。只在**瞬时**失败时重试：
+     *   - code < 0：根本没连上（DNS/TLS/connect 超时/读超时/Connection reset）
+     *   - code >= 500：服务端或上游暂时性故障（502/503/504）
+     * 4xx 是请求本身的问题（400 TOO_MANY_LINES / 403 / 413…），重发一模一样的内容毫无意义，直接返回。
+     */
+    private static PostResult postJsonWithRetry(String url, String json) {
+        PostResult r = postJson(url, json);
+        for (int attempt = 1; attempt < POST_ATTEMPTS && isTransient(r); attempt++) {
+            try {
+                Thread.sleep(POST_RETRY_DELAY_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return r;
+            }
+            r = postJson(url, json);
+            r.attempts = attempt + 1;
+        }
+        return r;
+    }
+
+    /** 是否属于「当场重发一次没准就好了」的瞬时故障。 */
+    private static boolean isTransient(PostResult r) {
+        return r.code < 0 || r.code >= 500;
     }
 
     /** 从服务端响应体里摘一句人类可读原因（优先 error，其次 message），取不到则返回空串。 */

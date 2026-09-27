@@ -121,7 +121,11 @@ public class LogicSmoke {
     /* ---------------- 日志上报分批（服务端单批上限 2000 行） ---------------- */
 
     private static void batch() {
-        report("单批上限必须 ≤ 服务端 2000 行", LogBatch.MAX_LINES_PER_BATCH <= 2000);
+        final int max = LogBatch.MAX_LINES_PER_BATCH;
+        report("单批上限必须 ≤ 服务端 2000 行", max <= 2000);
+        // 弱网护栏：上限一旦被调回大值，一次抖动要重发的行数就回到几千，这里钉住
+        report("单批行数维持在弱网友好区间（≤300 行）", max <= 300);
+        report("单批字节维持在弱网友好区间（≤128KB）", LogBatch.MAX_BYTES_PER_BATCH <= 128 * 1024);
 
         batchCase("两行合成一批", "a\nb\n", new int[]{2}, 2);
         batchCase("单行", "x\n", new int[]{1}, 1);
@@ -130,10 +134,12 @@ public class LogicSmoke {
         batchCase("纯空行不产生批次", "\n\n\n", new int[0], 0);
         batchCase("空行被跳过但仍计入偏移", "a\n\nb\n", new int[]{2}, 2);
 
-        // 超过单批上限才切（上限 500 行，见 LogBatch.MAX_LINES_PER_BATCH）
-        batchCase("2500 行切成 5 批", lines(2500), new int[]{500, 500, 500, 500, 500}, 2500);
-        batchCase("正好 500 行只切一批", lines(500), new int[]{500}, 500);
-        batchCase("501 行切两批", lines(501), new int[]{500, 1}, 501);
+        // 超过单批上限才切。期望值一律由常量推导，以后调上限不必改用例
+        batchCase("正好一个上限 → 只切一批", lines(max), new int[]{max}, max);
+        batchCase("上限 + 1 → 切两批", lines(max + 1), new int[]{max, 1}, max + 1);
+        batchCase("2.5 倍上限 → 切三批（末批为余数）",
+                lines(max * 2 + max / 2), counts(max * 2 + max / 2, max), max * 2 + max / 2);
+        batchCase("2500 行 → 全部切完且不丢行", lines(2500), counts(2500, max), 2500);
 
         // 内容保真
         LogBatch.Chunk[] cs = LogBatch.split("a\r\nb\r\n", 1000);
@@ -173,6 +179,13 @@ public class LogicSmoke {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < n; i++) sb.append("line").append(i).append('\n');
         return sb.toString();
+    }
+
+    /** 把 total 行按每批 per 行切分时的各批行数（末批为余数）。期望值由常量推导，不写死。 */
+    private static int[] counts(int total, int per) {
+        int[] tmp = new int[(total + per - 1) / per];
+        for (int i = 0; i < tmp.length; i++) tmp[i] = Math.min(per, total - i * per);
+        return tmp;
     }
 
     private static void batchCase(String name, String text, int[] expectCounts, int expectTotal) {

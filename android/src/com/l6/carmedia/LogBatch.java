@@ -19,18 +19,19 @@ import java.util.List;
 public final class LogBatch {
 
     /**
-     * 单批行数上限。服务端 2000，这里压到 500。
+     * 单批行数上限。服务端 2000，这里压到 200。
      * 压这么低不是为了服务端（它 2000 行/203KB 实测都是 200 OK），而是为了**弱网**：
-     * 移动网络/NAT 上的中间设备会主动 RST 掉较大的 HTTPS POST，包越小越不容易被掐。
+     * 手机侧实测的 Connection reset 与体积无关（7KB 照样被 RST），属于链路抖动；
+     * 单批越小，一次抖动被掐断后需要重发的行就越少，代价越低。
      */
-    public static final int MAX_LINES_PER_BATCH = 500;
+    public static final int MAX_LINES_PER_BATCH = 200;
 
     /**
      * 单批字节上限。
      * 光限行数不够：服务端 ECONNRESET 是**按体积**触发的（实测约 1.6MB 起），
-     * 如果单行特别长，1000 行照样能撑到 MB 级并被 reset。256KB 离阈值有足够安全距离。
+     * 如果单行特别长，几百行也能撑到 MB 级并被 reset。64KB 离阈值有足够安全距离。
      */
-    public static final int MAX_BYTES_PER_BATCH = 256 * 1024;
+    public static final int MAX_BYTES_PER_BATCH = 64 * 1024;
 
     /** 单轮最多发几批。日志大量积压时防止一轮占住上传线程太久，剩下的下一轮继续。 */
     public static final int MAX_BATCHES_PER_ROUND = 10;
