@@ -1,4 +1,5 @@
 import com.l6.carmedia.LrcParse;
+import com.l6.carmedia.LogBatch;
 import com.l6.carmedia.NavParse;
 
 import java.util.List;
@@ -51,6 +52,8 @@ public class LogicSmoke {
         lrcOk("毫秒两位精度 [mm:ss:xx]",
                 "[00:05:25]开头\n[00:06:75]第二句",
                 2, new int[]{5250, 6750});
+
+        batch();
 
         System.out.println();
         System.out.println("结果: 通过 " + pass + " / 失败 " + fail);
@@ -112,6 +115,70 @@ public class LogicSmoke {
             }
             System.out.println("    期望 " + count + " 行 " + java.util.Arrays.toString(times));
             System.out.println("    实际 " + lines.size() + " 行 " + sb);
+        }
+    }
+
+    /* ---------------- 日志上报分批（服务端单批上限 2000 行） ---------------- */
+
+    private static void batch() {
+        report("单批上限必须 ≤ 服务端 2000 行", LogBatch.MAX_LINES_PER_BATCH <= 2000);
+
+        batchCase("两行合成一批", "a\nb\n", new int[]{2}, 2);
+        batchCase("单行", "x\n", new int[]{1}, 1);
+        batchCase("无换行的一段（无完整行）→ 不切", "abc", new int[0], 0);
+        batchCase("空文本", "", new int[0], 0);
+        batchCase("纯空行不产生批次", "\n\n\n", new int[0], 0);
+        batchCase("空行被跳过但仍计入偏移", "a\n\nb\n", new int[]{2}, 2);
+
+        // 超过单批上限才切
+        batchCase("2500 行切成 1000/1000/500", lines(2500), new int[]{1000, 1000, 500}, 2500);
+        batchCase("正好 1000 行只切一批", lines(1000), new int[]{1000}, 1000);
+        batchCase("2000 行切两批", lines(2000), new int[]{1000, 1000}, 2000);
+
+        // 内容保真
+        LogBatch.Chunk[] cs = LogBatch.split("a\r\nb\r\n", 1000);
+        report("CRLF 行尾的 \\r 已剔除",
+                cs.length == 1 && cs[0].lines.length == 2
+                        && cs[0].lines[0].equals("a") && cs[0].lines[1].equals("b"));
+
+        // 中文：偏移必须按 UTF-8 字节算，否则偶数字节错位会切坏后续内容
+        String cn = "中文一行\n";
+        LogBatch.Chunk[] c2 = LogBatch.split(cn, 1000);
+        report("中文 offset 按 UTF-8 字节算（4 字 + 换行 = 13）",
+                c2.length == 1 && c2[0].endOffset == 13);
+    }
+
+    private static String lines(int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n; i++) sb.append("line").append(i).append('\n');
+        return sb.toString();
+    }
+
+    private static void batchCase(String name, String text, int[] expectCounts, int expectTotal) {
+        LogBatch.Chunk[] cs = LogBatch.split(text, LogBatch.MAX_LINES_PER_BATCH);
+        boolean ok = cs.length == expectCounts.length;
+        int total = 0;
+        if (ok) {
+            for (int i = 0; i < cs.length; i++) {
+                if (cs[i].lines.length != expectCounts[i]) { ok = false; break; }
+                total += cs[i].lines.length;
+            }
+        }
+        if (ok && total != expectTotal) ok = false;
+        // 偏移必须单调递增，且最后一批正好落在文本末尾（保证续传不重不漏）
+        if (ok && cs.length > 0) {
+            int expectEnd = text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (cs[cs.length - 1].endOffset != expectEnd) ok = false;
+            for (int i = 1; ok && i < cs.length; i++) {
+                if (cs[i].endOffset <= cs[i - 1].endOffset) ok = false;
+            }
+        }
+        report(name, ok);
+        if (!ok) {
+            StringBuilder sb = new StringBuilder();
+            for (LogBatch.Chunk c : cs) sb.append('[').append(c.lines.length).append('@').append(c.endOffset).append("] ");
+            System.out.println("    期望 " + java.util.Arrays.toString(expectCounts)
+                    + " 实际 " + sb + " 总行数=" + total);
         }
     }
 

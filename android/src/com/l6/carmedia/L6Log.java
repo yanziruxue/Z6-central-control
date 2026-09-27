@@ -310,32 +310,58 @@ public final class L6Log {
             int lastNl = text.lastIndexOf('\n');
             if (lastNl < 0) { setStatus(true, "无完整新行"); return; }  // 最后一行未写完，等下一轮
             String complete = text.substring(0, lastNl + 1);
-            byte[] compBytes = complete.getBytes(StandardCharsets.UTF_8);
-            JSONArray lines = new JSONArray();
-            for (String ln : complete.split("\n", -1)) {
-                if (ln.endsWith("\r")) ln = ln.substring(0, ln.length() - 1);
-                if (!ln.isEmpty()) lines.put(ln);
+            // 服务端单批硬上限 2000 行（再大会被上游 ECONNRESET，客户端表现为 Connection reset），
+            // 所以必须切批发；每批成功才推进 sentOffset，失败则留在原地等下一轮重试。
+            LogBatch.Chunk[] chunks = LogBatch.split(complete, LogBatch.MAX_LINES_PER_BATCH);
+            if (chunks.length == 0) { setStatus(true, "无新增"); return; }
+
+            final long baseOffset = sentOffset;   // endOffset 是相对本次 text 起点，不是相对文件头
+            int doneBatches = 0, sentLines = 0;
+            for (int bi = 0; bi < chunks.length; bi++) {
+                LogBatch.Chunk ck = chunks[bi];
+                if (ck.lines.length == 0) continue;
+                if (doneBatches >= LogBatch.MAX_BATCHES_PER_ROUND) {
+                    // 积压太多，留到下一轮，避免一轮占住上传线程太久
+                    setStatus(true, "已上传 " + sentLines + " 行（还有积压，下轮继续）");
+                    return;
+                }
+                JSONArray lines = new JSONArray();
+                for (String ln : ck.lines) lines.put(ln);
+                JSONObject body = new JSONObject();
+                body.put("device", deviceId);
+                body.put("app", "L6CC");
+                body.put("ver", appVer());
+                body.put("file", name);
+                body.put("ts", System.currentTimeMillis());
+                body.put("lines", lines);
+
+                PostResult r = postJson(LOG_UPLOAD_URL, body.toString());
+                if (r.ok()) {
+                    sentOffset = baseOffset + ck.endOffset;
+                    sentLines += ck.lines.length;
+                    doneBatches++;
+                    continue;
+                }
+                if (r.code < 0) {
+                    // 根本没连上（DNS/TLS/超时/reset）：没有 HTTP 状态码可显示，回显网络异常
+                    setStatus(false, "上传失败（网络异常：" + r.err + "）");
+                    w("L6LogUp", "上传失败（网络异常）" + r.err + " → " + LOG_UPLOAD_URL);
+                } else {
+                    // 服务端有回应但不是 2xx：把 HTTP 状态码 + 服务端 error 原文直接回显到车机状态行
+                    setStatus(false, "上传失败 HTTP " + r.code + errDetail(r.resp));
+                    w("L6LogUp", "上传失败 HTTP " + r.code + " " + r.resp + " → " + LOG_UPLOAD_URL);
+                }
+                // 失败即停，且不推进 sentOffset —— 已成功的批次不会重发，未发的下一轮从断点续
+                if (sentLines > 0) {
+                    setStatus(false, "部分成功：" + sentLines + " 行已上传，第 " + (doneBatches + 1)
+                            + "/" + chunks.length + " 批失败");
+                }
+                return;
             }
-            JSONObject body = new JSONObject();
-            body.put("device", deviceId);
-            body.put("app", "L6CC");
-            body.put("ver", appVer());
-            body.put("file", name);
-            body.put("ts", System.currentTimeMillis());
-            body.put("lines", lines);
-            PostResult r = postJson(LOG_UPLOAD_URL, body.toString());
-            if (r.ok()) {
-                sentOffset += compBytes.length;
-                setStatus(true, "已上传 " + lines.length() + " 行");
-                i("L6LogUp", "上传成功 " + lines.length() + " 行 → " + LOG_UPLOAD_URL);
-            } else if (r.code < 0) {
-                // 根本没连上（DNS/TLS/超时）：没有 HTTP 状态码可显示，回显网络异常
-                setStatus(false, "上传失败（网络异常：" + r.err + "）");
-                w("L6LogUp", "上传失败（网络异常）" + r.err + " → " + LOG_UPLOAD_URL);
-            } else {
-                // 服务端有回应但不是 2xx：把 HTTP 状态码 + 服务端 error 原文直接回显到车机状态行
-                setStatus(false, "上传失败 HTTP " + r.code + errDetail(r.resp));
-                w("L6LogUp", "上传失败 HTTP " + r.code + " " + r.resp + " → " + LOG_UPLOAD_URL);
+            if (sentLines > 0) {
+                setStatus(true, "已上传 " + sentLines + " 行"
+                        + (chunks.length > 1 ? "（" + chunks.length + " 批）" : ""));
+                i("L6LogUp", "上传成功 " + sentLines + " 行 → " + LOG_UPLOAD_URL);
             }
         } catch (Throwable t) {
             setStatus(false, "异常:" + (t.getMessage() == null ? "?" : t.getMessage()));
