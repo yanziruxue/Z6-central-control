@@ -16,6 +16,8 @@ import java.io.FileWriter;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
 import java.net.Inet6Address;
 import java.net.InetAddress;
@@ -32,6 +34,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLSocketFactory;
 
 /**
  * 运行日志收集器（内存环形缓冲 + 落盘 + 推送给 Tasker）。
@@ -60,6 +65,8 @@ public final class L6Log {
     private static boolean broadcastEnabled = true;
     /** 是否把日志上报到服务器接口（由设置页开关控制，持久化到 SharedPreferences，默认开）。 */
     private static boolean apiUploadEnabled = true;
+    /** 自定义 DNS 服务器（设置页「接口 DNS」手填，如 223.5.5.5）；留空 = 用系统 DNS。 */
+    private static volatile String customDns = "";
     private static Context ctx;
 
     /** 日志上传到服务器的目标接口（API 形态：POST JSON）。改这里即可换地址/路径。 */
@@ -117,6 +124,7 @@ public final class L6Log {
     public static void init(Context c) {
         ctx = c != null ? c.getApplicationContext() : null;
         apiUploadEnabled = loadApiUploadFlag();   // 恢复上次在设置页选的「上报api接口」开关
+        customDns = loadCustomDns();              // 恢复设置页手填的「接口 DNS」
         startUploader();
     }
 
@@ -252,6 +260,113 @@ public final class L6Log {
         }
     }
 
+    /* ---------- 自定义 DNS（设置页「接口 DNS」手填）----------
+     * 背景：手机/车机本地 DNS 可能把上报域名解到**错误 IP**。实测过一次：域名被解到
+     * 60.205.231.18，而那台机器上的证书只签给 www.shuan.tech —— 与本域毫无关系，
+     * 于是带证书/主机名校验的 HTTPS 永远失败（客户端只看到一句 Connection reset）。
+     * 这里允许手填一个可信 DNS，解析绕开本机那份坏掉的解析结果。 */
+    public static void setCustomDns(String s) {
+        String v = s == null ? "" : s.trim();
+        if (!v.isEmpty() && !DnsQuery.isIp(v)) v = "";   // 非法输入一律当「未设置」，别把配置写坏
+        customDns = v;
+        peerCache = ""; peerCacheAt = 0;                 // 换了解析源，旧的对端缓存作废
+        saveCustomDns(v);
+    }
+    public static String getCustomDns() { return customDns; }
+
+    private static void saveCustomDns(String v) {
+        try {
+            SharedPreferences sp = l6Prefs();
+            if (sp != null) sp.edit().putString("custom_dns", v).apply();
+        } catch (Throwable e) {
+            android.util.Log.w("L6LogUp", "持久化自定义 DNS 失败", e);
+        }
+    }
+    private static String loadCustomDns() {
+        try {
+            SharedPreferences sp = l6Prefs();
+            String v = sp != null ? sp.getString("custom_dns", "") : "";
+            return (v != null && DnsQuery.isIp(v)) ? v : "";
+        } catch (Throwable e) {
+            return "";
+        }
+    }
+
+    /** 一次解析的结果：用到的 IP + 来源（用于回显/诊断）。 */
+    private static final class Resolution {
+        String[] ips = new String[0];
+        String source = "系统 DNS";
+        String err = "";
+    }
+
+    /** 解析上报域名：配了自定义 DNS 就用它（UDP 53 直查），失败再回落系统 DNS 并把原因写进 source。 */
+    private static Resolution resolveHost(String host) {
+        Resolution r = new Resolution();
+        if (!customDns.isEmpty()) {
+            try {
+                String ip = queryDns(customDns, host);
+                if (ip != null && !ip.isEmpty()) {
+                    r.ips = new String[]{ip};
+                    r.source = "自定义 " + customDns;
+                    return r;
+                }
+                r.err = "自定义 DNS " + customDns + " 无 A 记录";
+            } catch (Throwable t) {
+                r.err = "自定义 DNS " + customDns + " 查询失败(" + t.getClass().getSimpleName() + ")";
+            }
+        }
+        try {
+            InetAddress[] all = InetAddress.getAllByName(host);
+            String[] ips = new String[all.length];
+            for (int i = 0; i < all.length; i++) ips[i] = all[i].getHostAddress();
+            r.ips = ips;
+            r.source = r.err.isEmpty() ? "系统 DNS" : ("系统 DNS（回落：" + r.err + "）");
+        } catch (Throwable t) {
+            if (r.err.isEmpty()) r.err = "系统 DNS 解析失败(" + t.getClass().getSimpleName() + ")";
+            r.source = (customDns.isEmpty() ? "系统 DNS" : "系统 DNS 回落") + " 失败：" + r.err;
+        }
+        return r;
+    }
+
+    /** 用指定 DNS 服务器（UDP 53）查一次 A 记录，返回首个 IP；查不到返回 null。 */
+    private static String queryDns(String dnsServer, String host) throws Exception {
+        int id = (int) (System.nanoTime() & 0xFFFF);
+        byte[] q = DnsQuery.buildQuery(host, id);
+        DatagramSocket ds = new DatagramSocket();
+        try {
+            ds.setSoTimeout(5000);
+            ds.send(new DatagramPacket(q, q.length, InetAddress.getByName(dnsServer), 53));
+            byte[] buf = new byte[1500];
+            DatagramPacket resp = new DatagramPacket(buf, buf.length);
+            ds.receive(resp);
+            byte[] data = new byte[resp.getLength()];
+            System.arraycopy(resp.getData(), 0, data, 0, resp.getLength());
+            return DnsQuery.parseFirstA(data, id);
+        } finally {
+            try { ds.close(); } catch (Throwable ignored) { }
+        }
+    }
+
+    /** IP 数组 → 空格分隔字符串。 */
+    private static String joinIps(String[] ips) {
+        StringBuilder sb = new StringBuilder();
+        for (String s : ips) {
+            if (sb.length() > 0) sb.append(' ');
+            sb.append(s);
+        }
+        return sb.toString();
+    }
+
+    /** IP 数组的协议族判定（探针回显用）。 */
+    private static String familyOf(String[] ips) {
+        if (ips == null || ips.length == 0) return "未知";
+        boolean v4 = false, v6 = false;
+        for (String s : ips) {
+            if (s.indexOf(':') >= 0) v6 = true; else v4 = true;
+        }
+        return (v4 && v6) ? "双栈" : (v6 ? "IPv6" : "IPv4");
+    }
+
     /* ===================== 上传到服务器（增量 + 定时） ===================== */
 
     /** 上传状态回调（可选）：原生侧每次上传后把结果推给页面（L6LogUploadStatus）。 */
@@ -269,7 +384,7 @@ public final class L6Log {
 
     /**
      * 三段式连通性探针（独立线程执行，结果回抛）：
-     *   ① DNS —— 解析到哪些 IP、IPv4 还是 IPv6、耗时
+     *   ① DNS —— 走哪个解析源、解析到哪些 IP、IPv4 还是 IPv6、耗时
      *   ② TCP —— 裸 socket 建连（**不含 TLS**）：能区分「TCP 就不通」与「TCP 通但 TLS/HTTP 挂」
      *   ③ 请求 —— 真发一次上报，把服务端真实响应（状态码 / error 原文）当场拿回来
      *
@@ -286,33 +401,35 @@ public final class L6Log {
                 int port = u.getPort() > 0 ? u.getPort() : ("https".equals(u.getProtocol()) ? 443 : 80);
                 o.put("url", LOG_UPLOAD_URL).put("host", host).put("port", port);
 
-                // ① DNS：解析到什么、v4 还是 v6、多久
+                // ① DNS：走哪个解析源、解析到什么、v4 还是 v6、多久
+                //    配了自定义 DNS 时，把系统 DNS 的结果也一并回显 —— 两个源解到不同 IP 时一眼看穿
                 long tDns = System.currentTimeMillis();
-                String ips;
-                String family = "未知";
-                try {
-                    InetAddress[] all = InetAddress.getAllByName(host);
-                    StringBuilder sb = new StringBuilder();
-                    boolean v4 = false, v6 = false;
-                    for (InetAddress a : all) {
-                        if (sb.length() > 0) sb.append(' ');
-                        sb.append(a.getHostAddress());
-                        if (a instanceof Inet6Address) v6 = true; else v4 = true;
-                    }
-                    ips = sb.length() == 0 ? "无解析结果" : sb.toString();
-                    family = (v4 && v6) ? "双栈" : (v6 ? "IPv6" : "IPv4");
-                } catch (Throwable e) {
-                    ips = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "?" : e.getMessage());
-                }
+                Resolution res = resolveHost(host);
                 long dnsMs = System.currentTimeMillis() - tDns;
-                o.put("dns", ips).put("family", family).put("dnsMs", dnsMs);
+                String ips = res.ips.length == 0
+                        ? (res.err.isEmpty() ? "无解析结果" : res.err) : joinIps(res.ips);
+                o.put("dns", ips).put("family", familyOf(res.ips)).put("dnsMs", dnsMs)
+                        .put("dnsSource", res.source);
+                if (!customDns.isEmpty()) {
+                    try {
+                        InetAddress[] all = InetAddress.getAllByName(host);
+                        StringBuilder sb = new StringBuilder();
+                        for (InetAddress a : all) {
+                            if (sb.length() > 0) sb.append(' ');
+                            sb.append(a.getHostAddress());
+                        }
+                        o.put("sysDns", sb.length() == 0 ? "无解析结果" : sb.toString());
+                    } catch (Throwable ignored) { }
+                }
 
                 // ② TCP 裸建连（不含 TLS）
                 long tcpMs = -1;
                 String tcpErr = "";
                 Socket sk = null;
                 try {
-                    InetAddress first = InetAddress.getAllByName(host)[0];
+                    // 优先测「上报实际会连的那个 IP」（配了自定义 DNS 时就是它解析出来的那个）
+                    InetAddress first = res.ips.length > 0
+                            ? InetAddress.getByName(res.ips[0]) : InetAddress.getAllByName(host)[0];
                     long tTcp = System.currentTimeMillis();
                     sk = new Socket();
                     sk.connect(new InetSocketAddress(first, port), 8000);
@@ -487,7 +604,8 @@ public final class L6Log {
                 // 文案不再自带「上传失败」前缀：页面状态行已有「⚠️ 上报失败」徽标，重复会说两遍。
                 String reason = LogDiag.reason(r.code, r.err, r.phase, r.ms, errDetail(r.resp));
                 w("L6LogUp", "上传失败 " + reason + " / " + kb + "KB / 试 " + r.attempts + " 次 / 对端 "
-                        + (r.peer.isEmpty() ? "?" : r.peer) + " → " + LOG_UPLOAD_URL);
+                        + (r.peer.isEmpty() ? "?" : r.peer) + " / 解析 " + r.dnsSource
+                        + " → " + LOG_UPLOAD_URL);
                 // 失败即停，且不推进 sentOffset —— 已成功的批次不会重发，未发的下一轮从断点续。
                 // 部分成功时把「哪一批挂了 + 为什么挂」一起回显，别让原因被「部分成功」盖掉。
                 String head = sentLines > 0
@@ -520,6 +638,7 @@ public final class L6Log {
         int attempts = 1;   // 实际尝试次数（含立即重试），用于状态行回显
         String phase = "";  // 失败阶段：connect / write / read —— 决定根因方向
         String peer = "";   // 本次连接到的对端地址（IPv6 加方括号），DNS 劫持时一眼可见
+        String dnsSource = "";  // 解析来源：系统 DNS / 自定义 223.5.5.5 —— 解到错 IP 时一眼可见
         long ms = 0;        // 本次尝试耗时（含建连 + 收发），毫秒
 
         boolean ok() { return code >= 200 && code < 300; }
@@ -535,8 +654,22 @@ public final class L6Log {
         String phase = "connect";
         try {
             URL u = new URL(url);
-            r.peer = resolvePeer(u.getHost());
+            String host = u.getHost();
+            Resolution res = resolveHost(host);
+            r.dnsSource = res.source;
+            r.peer = res.ips.length > 0 ? joinIps(res.ips) : resolvePeer(host);
             c = (HttpURLConnection) u.openConnection();
+            // 配了自定义 DNS 且解出了 IP：把连接钉到那个 IP（SNI / 证书与主机名校验仍用域名）。
+            // 这样即便本机解析器给的是错 IP，也能走到对的机器上。
+            if (!customDns.isEmpty() && res.ips.length > 0 && c instanceof HttpsURLConnection) {
+                try {
+                    ((HttpsURLConnection) c).setSSLSocketFactory(new PinnedSsl(
+                            (SSLSocketFactory) SSLSocketFactory.getDefault(),
+                            InetAddress.getByName(res.ips[0]), 15000));
+                } catch (Throwable t) {
+                    android.util.Log.w("L6LogUp", "钉 IP 失败，改用系统解析", t);
+                }
+            }
             c.setRequestMethod("POST");
             c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             // 每批都用全新连接：Android 会复用 keep-alive 套接字，而弱网/车机侧的对端

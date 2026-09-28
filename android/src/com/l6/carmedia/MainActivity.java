@@ -179,9 +179,13 @@ public class MainActivity extends Activity {
             "testLogApi:function(){try{R.testLogApi();}catch(e){}}," +
             "setApiUpload:function(b){try{R.setApiUpload(!!b);}catch(e){}}," +
             "isApiUpload:function(){try{return !!R.isApiUpload();}catch(e){return true;}}," +
-            "getUploadStatus:function(){try{return JSON.parse(R.getUploadStatus()||'null');}catch(e){return null;}}" +
+            "getUploadStatus:function(){try{return JSON.parse(R.getUploadStatus()||'null');}catch(e){return null;}}," +
+            // ---- 接口 DNS（v1.5.8）：手填可信 DNS，解析绕开本机坏掉的解析器 ----
+            "setDnsServer:function(s){try{R.setDnsServer(String(s==null?'':s));}catch(e){}}," +
+            "getDnsServer:function(){try{return R.getDnsServer()||'';}catch(e){return '';}}" +
             "};" +
-            "try{buildMusicSrc();buildNavApp();}catch(e){}" +
+            // shim 注入后把日志卡片状态同步一次（含新加的接口 DNS 输入框）
+            "try{buildMusicSrc();buildNavApp();if(typeof syncLogCfg==='function')syncLogCfg();}catch(e){}" +
             "}catch(e){}})()";
 
     @Override
@@ -1614,6 +1618,22 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String getUploadStatus() {
             return L6Log.getUploadStatus();
+        }
+
+        /**
+         * 设置页「接口 DNS」：手填可信 DNS 服务器（如 223.5.5.5），
+         * 解析绕开本机那份坏掉的解析（实测本机曾把接口域名解到别人家的 IP）。
+         * 空串 = 回落系统 DNS。
+         */
+        @JavascriptInterface
+        public void setDnsServer(String s) {
+            L6Log.setCustomDns(s);
+        }
+
+        /** 读取设置页「接口 DNS」当前的取值（空串 = 用系统 DNS）。 */
+        @JavascriptInterface
+        public String getDnsServer() {
+            return L6Log.getCustomDns();
         }
     }
 }

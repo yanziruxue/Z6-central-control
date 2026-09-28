@@ -1,3 +1,4 @@
+import com.l6.carmedia.DnsQuery;
 import com.l6.carmedia.LogBatch;
 import com.l6.carmedia.LogDiag;
 import com.l6.carmedia.LrcParse;
@@ -14,7 +15,8 @@ import java.util.List;
  * 运行（见 android/build.sh 或 skill 里的说明）：
  *   javac -encoding UTF-8 -d <tmp> src/com/l6/carmedia/NavParse.java \
  *         src/com/l6/carmedia/LrcParse.java src/com/l6/carmedia/LogBatch.java \
- *         src/com/l6/carmedia/LogDiag.java tools/LogicSmoke.java
+ *         src/com/l6/carmedia/LogDiag.java src/com/l6/carmedia/DnsQuery.java \
+ *         tools/LogicSmoke.java
  *   java -cp <tmp> LogicSmoke
  */
 public class LogicSmoke {
@@ -57,6 +59,7 @@ public class LogicSmoke {
 
         batch();
         diag();
+        dns();
 
         System.out.println();
         System.out.println("结果: 通过 " + pass + " / 失败 " + fail);
@@ -221,6 +224,74 @@ public class LogicSmoke {
                 && okSum.contains("请求 218ms"), okSum);
         report("TCP 未测到时不显示 TCP 段", LogDiag.probeSummary(false, 3, -1, 0).indexOf("TCP") < 0);
         report("失败结论用「接口不通」", LogDiag.probeSummary(false, 3, -1, 0).contains("接口不通"));
+    }
+
+    /* ---------------- 自定义 DNS（DnsQuery，v1.5.8）---------------- */
+
+    private static void dns() {
+        // 组包：单问题 A 查询，QD=1、RD=1，其余计数为 0
+        byte[] q = DnsQuery.buildQuery("api.test", 0x1234);
+        report("查询包长度 = 头12 + 名10 + 4", q.length == 26, String.valueOf(q.length));
+        report("查询包 ID 正确", (q[0] & 0xFF) == 0x12 && (q[1] & 0xFF) == 0x34);
+        report("查询包 RD=1 且 rcode=0", (q[2] & 0xFF) == 0x01 && (q[3] & 0xFF) == 0x00);
+        report("QDCOUNT=1，AN/NS/AR=0",
+                q[4] == 0 && q[5] == 1 && q[6] == 0 && q[7] == 0 && q[8] == 0 && q[9] == 0
+                        && q[10] == 0 && q[11] == 0);
+        report("QNAME 编码为 3api4test0",
+                q[12] == 3 && q[13] == 'a' && q[14] == 'p' && q[15] == 'i'
+                        && q[16] == 4 && q[17] == 't' && q[21] == 0);
+        report("QTYPE=A(1)、QCLASS=IN(1)",
+                q[22] == 0 && q[23] == 1 && q[24] == 0 && q[25] == 1);
+
+        // 解包：应答里 CNAME 在前、A 在后 → 应跳过 CNAME 取到 A
+        byte[] resp = mkDnsResp(0x1234, 0);
+        java.util.List<String> all = DnsQuery.parseAllA(resp, 0x1234);
+        report("应答解析出 1 条 A 记录（去重）", all.size() == 1, all.toString());
+        report("A 记录内容正确（60.205.251.18）",
+                all.size() == 1 && "60.205.251.18".equals(all.get(0)), all.toString());
+        report("parseFirstA 取首条", "60.205.251.18".equals(DnsQuery.parseFirstA(resp, 0x1234)));
+        report("ID 不匹配的应答被丢弃（防串包）", DnsQuery.parseFirstA(resp, 0x9999) == null);
+        report("rcode!=0（NXDOMAIN）返回空", DnsQuery.parseFirstA(mkDnsResp(0x1234, 3), 0x1234) == null);
+        report("ANCOUNT=0 返回空", DnsQuery.parseFirstA(mkDnsResp(0x1234, 0, false), 0x1234) == null);
+        report("空/短包不抛异常", DnsQuery.parseAllA(new byte[3], 1).isEmpty());
+
+        // 设置页输入校验
+        report("合法 IPv4 通过", DnsQuery.isIpv4("60.205.251.18") && DnsQuery.isIpv4("223.5.5.5"));
+        report("非法 IPv4 被拒（越界/缺段/非数字）",
+                !DnsQuery.isIpv4("256.1.1.1") && !DnsQuery.isIpv4("1.2.3") && !DnsQuery.isIpv4("a.b.c.d"));
+        report("isIp 接受 IPv6", DnsQuery.isIp("2408:4009:501::39") && DnsQuery.isIp("::1"));
+        report("isIp 拒绝非 IP",
+                !DnsQuery.isIp("") && !DnsQuery.isIp("dns.alidns.com") && !DnsQuery.isIp("223.5.5.5/24"));
+    }
+
+    /** 拼一个 DNS 应答（1 问题 + CNAME + A），用来单测解包。 */
+    private static byte[] mkDnsResp(int id, int rcode) { return mkDnsResp(id, rcode, true); }
+
+    private static byte[] mkDnsResp(int id, int rcode, boolean withA) {
+        java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+        o.write((id >> 8) & 0xFF); o.write(id & 0xFF);
+        o.write(0x81); o.write(0x80 | (rcode & 0x0F));   // QR=1, RD/RA=1, rcode
+        o.write(0); o.write(1);                          // QDCOUNT = 1
+        o.write(0); o.write(withA ? 2 : 0);              // ANCOUNT
+        o.write(0); o.write(0); o.write(0); o.write(0);  // NS / AR = 0
+        byte[] name = {3, 'a', 'p', 'i', 4, 't', 'e', 's', 't', 0};
+        o.write(name, 0, name.length);
+        o.write(0); o.write(1);                          // QTYPE = A
+        o.write(0); o.write(1);                          // QCLASS = IN
+        if (!withA) return o.toByteArray();
+        // 先放一条 CNAME（解析应跳过），再放 A
+        o.write(0xC0); o.write(12);
+        o.write(0); o.write(5); o.write(0); o.write(1);
+        o.write(0); o.write(0); o.write(0); o.write(60);
+        byte[] tgt = {3, 'a', 'l', 't', 4, 't', 'e', 's', 't', 0};
+        o.write(0); o.write(tgt.length);
+        o.write(tgt, 0, tgt.length);
+        o.write(0xC0); o.write(12);
+        o.write(0); o.write(1); o.write(0); o.write(1);
+        o.write(0); o.write(0); o.write(0); o.write(60);
+        o.write(0); o.write(4);
+        o.write(60); o.write(205); o.write(251); o.write(18);
+        return o.toByteArray();
     }
 
     private static String lines(int n) {

@@ -10,6 +10,7 @@
  *  ⑥ 原生长时间不回推 → 15s 超时兜底提示（测试里把常量调小加速）
  *  ⑦ 前端不因为「上报api接口」开关关闭而拦截（force 在原生侧 uploadNow(true)）
  *  ⑧ v1.5.7「测试接口」探针按钮：调用桥 / 进行中态 / 防连点 / 成功与失败结果渲染
+ *  ⑨ v1.5.8「接口 DNS」输入框：初值来自桥 / 非法 IP 拦截 / 合法调桥 / 探针显示解析来源与系统 DNS 对比
  *
  * 用法： node tools/log-smoke.js
  * 依赖： jsdom（node 环境变量 NODE_PATH 指向已装 jsdom 的 node_modules）
@@ -42,6 +43,9 @@ const NativeRaw = {
   testLogApi() { this.calls.push(['testLogApi']); },
   setApiUpload(b) { this.apiUpload = !!b; this.calls.push(['setApiUpload', !!b]); },
   isApiUpload() { return this.apiUpload; },
+  dns: '223.5.5.5',
+  setDnsServer(s) { this.dns = String(s == null ? '' : s); this.calls.push(['setDnsServer', this.dns]); },
+  getDnsServer() { return this.dns || ''; },
   setLogBroadcast() {}, clearLog() {}, exportLog() {},
   getUploadStatus: () => '{}',
   launchApp() {}, launchPkg() {}, launchMusic() {}, goHome() {},
@@ -149,6 +153,34 @@ setTimeout(() => {
   check('⑧ 成功探针：状态行含 DNS/TCP/HTTP 三段',
     txt(msg).indexOf('DNS 12ms') >= 0 && txt(msg).indexOf('TCP 45ms') >= 0
       && txt(msg).indexOf('HTTP 200') >= 0, txt(msg));
+
+  // ⑨ v1.5.8「接口 DNS」输入框：根因就是本机解析到了错误 IP，
+  //    这个框让用户手填可信 DNS 绕开它，必须能写桥、能拦非法输入、探针能回显解析来源。
+  const dinp = d.getElementById('dnsInput');
+  check('⑨ #dnsInput 存在', !!dinp);
+  check('⑨ 初值来自原生 getDnsServer', dinp && dinp.value === '223.5.5.5',
+    dinp ? dinp.value : 'null');
+  const hintsOf = () => ((d.getElementById('dnsHint') || {}).textContent || '');
+  const dnsCalls = () => NativeRaw.calls.filter(c => c[0] === 'setDnsServer').length;
+  NativeRaw.calls.length = 0;
+  dinp.value = '999.1.1.1';                                       // 非法 → 不应写桥
+  dinp.dispatchEvent(new window.Event('change', { bubbles: true }));
+  check('⑨ 非法 IP 不写桥且给红字提示',
+    dnsCalls() === 0 && hintsOf().indexOf('合法') >= 0, hintsOf());
+  dinp.value = '119.29.29.29';
+  dinp.dispatchEvent(new window.Event('change', { bubbles: true }));
+  check('⑨ 合法 IP 调原生 setDnsServer',
+    dnsCalls() === 1 && NativeRaw.dns === '119.29.29.29', NativeRaw.dns);
+  check('⑨ 保存后有确认文案', hintsOf().indexOf('119.29.29.29') >= 0, hintsOf());
+
+  // ⑨ 探针要能显示解析来源，两个解析源不一致时并排给出（正是本次踩的坑）
+  window.L6LogProbeResult({ ok: false, url: 'https://x/api/l6zk/log', host: 'x',
+    dns: '60.205.231.18', family: 'IPv4', dnsMs: 2, dnsSource: '自定义 223.5.5.5',
+    sysDns: '60.205.251.18', tcpMs: 53, code: -1, phase: 'write',
+    err: 'SocketException: Connection reset', ms: 80, resp: '' });
+  check('⑨ 探针显示解析来源', txt(msg).indexOf('自定义 223.5.5.5') >= 0, txt(msg));
+  check('⑨ 探针并排显示系统 DNS（不一致时一眼看穿）',
+    txt(msg).indexOf('系统 DNS：60.205.251.18') >= 0, txt(msg));
 
   // ⑥ 超时兜底：把常量调小，避免测试真等 15s
   window.eval('LOG_NOW_TIMEOUT=150');

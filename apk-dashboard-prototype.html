@@ -110,6 +110,10 @@
   .ota-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
   .ota-cur{font-size:12px;color:var(--sub)}.ota-cur b{color:var(--txt);font-weight:700}
   .ota-status{font-size:12px;color:var(--sub);min-height:18px}
+  .dns-inp{flex:1 1 240px;min-width:160px;font-size:12px;color:var(--txt);background:var(--panel2);
+    border:1px solid var(--line);border-radius:10px;padding:8px 10px;outline:none}
+  .dns-inp:focus{border-color:var(--acc)}
+  .dns-inp::placeholder{color:var(--sub)}
   /* 上报失败文案会带上 HTTP 码与服务端 error 原文，变长后必须允许断行，否则溢出卡片 */
   #logUpMsg{word-break:break-all;line-height:1.45}
   .ota-status.ok{color:var(--acc2)}.ota-status.err{color:var(--red)}
@@ -512,6 +516,11 @@
                   <!-- 测试接口：一次性连通性探针（DNS → TCP → 真发一次请求），把失败段摊开 -->
                   <button class="set-opt" id="logTestBtn">🔌 测试接口</button>
                   <button class="set-opt" id="logApiBtn">● 开启</button>
+                </div>
+                <div class="ota-row">
+                  <span class="ota-cur">接口 DNS：</span>
+                  <input id="dnsInput" class="dns-inp" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="留空=系统 DNS（可填 223.5.5.5）">
+                  <span class="set-hint" id="dnsHint">本机解析不准时可填可信 DNS（如 223.5.5.5）</span>
                 </div>
                 <div class="ota-status" id="logUpMsg">每分钟自动上报一次到日志接口（首次约 5s 后开始）。</div>
               </div>
@@ -1844,7 +1853,10 @@ function L6LogProbeResult(s){
   logTestFinish();
   var el=$("#logUpMsg"); if(!el||!s)return;
   var seg=[];
-  seg.push("DNS "+(s.dnsMs==null?"?":s.dnsMs+"ms")+" → "+(s.dns||"?")+(s.family?("（"+s.family+"）"):""));
+  var dnsSeg="DNS "+(s.dnsMs==null?"?":s.dnsMs+"ms")+" → "+(s.dns||"?")+(s.family?("（"+s.family+"）"):"");
+  if(s.dnsSource) dnsSeg+="［"+s.dnsSource+"］";
+  if(s.sysDns&&s.sysDns!==s.dns) dnsSeg+="；系统 DNS："+s.sysDns;
+  seg.push(dnsSeg);
   seg.push(s.tcpMs>=0?("TCP "+s.tcpMs+"ms"):("TCP 失败 "+(s.tcpErr||"")));
   if(s.code>=0){ seg.push("HTTP "+s.code+"（"+(s.ms||0)+"ms）"); }
   else { seg.push("请求失败·"+(s.phase||"?")+"："+(s.err||"?")); }
@@ -1869,7 +1881,37 @@ function syncLogUp(){
   var n=l6n(); var s=null; try{ s=n&&n.getUploadStatus?n.getUploadStatus():null; }catch(e){}
   if(s&&typeof s==="object")L6LogUploadStatus(s);
 }
-syncLogApi(); syncLogUp();
+/* ---- 「接口 DNS」：手填可信 DNS 服务器，绕开本机坏掉的解析（v1.5.8）----
+   根因背景：本机 DNS 曾把接口域名解到错误 IP（60.205.231.18 其实只有别人家的证书），
+   带校验的 HTTPS 必然失败。留空 = 系统 DNS；填了 = 原生侧用 UDP 53 直查该 DNS。 */
+function dnsLooksValid(v){
+  v=(v||"").trim(); if(v==="")return true;
+  if(v.indexOf(":")>=0){ return /^[0-9a-fA-F:.]+$/.test(v); }   // IPv6 宽松校验
+  var p=v.split("."); if(p.length!==4)return false;
+  for(var i=0;i<4;i++){ if(!/^\d{1,3}$/.test(p[i])||+p[i]>255)return false; }
+  return true;
+}
+function dnsSay(msg,ok){ var h=$("#dnsHint"); if(h){ h.textContent=msg; h.style.color=ok?"var(--sub)":"var(--red)"; } }
+var dnsWired=false;
+function wireDnsInput(){
+  var el=$("#dnsInput"); if(!el||dnsWired)return;
+  dnsWired=true;
+  el.addEventListener("change",function(){
+    var n=l6n(), v=(el.value||"").trim();
+    if(!dnsLooksValid(v)){ dnsSay("⚠️ 请填合法 IP（如 223.5.5.5）；留空即用系统 DNS",false); return; }
+    el.value=v;
+    try{ if(n&&n.setDnsServer) n.setDnsServer(v); }catch(e){}
+    dnsSay(v?("✅ 已保存：解析走 "+v):"✅ 已清空：解析走系统 DNS",true);
+  });
+}
+function syncDnsInput(){
+  var el=$("#dnsInput"); if(!el)return;
+  var n=l6n(); try{ if(n&&n.getDnsServer) el.value=n.getDnsServer()||""; }catch(e){}
+}
+/* 设置页日志卡片整体同步：SHIM 注入后会重调一次 */
+function syncLogCfg(){ syncLogApi(); syncLogUp(); syncDnsInput(); }
+wireDnsInput();
+syncLogCfg();
 
 /* ---- 设为默认桌面：跳系统「默认应用」设置页 ---- */
 $("#homeBtn").onclick=function(){
