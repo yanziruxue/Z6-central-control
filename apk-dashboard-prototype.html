@@ -1476,7 +1476,7 @@ window.L6OtaEvent = function(evt){
     if(window.__l6Version===undefined && evt.currentVersion){
       try{ document.getElementById("otaCur").textContent=evt.currentVersion; window.__l6Version=evt.currentVersion; }catch(e){}
     }
-    // 信息源标注：GitHub 为主源；若前序源（自建 JSON）不可用而回落，明确告知（Ota.java 传 sourceLabel/tried）
+    // 信息源标注：git.ziruxue.top 为主源、GitHub 保底；前序源不可用时回落，明确告知（Ota.java 传 sourceLabel/tried）
     var srcText="";
     if(evt.sourceLabel){
       srcText=" · 来源："+evt.sourceLabel;

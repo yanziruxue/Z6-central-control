@@ -28,6 +28,7 @@ const NativeRaw = {
   getOtaConfig: () => JSON.stringify({
     repoOwner: 'yanziruxue', repoName: 'Z6-central-control',
     otaJsonUrl: '', mirror: 'https://gh-proxy.com/',
+    selfBase: 'https://git.ziruxue.top', selfOwner: 'yanzi', selfRepo: 'Z6',
   }),
   calls: [],
   checkOtaUpdate() {
@@ -131,8 +132,8 @@ setTimeout(() => {
       // --- 配置契约：ota.properties / getOtaConfig 暴露的键必须**恰好**落在白名单内 ---
       // 用白名单而非黑名单点名：任何新增配置键（无论叫什么）都会被 unknownProps 抓到，
       // 不会出现「删了 A 又悄悄冒出 B」的漏检。
-      const ALLOWED_PROP_KEYS = ['REPO_OWNER', 'REPO_NAME', 'OTA_JSON_URL', 'MIRROR'];
-      const ALLOWED_CFG_KEYS = ['repoOwner', 'repoName', 'otaJsonUrl', 'mirror'];
+      const ALLOWED_PROP_KEYS = ['REPO_OWNER', 'REPO_NAME', 'OTA_JSON_URL', 'MIRROR', 'SELF_OTA_BASE', 'SELF_OTA_OWNER', 'SELF_OTA_REPO'];
+      const ALLOWED_CFG_KEYS = ['repoOwner', 'repoName', 'otaJsonUrl', 'mirror', 'selfBase', 'selfOwner', 'selfRepo'];
       const otaProps = fs.readFileSync(path.join(ROOT, 'assets', 'ota.properties'), 'utf8');
       const propKeys = [...otaProps.matchAll(/^\s*([A-Z_]+)\s*=/gm)].map(m => m[1]);
       const unknownProps = propKeys.filter(k => !ALLOWED_PROP_KEYS.includes(k));
@@ -141,12 +142,14 @@ setTimeout(() => {
       const cfgKeys = Object.keys(cfgObj);
       const cfgClean = cfgKeys.every(k => ALLOWED_CFG_KEYS.includes(k));
 
-      // --- 信息源契约：GitHub Releases 为主源（OTA_JSON_URL 仅作前置覆盖）---
+      // --- 信息源契约：自建 JSON(可选) → 自托管 Git 主源 → GitHub 保底 ---
       const cuSrc = otaSrc.slice(otaSrc.indexOf('checkUpdate(Activity'),
                                  otaSrc.indexOf('public static void downloadAndInstall'));
-      const iGithub = cuSrc.indexOf('/releases/latest');
+      const iSelf = cuSrc.indexOf('/api/v1/repos/');           // 自托管 Git 主源标记
+      const iGithub = cuSrc.indexOf('api.github.com/repos/');  // GitHub 保底标记
       const iJson = cuSrc.indexOf('cfg.otaJsonUrl');
-      const orderOk = iGithub >= 0 && iJson >= 0 && iJson < iGithub;   // 自建 JSON 只作前置覆盖
+      const orderOk = iSelf >= 0 && iGithub >= 0 && iSelf < iGithub
+                      && (iJson < 0 || iJson < iSelf);   // 自建 JSON 只作前置覆盖，自托管 Git 在 GitHub 之前
 
       // 软失败必须能回落：严格判据（ok:false / 缺版本号 / 缺直链）+ 不外抛的取数封装
       const guardOk = /private static boolean isUsable\(JSONObject/.test(otaSrc) &&

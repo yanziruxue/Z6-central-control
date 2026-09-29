@@ -72,6 +72,21 @@ else
 fi
 echo "· 远端: $REPO_URL"
 
+# 自托管 Git（git.ziruxue.top）：三项齐全才加 gitzx 远端，与 GitHub 同步
+SELF_OTA_BASE="$(l6_prop "$OTA_PROPS" SELF_OTA_BASE || true)"
+SELF_OTA_OWNER="$(l6_prop "$OTA_PROPS" SELF_OTA_OWNER || true)"
+SELF_OTA_REPO="$(l6_prop "$OTA_PROPS" SELF_OTA_REPO || true)"
+SELF_URL=""
+if [ -n "$SELF_OTA_BASE" ] && [ -n "$SELF_OTA_OWNER" ] && [ -n "$SELF_OTA_REPO" ]; then
+  SELF_URL="${SELF_OTA_BASE%/}/$SELF_OTA_OWNER/$SELF_OTA_REPO.git"
+  if git remote get-url gitzx >/dev/null 2>&1; then
+    git remote set-url gitzx "$SELF_URL"
+  else
+    git remote add gitzx "$SELF_URL"
+  fi
+  echo "· 自托管远端: $SELF_URL"
+fi
+
 # ---- 2. 安全闸：签名口令文件绝不能进库 ----
 if git ls-files --error-unmatch android/keystore.properties >/dev/null 2>&1; then
   echo "✗ 危险：android/keystore.properties（含签名口令）已被 git 跟踪，拒绝推送。"
@@ -139,10 +154,21 @@ else
   exit 1
 fi
 
+# 同步推到自托管 Git（gitzx）
+if [ -n "${SELF_URL:-}" ]; then
+  echo "· 推送 $BRANCH → gitzx（最多重试 $TRIES 次）"
+  l6_retry "$TRIES" "$WAIT" "推 gitzx" -- git -c http.connectTimeout=8 push -q gitzx "$BRANCH" \
+    || echo "⚠ gitzx 推送失败（TLS/凭据限制），请在本机重试： git push gitzx $BRANCH"
+fi
+
 # ---- 6. 可选：打 tag ----
 if [ -n "$TAG" ]; then
   git tag -f "v$TAG" >/dev/null
   l6_retry "$TRIES" "$WAIT" "推 tag" -- git -c http.connectTimeout=8 push -q -f origin "v$TAG" && echo "· tag v$TAG 已推送"
+  if [ -n "${SELF_URL:-}" ]; then
+    l6_retry "$TRIES" "$WAIT" "推 gitzx tag" -- git -c http.connectTimeout=8 push -q -f gitzx "v$TAG" \
+      && echo "· tag v$TAG 已推送 (gitzx)" || echo "⚠ gitzx tag 推送失败（请在本机重试）"
+  fi
 fi
 
 echo

@@ -37,15 +37,24 @@ l6_fail_push() {
 }
 
 # ---- 读仓库信息（与 OTA 客户端同一份，避免两处不一致）----
-REPO_OWNER=""; REPO_NAME=""
+REPO_OWNER=""; REPO_NAME=""; SELF_OTA_BASE=""; SELF_OTA_OWNER=""; SELF_OTA_REPO=""
 if [ -f "$OTA_PROPS" ]; then
   while IFS='=' read -r k v || [ -n "$k" ]; do
     k="$(echo "$k" | tr -d ' ')"; v="$(echo "$v" | tr -d ' ')"
     case "$k" in
       REPO_OWNER) REPO_OWNER="$v" ;;
       REPO_NAME)  REPO_NAME="$v" ;;
+      SELF_OTA_BASE)  SELF_OTA_BASE="$v" ;;
+      SELF_OTA_OWNER) SELF_OTA_OWNER="$v" ;;
+      SELF_OTA_REPO)  SELF_OTA_REPO="$v" ;;
     esac
-  done < <(grep -E '^\s*(REPO_OWNER|REPO_NAME)\s*=' "$OTA_PROPS")
+  done < <(grep -E '^\s*(REPO_OWNER|REPO_NAME|SELF_OTA_BASE|SELF_OTA_OWNER|SELF_OTA_REPO)\s*=' "$OTA_PROPS")
+fi
+# 自托管 Git（git.ziruxue.top）远端地址；三项齐全才算启用双发，否则仅 GitHub 单发
+if [ -n "$SELF_OTA_BASE" ] && [ -n "$SELF_OTA_OWNER" ] && [ -n "$SELF_OTA_REPO" ]; then
+  SELF_URL="${SELF_OTA_BASE%/}/$SELF_OTA_OWNER/$SELF_OTA_REPO.git"
+else
+  SELF_URL=""
 fi
 
 # ---- 参数 ----
@@ -107,6 +116,12 @@ if [ ! -d .git ]; then
 fi
 git remote set-url origin "$REPO_URL" 2>/dev/null || git remote add origin "$REPO_URL"
 
+# 自托管 Git 远端（git.ziruxue.top）：三项配置齐全才加，否则仅 GitHub 单发
+if [ -n "$SELF_URL" ]; then
+  git remote set-url gitzx "$SELF_URL" 2>/dev/null || git remote add gitzx "$SELF_URL"
+  echo "· 自托管远端: $SELF_URL"
+fi
+
 git add -A
 if git diff --cached --quiet; then
   echo "· 无文件变更，跳过 commit"
@@ -135,6 +150,18 @@ REMOTE_SHA="$(git ls-remote origin refs/heads/main 2>/dev/null | awk '{print $1}
 git ls-remote --tags origin "refs/tags/v$NEW_VER" | grep -q . || l6_fail_push "tag v$NEW_VER" "$NEW_VER"
 echo "    远端已同步 ($REMOTE_SHA) + tag v$NEW_VER"
 
+# ---- 推送到自托管 Git（git.ziruxue.top）----
+if [ -n "$SELF_URL" ]; then
+  echo "==> 推送 main + tag 到自托管 Git (gitzx)"
+  if git -c http.connectTimeout=8 push -q gitzx main 2>/dev/null && \
+     git -c http.connectTimeout=8 push -q -f gitzx "v$NEW_VER" 2>/dev/null; then
+    echo "    已同步 gitzx ($SELF_URL)"
+  else
+    echo "⚠ gitzx 推送失败（多为本环境 TLS/凭据限制，或前层仅收 TLS1.3 致老设备不可达）。"
+    echo "  请在你的机器重试： git push gitzx main && git push -f gitzx v$NEW_VER"
+  fi
+fi
+
 # gh 是 Windows 程序，不认 MSYS 的 /d/... 路径（会报 no matches found），
 # 必须转成 Windows 形式（D:/...）再传给它。
 APK_GH="$(l6_to_win_slash "$APK")"
@@ -153,6 +180,52 @@ gh release view "v$NEW_VER" --json tagName,assets \
   --jq '.assets[]?.name' 2>/dev/null | grep -qx "Z6CC-$NEW_VER.apk" \
   || { echo "✗ Release 已建但资产 Z6CC-$NEW_VER.apk 缺失，请手动补传："; \
        echo "    gh release upload v$NEW_VER \"$(l6_to_win_slash "$APK")\" --clobber"; exit 1; }
+
+# ---- 在自托管 Git 建 Release + 上传 APK（Gitea API，需 token）----
+if [ -n "$SELF_URL" ]; then
+  GIT_ZX_TOKEN="${GIT_ZX_TOKEN:-}"
+  if [ -f "$ROOT/android/gitea_token.properties" ]; then
+    GIT_ZX_TOKEN="$(l6_prop "$ROOT/android/gitea_token.properties" GIT_ZX_TOKEN || true)"
+  fi
+  if [ -z "$GIT_ZX_TOKEN" ]; then
+    echo "⚠ 未配置 GIT_ZX_TOKEN（发版到 git.ziruxue.top 需要），跳过 Gitea Release。"
+    echo "  配置： export GIT_ZX_TOKEN=xxx  或写 android/gitea_token.properties (GIT_ZX_TOKEN=xxx, 已 gitignore)"
+  else
+    GITEA_API="${SELF_OTA_BASE%/}/api/v1"
+    echo "==> 在 git.ziruxue.top 建 Release + 上传 APK"
+    export L6_VER="$NEW_VER"; export L6_NOTES="$FULL_NOTES"
+    if command -v jq >/dev/null 2>&1; then
+      REL_JSON="$(jq -n --arg tag "v$NEW_VER" --arg name "老六中控 v$NEW_VER" --arg body "$FULL_NOTES" \
+        '{tag_name:$tag,name:$name,body:$body,prerelease:false,target_commitish:"main"}' 2>/dev/null || true)"
+    else
+      PY="$(command -v python3 || command -v python || true)"
+      if [ -n "$PY" ]; then
+        REL_JSON="$($PY -c 'import json,os;print(json.dumps({"tag_name":"v"+os.environ["L6_VER"],"name":"老六中控 v"+os.environ["L6_VER"],"body":os.environ["L6_NOTES"],"prerelease":False,"target_commitish":"main"}))' 2>/dev/null || true)"
+      else
+        REL_JSON=""; echo "⚠ 需要 jq 或 python 构造 Gitea Release JSON，跳过 Gitea Release"
+      fi
+    fi
+    if [ -n "$REL_JSON" ]; then
+      CREATE_RESP="$(curl -s -X POST "$GITEA_API/repos/$SELF_OTA_OWNER/$SELF_OTA_REPO/releases" \
+        -H "Authorization: token $GIT_ZX_TOKEN" -H "Content-Type: application/json" \
+        --data "$REL_JSON" 2>&1)" || true
+      REL_ID="$(printf '%s' "$CREATE_RESP" | (command -v jq >/dev/null 2>&1 && jq -r '.id // empty' 2>/dev/null || python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))' 2>/dev/null) || true)" || true
+      if [ -z "$REL_ID" ]; then
+        REL_ID="$(curl -s "$GITEA_API/repos/$SELF_OTA_OWNER/$SELF_OTA_REPO/releases/tags/v$NEW_VER" \
+          -H "Authorization: token $GIT_ZX_TOKEN" 2>/dev/null | (command -v jq >/dev/null 2>&1 && jq -r '.id // empty' 2>/dev/null || python3 -c 'import json,sys;print(json.load(sys.stdin).get("id",""))' 2>/dev/null) || true)" || true
+      fi
+      if [ -n "$REL_ID" ]; then
+        curl -s -X POST "$GITEA_API/repos/$SELF_OTA_OWNER/$SELF_OTA_REPO/releases/$REL_ID/assets?name=Z6CC-$NEW_VER.apk" \
+          -H "Authorization: token $GIT_ZX_TOKEN" -H "Content-Type: application/octet-stream" \
+          --data-binary "@$APK" 2>&1 | (command -v jq >/dev/null 2>&1 && jq -r '"    资产: "+(.name // (.message // "未知"))' 2>/dev/null || echo "    已上传资产 Z6CC-$NEW_VER.apk") || true
+        echo "✓ Gitea Release v$NEW_VER 已建（git.ziruxue.top）"
+      else
+        echo "⚠ Gitea Release 创建失败（检查 token / TLS / 仓库是否存在）："
+        printf '%s\n' "$CREATE_RESP" | head -c 300
+      fi
+    fi
+  fi
+fi
 
 echo
 echo "✓ 已发布 https://github.com/$REPO_OWNER/$REPO_NAME/releases/tag/v$NEW_VER"

@@ -53,8 +53,12 @@ public class Ota {
     public static class Config {
         public String repoOwner = "";
         public String repoName = "";
-        public String otaJsonUrl = "";   // 可选自建 JSON；留空即纯 GitHub Releases
+        public String otaJsonUrl = "";   // 可选自建 JSON；留空即跳过
         public String mirror = "https://gh-proxy.com/";
+        // 自托管 OTA 主源（git.ziruxue.top / Gitea）；三项齐全才启用，否则自动跳过、直退 GitHub
+        public String selfBase = "";     // https://git.ziruxue.top
+        public String selfOwner = "";    // yanzi
+        public String selfRepo = "";     // Z6
 
         public JSONObject toJson() throws Exception {
             JSONObject o = new JSONObject();
@@ -62,6 +66,9 @@ public class Ota {
             o.put("repoName", repoName);
             o.put("otaJsonUrl", otaJsonUrl);
             o.put("mirror", mirror);
+            o.put("selfBase", selfBase);
+            o.put("selfOwner", selfOwner);
+            o.put("selfRepo", selfRepo);
             return o;
         }
     }
@@ -82,6 +89,9 @@ public class Ota {
                 else if ("REPO_NAME".equals(k)) c.repoName = v;
                 else if ("OTA_JSON_URL".equals(k)) c.otaJsonUrl = v;
                 else if ("MIRROR".equals(k) && !v.isEmpty()) c.mirror = v;
+                else if ("SELF_OTA_BASE".equals(k)) c.selfBase = v;
+                else if ("SELF_OTA_OWNER".equals(k)) c.selfOwner = v;
+                else if ("SELF_OTA_REPO".equals(k)) c.selfRepo = v;
             }
         } catch (Throwable ignored) {
         }
@@ -111,14 +121,14 @@ public class Ota {
                 result.put("currentVersion", curVer);
                 result.put("currentCode", curCode);
 
-                // ---- 源选择：GitHub Releases 为主源（可选 OTA_JSON_URL 自建 JSON 前置覆盖）----
+                // ---- 源选择：自托管 Git 主源 → GitHub 保底（可选 OTA_JSON_URL 自建 JSON 前置覆盖）----
                 // 判据用 isUsable()：坏数据（ok:false / 缺 versionCode / 缺 downloadUrl）不算成功，
-                // 必须继续试下一级 —— 否则会把坏数据当结果、误报「已是最新」而不去回落主源。
+                // 必须继续试下一级 —— 否则会把坏数据当结果、误报「已是最新」而不去回落。
                 JSONObject remote = null;
                 String source = "";
                 List<String> tried = new ArrayList<>();
 
-                // ① 可选：自建 version.json（留空即跳过，不影响 GitHub 主源）
+                // ① 可选：自建 version.json（留空即跳过，不影响后续源）
                 if (!cfg.otaJsonUrl.isEmpty()) {
                     JSONObject r = safeFetch(cfg.otaJsonUrl, cfg.mirror);
                     if (isUsable(r)) {
@@ -129,7 +139,21 @@ public class Ota {
                     }
                 }
 
-                // ② GitHub releases 主源：取到 JSON 即接受（tag 解析失败时给出「已是最新」而非报错）
+                // ② 自托管 Git 主源（git.ziruxue.top / Gitea releases/latest）
+                //    Gitea 的 release JSON 与 GitHub 同构（tag_name + assets[].browser_download_url + body），
+                //    可直接复用 normalizeGithubRelease。三项配置齐全才启用，否则整段跳过、直退 GitHub。
+                if (remote == null && !cfg.selfBase.isEmpty() && !cfg.selfOwner.isEmpty() && !cfg.selfRepo.isEmpty()) {
+                    String selfApi = cfg.selfBase.replaceAll("/+$", "") + "/api/v1/repos/" + cfg.selfOwner + "/" + cfg.selfRepo + "/releases/latest";
+                    JSONObject r = safeFetch(selfApi, cfg.mirror);
+                    if (r != null) {
+                        remote = r;
+                        source = "self";
+                    } else {
+                        tried.add("自托管 Git " + hostOf(cfg.selfBase) + "：无响应或未发版");
+                    }
+                }
+
+                // ③ GitHub 保底：主源（自托管 Git）挂时回落
                 if (remote == null && !cfg.repoOwner.isEmpty() && !cfg.repoName.isEmpty()) {
                     String ghApi = "https://api.github.com/repos/" + cfg.repoOwner + "/" + cfg.repoName + "/releases/latest";
                     JSONObject r = safeFetch(ghApi, cfg.mirror);
@@ -153,6 +177,18 @@ public class Ota {
                     cb.emit(result.toString());
                     return;
                 }
+                // 主源是自托管 Git 时，顺带取 GitHub 的 apkUrl/sha256 作为下载保底
+                // （主源下载失败再试 GitHub，落实「github 保底」）；非 self 源则清空。
+                String fbUrl = "", fbSha = "";
+                if ("self".equals(source) && !cfg.repoOwner.isEmpty() && !cfg.repoName.isEmpty()) {
+                    JSONObject gh = safeFetch("https://api.github.com/repos/" + cfg.repoOwner + "/" + cfg.repoName + "/releases/latest", cfg.mirror);
+                    if (gh != null) { fbUrl = gh.optString("downloadUrl", ""); fbSha = gh.optString("sha256", ""); }
+                }
+                lastFallbackUrl = fbUrl;
+                lastFallbackSha = fbSha;
+                result.put("fallbackUrl", fbUrl);
+                result.put("fallbackSha", fbSha);
+
                 result.put("source", source);
                 result.put("sourceLabel", sourceLabel(source));
                 // 有源被跳过（回落发生过）时把原因一并带回，页面可提示「已回落」
@@ -211,6 +247,12 @@ public class Ota {
             if (cfg.mirror != null && !cfg.mirror.isEmpty()) {
                 String m = applyMirror(url, cfg.mirror);
                 if (!urls.contains(m)) urls.add(m);
+            }
+            // 下载保底：主源（自托管 Git）失败时，追加 GitHub 的 apkUrl 及其镜像
+            if (lastFallbackUrl != null && !lastFallbackUrl.isEmpty() && !urls.contains(lastFallbackUrl)) {
+                urls.add(lastFallbackUrl);
+                String fm = applyMirror(lastFallbackUrl, cfg.mirror);
+                if (!urls.contains(fm)) urls.add(fm);
             }
             if (urls.isEmpty()) {
                 emitError(cb, "下载地址为空"); return;
@@ -317,6 +359,10 @@ public class Ota {
     private static File pendingFile = null;
     private static EventCb pendingCb = null;
 
+    // 检查更新时记录的另一源（GitHub）APK 下载地址，供下载失败时回落（落实「github 保底」）
+    private static String lastFallbackUrl = "";
+    private static String lastFallbackSha = "";
+
     /* ---------------- HTTP ---------------- */
 
     // ------------------------------------------------------------------
@@ -358,6 +404,7 @@ public class Ota {
     /** 信息源友好名（页面直接显示用）。 */
     private static String sourceLabel(String source) {
         if ("json".equals(source)) return "自建 JSON";
+        if ("self".equals(source)) return "git.ziruxue.top";
         if ("github".equals(source)) return "GitHub";
         return source == null ? "" : source;
     }
