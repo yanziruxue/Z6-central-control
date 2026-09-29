@@ -5,7 +5,7 @@
     android:versionCode="3"
     android:versionName="1.2.0">
 
-    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34" />
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
 
     <!-- 保存壁纸到 Download/L6/壁纸（API 29 及以下走传统存储） -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -49,6 +49,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:resizeableActivity="false"
+            android:maxAspectRatio="2.8"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/AppTheme">
             <intent-filter>

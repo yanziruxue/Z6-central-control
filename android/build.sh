@@ -45,7 +45,7 @@ WORK="${WORK:-C:/Users/yanzi/l6apk-build-$(date +%s)}"
 
 APP_NAME="老六中控"              # 应用显示名（build 时写入 res/values/strings.xml 的 app_name）
 APK_NAME="Z6CC"                  # 产物文件名前缀（作为 GitHub Release 资产上传，必须 ASCII）
-VER_NAME="1.5.8"
+VER_NAME="1.5.9"
 
 # versionCode 编码约定：major*10000 + minor*100 + patch（例：1.2.1 -> 10201）
 # 必须与 Ota.normalizeGithubRelease() 从 tag 解析出的编码一致，否则 OTA 比较会误判。
@@ -93,8 +93,8 @@ echo "==> 3/7 链接资源 + 打包 assets (aapt2 link)"
   --manifest AndroidManifest.xml \
   -R build/res/res.zip \
   -A assets \
-  --min-sdk-version 24 \
-  --target-sdk-version 34 \
+  --min-sdk-version 28 \
+  --target-sdk-version 28 \
   --version-code "$VER_CODE" \
   --version-name "$VER_NAME" \
   --auto-add-overlay
@@ -106,7 +106,7 @@ javac --release 17 -encoding UTF-8 -nowarn \
 
 echo "==> 5/7 转 dex (d8)"
 find build/classes -name "*.class" > build/classes.txt
-"$BT/d8.bat" --release --min-api 24 --lib "$PLATFORM" \
+"$BT/d8.bat" --release --min-api 28 --lib "$PLATFORM" \
   --output build/dex @build/classes.txt
 
 echo "==> 6/7 合成 APK (resources + assets + classes.dex)"
