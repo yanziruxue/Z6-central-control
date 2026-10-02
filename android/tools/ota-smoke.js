@@ -43,6 +43,7 @@ const NativeRaw = {
     }, 50);
   },
   installOtaUpdate(url, sha) { this.calls.push(['install', url, sha]); },
+  cancelOtaUpdate() { this.calls.push(['cancel']); },
 };
 
 const errs = [];
@@ -62,8 +63,9 @@ setTimeout(() => {
 
   const has = (id) => !!d.getElementById(id);
   const ui = has('otaCheck') && has('otaStatus') && has('otaNew') &&
-             has('otaNewV') && has('otaCL') && has('otaInstall') &&
-             has('otaLater') && has('otaForce') && has('otaForceBtn');
+             has('otaNewV') && has('otaCL') && has('otaInstall') && has('otaCancel') &&
+             has('otaForce') && has('otaForceBtn') && has('otaForceCancel') &&
+             !has('otaLater');          // v1.5.15：「稍后」按钮已移除
   const api = window.L6Native && typeof window.L6Native.checkOtaUpdate === 'function' &&
               typeof window.L6Native.installOtaUpdate === 'function' &&
               typeof window.L6Native.getOtaConfig === 'function';
@@ -84,6 +86,34 @@ setTimeout(() => {
     // 触发安装
     installBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     const installCall = NativeRaw.calls.filter(c => c[0] === 'install').pop();
+
+    // --- v1.5.15：连点不得重复下载 + 下载中「立即更新」不可点 + 新增「取消下载」 ---
+    const installBtnEl = d.getElementById('otaInstall');
+    const cancelBtnEl = d.getElementById('otaCancel');
+    const installCalls1 = NativeRaw.calls.filter(c => c[0] === 'install').length;
+    installBtnEl.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));   // 连点第二次
+    installBtnEl.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));   // 连点第三次
+    const installCalls2 = NativeRaw.calls.filter(c => c[0] === 'install').length;
+    const noDoubleDownload = installCalls1 === 1 && installCalls2 === 1;
+    const busyLocked = installBtnEl.disabled === true;
+    const cancelShown = !!cancelBtnEl && cancelBtnEl.hidden === false;
+
+    // 点「取消下载」→ 调原生 cancelOtaUpdate；收到 cancelled → 回到可重试状态
+    cancelBtnEl.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    const cancelCall = NativeRaw.calls.filter(c => c[0] === 'cancel').pop();
+    window.L6OtaEvent({ kind: 'cancelled' });
+    const cancelTxt = d.getElementById('otaStatus').textContent;
+    const cancelBackIdle = installBtnEl.disabled === false && cancelBtnEl.hidden === true;
+
+    // 原生 download 事件也要保持「按钮禁用 + 取消可见」
+    window.L6OtaEvent({ kind: 'download', progress: 42, source: '主源' });
+    const dlBusyLocked = installBtnEl.disabled === true && cancelBtnEl.hidden === false;
+
+    // 已下载 / 安装中 → 锁定（不再重复下载）；失败 → 放开重试
+    window.L6OtaEvent({ kind: 'installing' });
+    const lockedAfterInstall = installBtnEl.disabled === true;
+    window.L6OtaEvent({ kind: 'error', message: '打桩错误' });
+    const retryAfterError = installBtnEl.disabled === false;
 
     // 强制更新场景
     NativeRaw.checkOtaUpdate = function () {
@@ -191,6 +221,10 @@ setTimeout(() => {
       console.log('非强制时不弹蒙层        ->', forceHidden);
       console.log('安装按钮带正确 URL      ->', dataOk);
       console.log('点击立即更新 → 原生     ->', installCall ? installCall[1] : '(未触发)');
+      console.log('连点不再重复下载        ->', noDoubleDownload, '(第1次=' + installCalls1 + ' 连点后=' + installCalls2 + ')');
+      console.log('下载中按钮禁用/取消可见 ->', busyLocked, '/', cancelShown);
+      console.log('取消下载 → 原生桥       ->', cancelCall ? '已调用' : '(未触发)', '| 复态=' + cancelBackIdle, '| 文案=' + cancelTxt);
+      console.log('download 事件仍锁定     ->', dlBusyLocked, '| 安装中锁定 ->', lockedAfterInstall, '| 出错放开重试 ->', retryAfterError);
       console.log('强制更新触发蒙层        ->', forceShown);
       console.log('镜像回落提示            ->', retryTxt);
       console.log('未授权安装提示          ->', permTxt, '（进度条隐藏=' + permHidesProg + '）');
@@ -209,6 +243,8 @@ setTimeout(() => {
       console.log('运行时错误              ->', errs.length, errs.join(' | '));
 
       const ok = ui && api && newShown && /1\.1\.0/.test(newV) && dataOk && installCall &&
+                 noDoubleDownload && busyLocked && cancelShown && !!cancelCall && cancelBackIdle &&
+                 dlBusyLocked && lockedAfterInstall && retryAfterError &&
                  installCall[1].includes('test.apk') && forceShown && errs.length === 0 &&
                  /镜像/.test(retryTxt) && /未知应用/.test(permTxt) && permHidesProg &&
                  /MB/.test(dlTxt) && verOk && sameVerHidden && /已是最新/.test(sameVerTxt) &&

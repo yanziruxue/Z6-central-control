@@ -71,7 +71,7 @@ const dom = new JSDOM(fs.readFileSync(HTML, 'utf8'), {
 const { window } = dom;
 window.L6NativeRaw = NativeRaw;
 
-setTimeout(() => {
+setTimeout(async () => {
   const d = window.document;
   window.eval(shim);
 
@@ -236,6 +236,96 @@ setTimeout(() => {
   const launchedPkg = NativeRaw.calls.filter(c => c[0] === 'launchPkg').pop();
   const launchPkgOk = !!launchedPkg && launchedPkg[1] === 'com.kugou.android';
 
+  /* ---------- v1.5.15：dock 拖动排序 / 拖到垃圾桶取消钉住 ---------- */
+  // jsdom 没有布局引擎（getBoundingClientRect 全 0）→ 给 dock 项与垃圾桶打桩出「真实布局」的矩形，
+  // 几何判定本身仍走生产代码里的 getBoundingClientRect。
+  const htmlSrc = fs.readFileSync(HTML, 'utf8');
+  const trashSec = htmlSrc.slice(htmlSrc.indexOf('#dockTrash{'), htmlSrc.indexOf('#dockTrash{') + 620);
+  // 「热区 = 应用尺寸 3 倍」：应用 68u、垃圾桶 204u（68 × 3）；且垃圾桶必须屏幕水平居中、在 dock 正上方
+  const trashCssOk = /left:50%/.test(trashSec) &&
+                     /width:calc\(204 \* var\(--u\)\)/.test(trashSec) &&
+                     /height:calc\(204 \* var\(--u\)\)/.test(trashSec) &&
+                     /bottom:calc\(100% \+ 28 \* var\(--u\)\)/.test(trashSec) &&
+                     /\.dock-app\{width:calc\(68 \* var\(--u\)\);height:calc\(68 \* var\(--u\)\)/.test(htmlSrc);
+
+  const dragApiOk = ['bindDockDrag', 'dockDragBegin', 'dockDragMove', 'dockDragEnd',
+                     'dockTrashHit', 'dockCommitOrder', 'isDockDragging']
+    .every(f => typeof window[f] === 'function');
+  const dockApps = () => [...dockAppsBox.querySelectorAll('.dock-app:not(.fixed)')];
+  const dockOrder = () => dockApps().map(b => b.dataset.pkg).join(',');
+  window.toggleDockPin('com.kugou.android');
+  window.toggleDockPin('com.baidu.BaiduMap');
+  window.toggleDockPin('com.tencent.qqmusic');
+  window.buildDockApps();
+  // ⚠️ buildDockApps() 会重画整排 → home/more 必须重画之后再取，否则拿到的是已脱离 DOM 的旧节点
+  const homeBtnF = dockAppsBox.querySelector('.dock-app.home');
+  const moreBtnF = dockAppsBox.querySelector('.dock-app.more');
+  const fixedOk = homeBtnF.classList.contains('fixed') && moreBtnF.classList.contains('fixed');
+  const boundOk = dockApps().length === 3 && dockApps().every(b => b.__lp === true && b.__dockDrag === true && typeof b.__lpFired === 'function');
+  const orderBefore = dockOrder();
+
+  // 打桩：三项横排（x=1400/1500/1600，宽 68，y=600），垃圾桶 204×204（左 410 上 98 → 中心 512,200）
+  const stubRect = (el, l, t, w, h) => { el.getBoundingClientRect = () => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h }); };
+  const restub = () => dockApps().forEach((b, i) => stubRect(b, 1400 + i * 100, 600, 68, 68));
+  const trashEl = d.getElementById('dockTrash');
+  stubRect(trashEl, 410, 98, 204, 204);
+  restub();
+  const hitIn = window.dockTrashHit(512, 200) === true;
+  const hitOut = window.dockTrashHit(1434, 634) === false;
+  const trashHitOk = hitIn && hitOut;
+
+  const firstApp = dockApps()[0];
+  const beginOk = window.dockDragBegin(firstApp, 1434, 634) === true;
+  const draggingOn = window.isDockDragging() === true;
+  const ghostOn = !!d.querySelector('.dock-ghost');
+  const trashOn = trashEl.classList.contains('on');
+  const srcDim = firstApp.classList.contains('dragging');
+  restub();
+  window.dockDragMove(1700, 634);                       // 拖到最右 → 应排到末尾
+  const orderMoved = dockOrder();
+  restub();
+  const dropRes = window.dockDragEnd(1700, 634);        // 不在垃圾桶松手 → 提交新顺序
+  const ghostGone = !d.querySelector('.dock-ghost');
+  const trashOff = !trashEl.classList.contains('on');
+  const savedOrder = (() => { try { return JSON.parse(window.localStorage.getItem('l6_settings_v1')).dockApps.list.join(','); } catch (e) { return ''; } })();
+  const allDock = [...dockAppsBox.querySelectorAll('.dock-app')];
+  const homeStillLast = allDock[allDock.length - 2] === homeBtnF && allDock[allDock.length - 1] === moreBtnF;
+  const dragRunOk = beginOk && draggingOn && ghostOn && trashOn && srcDim &&
+                    orderMoved !== orderBefore && orderMoved === savedOrder &&
+                    dropRes === 'drop' && ghostGone && trashOff && homeStillLast;
+
+  // 拖到垃圾桶松手 → 取消钉住
+  restub();
+  const victim = dockApps()[0];
+  const victimPkg = victim.dataset.pkg;
+  const beforeUnpin = dockApps().length;
+  window.dockDragBegin(victim, 1434, 634);
+  restub();
+  window.dockDragMove(512, 200);                        // 移进垃圾桶中心
+  const trashHot = trashEl.classList.contains('hot');
+  const dropTrash = window.dockDragEnd(512, 200);
+  const afterUnpin = dockApps().length;
+  const dragTrashOk = trashHot && dropTrash === 'trash' && beforeUnpin === 3 &&
+                      afterUnpin === 2 && dockOrder().indexOf(victimPkg) < 0;
+
+  // 真实长按路径：把长按阈值临时置 0（省去真等 550ms），仍是 mousedown → 计时器 → 进拖动
+  window.DOCK_LP_MS = 0;
+  restub();
+  const lpEl = dockApps()[0];
+  lpEl.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, clientX: 1434, clientY: 634 }));
+  await new Promise(r => setTimeout(r, 30));
+  const lpDragOn = window.isDockDragging() === true;
+  const lpFired = lpEl.__lpFired() === true;            // 长按已触发 → 随后的 click 必须被吃掉
+  const swallowOk = window.dockSwallowClick() === true;
+  d.dispatchEvent(new window.MouseEvent('mouseup', { bubbles: true, clientX: 1434, clientY: 634 }));
+  const lpEnded = window.isDockDragging() === false;
+  window.DOCK_LP_MS = 550;
+  const dragLpOk = lpDragOn && lpFired && swallowOk && lpEnded;
+
+  const dragOk = dragApiOk && trashCssOk && fixedOk && boundOk && trashHitOk &&
+                 dragRunOk && dragTrashOk && dragLpOk;
+
+
   // 空态自诊断：必须能把「桥读不到应用」与「车机真没装应用」区分开。
   // 历史教训（v1.4.6~v1.4.14）：原生 getAllAppsJson 漏了 @JavascriptInterface，
   // 桥调用在 JS 侧抛错、被 SHIM 的 catch 静默转成空数组，页面只显示「未读到已安装的应用」，
@@ -259,7 +349,7 @@ setTimeout(() => {
     && iconBridgeOk && iconDataOk && iconSlotsOk && srcIconOk
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
     && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk && emptyDiagOk
-    && homeLeftOfMore && goHomeBridgeOk && goHomeCalled
+    && homeLeftOfMore && goHomeBridgeOk && goHomeCalled && dragOk
     && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk
     && themeBridgeOk && themeLightOk && themeDarkOk;
 
@@ -288,6 +378,11 @@ setTimeout(() => {
   console.log('空态自诊断(读不到 vs 真没装) ->', emptyDiagOk);
   console.log('dock 点应用 → launchPkg ->', launchPkgOk, '(' + (launchedPkg ? launchedPkg[1] : '') + ')');
   console.log('返回原桌面按钮(在打开应用列表左侧) ->', homeLeftOfMore, '| 桥 goHome ->', goHomeBridgeOk, '| 点按触发 ->', goHomeCalled);
+  console.log('dock 拖动：长按已绑定/固定位/fixed ->', dragApiOk, '/', boundOk, '/', fixedOk, '| 垃圾桶 CSS(3倍·居中·正上方) ->', trashCssOk);
+  console.log('dock 拖动：进拖动态/ghost/垃圾桶/原位淡影 ->', beginOk, '/', ghostOn, '/', trashOn, '/', srcDim);
+  console.log('dock 拖动：换位 ' + orderBefore + '  →  ' + orderMoved, '| 已落盘 ->', orderMoved === savedOrder, '| home/more 仍在末尾 ->', homeStillLast);
+  console.log('dock 垃圾桶命中判定(内/外) ->', hitIn, '/', hitOut, '| hot 高亮 ->', trashHot, '| 松手取消钉住 ->', dropTrash, '(' + beforeUnpin + '→' + afterUnpin + ')');
+  console.log('dock 长按真实路径(阈值置0) ->', lpDragOn, '| 吃掉后续 click ->', lpFired && swallowOk, '| 松手收尾 ->', lpEnded);
   console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));

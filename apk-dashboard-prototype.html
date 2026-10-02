@@ -101,14 +101,8 @@
   .ota-row{display:flex;justify-content:space-between;align-items:center;gap:calc(8 * var(--u));flex-wrap:wrap}
   .ota-cur{font-size:calc(12 * var(--u));color:var(--sub)}.ota-cur b{color:var(--txt);font-weight:700}
   .ota-status{font-size:calc(12 * var(--u));color:var(--sub);min-height:calc(18 * var(--u))}
-  .dns-inp{flex:1 1 calc(240 * var(--u));min-width:calc(160 * var(--u));font-size:calc(12 * var(--u));color:var(--txt);background:var(--panel2);
-    border:1px solid var(--line);border-radius:calc(10 * var(--u));padding:calc(8 * var(--u)) calc(10 * var(--u));outline:none}
-  .dns-inp:focus{border-color:var(--acc)}
-  .dns-inp::placeholder{color:var(--sub)}
-  /* 上报失败文案会带上 HTTP 码与服务端 error 原文，变长后必须允许断行，否则溢出卡片 */
-  #logUpMsg{word-break:break-all;line-height:1.45}
-  /* API 探测矩阵结果（v1.5.12）：十几条通路逐行平铺，要与日志里的逐项结论逐字对应 */
-  .matrix-out{font-family:inherit;font-size:calc(11 * var(--u));line-height:1.5;color:var(--txt);
+  /* 采集结果区：逐条变化平铺，要与日志里的逐项结论逐字对应 */
+  .sig-out{font-family:inherit;font-size:calc(11 * var(--u));line-height:1.5;color:var(--txt);
     background:var(--panel);border:1px solid var(--line);border-radius:calc(8 * var(--u));
     padding:calc(8 * var(--u));margin-top:calc(6 * var(--u));max-height:calc(200 * var(--u));
     overflow:auto;white-space:pre-wrap;word-break:break-all}
@@ -235,6 +229,24 @@
     display:flex;align-items:center;justify-content:center;transition:.15s}
   .dock-app:active{transform:scale(.9)}
   .dock-app.more{background:rgba(255,255,255,.1)}
+  /* dock 拖动排序（v1.5.15）：被拖项原位留淡影、跟随手指的 ghost、垃圾桶落下区 */
+  .dock-app.dragging{opacity:.25}
+  .dock-ghost{position:fixed;z-index:71;pointer-events:none;opacity:.95;
+    width:calc(68 * var(--u));height:calc(68 * var(--u));margin-left:calc(-34 * var(--u));margin-top:calc(-34 * var(--u));
+    border-radius:50%;background:rgba(30,38,54,.95);border:1px solid var(--acc);color:var(--txt);
+    display:flex;align-items:center;justify-content:center;font-size:calc(30 * var(--u));
+    box-shadow:0 calc(12 * var(--u)) calc(30 * var(--u)) rgba(0,0,0,.6)}
+  .dock-ghost .app-ic{width:calc(34 * var(--u));height:calc(34 * var(--u));border-radius:calc(9 * var(--u))}
+  /* 悬在垃圾桶上时缩小 —— 否则跟着手指的图标正好盖住垃圾桶图标，用户看不到「要往哪扔」 */
+  .dock-ghost.over{transform:scale(.5);opacity:.8}
+  /* 垃圾桶：屏幕水平居中 · dock 正上方；热区 = 应用尺寸的 3 倍（68u × 3 = 204u） */
+  #dockTrash{position:absolute;left:50%;bottom:calc(100% + 28 * var(--u));margin-left:calc(-102 * var(--u));
+    width:calc(204 * var(--u));height:calc(204 * var(--u));border-radius:50%;z-index:70;
+    display:flex;align-items:center;justify-content:center;font-size:calc(72 * var(--u));color:#ffb4b4;
+    background:rgba(255,70,70,.14);border:calc(2 * var(--u)) dashed rgba(255,90,90,.65);
+    opacity:0;visibility:hidden;transition:opacity .18s ease,transform .18s ease;pointer-events:none}
+  #dockTrash.on{opacity:1;visibility:visible}
+  #dockTrash.hot{background:rgba(255,70,70,.45);border-color:#ff7b7b;transform:scale(1.12)}
   /* 应用列表（安卓抽屉：底部上滑 + 背景遮罩 + 顶部手柄） */
   .app-scrim{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.5);
     opacity:0;visibility:hidden;transition:opacity .25s ease}
@@ -292,6 +304,9 @@
   .set-opt{font-size:calc(14 * var(--u));padding:calc(11 * var(--u)) calc(16 * var(--u));border-radius:calc(12 * var(--u));border:1px solid var(--line);
     background:var(--panel2);color:var(--txt);cursor:pointer;transition:.15s;display:flex;align-items:center;gap:calc(6 * var(--u))}
   .set-opt:active{transform:scale(.96)}
+  /* 在线更新：下载中「立即更新」置灰不可点（防连点重复下载） */
+  .set-opt:disabled{opacity:.45;cursor:default}
+  .set-opt:disabled:active{transform:none}
   .set-opt.on{background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f;border-color:transparent;font-weight:600}
   .set-hint{font-size:calc(11 * var(--u));color:var(--sub);line-height:1.5}
   .set-cur{font-size:calc(12 * var(--u));color:var(--txt);margin:calc(8 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u));padding:calc(6 * var(--u)) calc(10 * var(--u));border-radius:calc(8 * var(--u));
@@ -308,7 +323,7 @@
   .src-row .set-cur{flex:0 1 auto;min-width:0;margin:0}
   .src-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .src-row .set-opt.pick{flex:0 0 auto;white-space:nowrap;margin-left:auto}
-  /* 手势配置行：方向名 + 当前绑定 + [选择应用] [清除] */
+  /* 手势配置行：方向名 + 当前绑定 + [选择应用] [默认] */
   .ges-row{display:flex;align-items:center;gap:calc(8 * var(--u));margin:calc(6 * var(--u)) 0}
   .ges-dir{flex:0 0 auto;width:calc(46 * var(--u));font-size:calc(13 * var(--u));opacity:.75}
   .ges-row .set-cur{flex:1 1 auto;min-width:0;margin:0}
@@ -439,7 +454,7 @@
               </div>
               <div class="set-hint">点「选择应用」从已安装导航 App 中选取；<b>dock 导航按钮</b>或<b>主页下滑</b>直接拉起该 App。</div>
             </div>
-            <!-- 手势：四个方向各绑一个应用；默认「下滑 = 跟随导航源」，其余未绑定 -->
+            <!-- 手势：四个方向各绑一个应用；默认「下滑 = 跟随导航源、上滑 = 返回原车机桌面」，左右未绑定 -->
             <div class="set-sec">
               <div class="set-label">手势</div>
               <div id="setGestures"><!-- 由 renderGestures() 生成四行 --></div>
@@ -502,52 +517,17 @@
               </div>
             </div>
             <div class="set-sec">
-              <div class="set-label">运行日志</div>
-              <div class="ota-card">
-                <div class="ota-row">
-                  <span class="ota-cur">上报api接口：<b id="logUpState">读取中…</b></span>
-                  <!-- 立即上报：手动发一次，即使开关关闭也会强制发送（开关只管每 60s 的自动上报） -->
-                  <button class="set-opt" id="logNowBtn">立即上报</button>
-                  <!-- 测试接口：一次性连通性探针（DNS → TCP → 真发一次请求），把失败段摊开 -->
-                  <button class="set-opt" id="logTestBtn">🔌 测试接口</button>
-                  <button class="set-opt" id="logApiBtn">○ 关闭</button>
-                </div>
-                <div class="ota-row">
-                  <!-- API 探测矩阵：逐项试各种访问方式（握手形态/明文/钉IP/路径/鉴权/方法），
-                       每项走完整 DNS→TCP→TLS→HTTP；结论写入本地日志(标签 L6ApiMatrix)并另存 JSON。
-                       上报开关只约束每 60s 的自动任务，探测是手动触发，不受它限制。 -->
-                  <button class="set-opt" id="logMatrixBtn">🔬 API 探测</button>
-                  <span class="set-hint" id="matrixHint">逐项试通接口的访问方式，结论写入本地日志</span>
-                </div>
-                <pre id="matrixOut" class="matrix-out" hidden></pre>
-                <div class="ota-row">
-                  <span class="ota-cur">接口 DNS：</span>
-                  <input id="dnsInput" class="dns-inp" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="留空=系统 DNS（可填 223.5.5.5）">
-                  <span class="set-hint" id="dnsHint">本机解析不准时可填可信 DNS（如 223.5.5.5）</span>
-                </div>
-                <div class="ota-status" id="logUpMsg">每分钟自动上报一次「最近 1 分钟」的日志（首次约 5s 后开始）；「立即上报」可随时手动补发一次。</div>
-              </div>
-            </div>
-            <div class="set-sec">
-            <div class="set-sec">
               <div class="set-label">车机信号采集</div>
               <div class="ota-card">
                 <div class="ota-row">
                   <span class="ota-cur">采集状态：<b id="sigState">未采集</b></span>
                   <button class="set-opt" id="sigBtn">▶ 开始采集</button>
                 </div>
-                <div class="ota-row">
-                  <!-- 标记按钮：操作某个车辆按钮前后各点一下，日志里会插一条标记行，便于把变化对齐到操作。
-                       不点也不影响 —— 每条变化本来就带相对时间戳。 -->
-                  <button class="set-opt sig-mark" data-mark="车门">🚪 车门</button>
-                  <button class="set-opt sig-mark" data-mark="车窗">🪟 车窗</button>
-                  <button class="set-opt sig-mark" data-mark="车辆">🔘 车辆</button>
-                  <button class="set-opt sig-mark" data-mark="其他">📍 其他</button>
-                </div>
-                <pre id="sigOut" class="matrix-out" hidden></pre>
-                <div class="ota-status" id="sigMsg">点「开始采集」后**保持在页面**，依次操作车门 / 车窗 / 车辆按钮，完成后点「结束采集」；结论写入本地日志（标签 L6Signal）并另存 JSON。</div>
+                <pre id="sigOut" class="sig-out" hidden></pre>
+                <div class="ota-status" id="sigMsg">点「开始采集」后**保持在页面**，自行操作车辆功能（车门 / 车窗 / 车辆按钮等），完成后点「结束采集」；结论写入本地日志（标签 L6Signal）并另存 Download/L6/signal-*.json。</div>
               </div>
             </div>
+            <div class="set-sec">
               <div class="set-label">在线更新</div>
               <div class="ota-card">
                 <div class="ota-row">
@@ -560,7 +540,7 @@
                   <details class="ota-cl"><summary>更新内容</summary><pre id="otaCL"></pre></details>
                   <div class="ota-actions">
                     <button class="set-opt primary" id="otaInstall">⬇ 立即更新</button>
-                    <button class="set-opt ghost" id="otaLater">稍后</button>
+                    <button class="set-opt ghost" id="otaCancel" hidden>✕ 取消下载</button>
                   </div>
                   <div class="ota-progress" id="otaProg" hidden>
                     <div class="ota-bar"><i id="otaBar"></i></div>
@@ -585,6 +565,7 @@
     <h2>⚠️ 必须更新到最新版本</h2>
     <p id="otaForceCL"></p>
     <button class="set-opt primary" id="otaForceBtn">⬇ 立即更新</button>
+    <button class="set-opt ghost" id="otaForceCancel" hidden>✕ 取消下载</button>
   </div>
 
   <!-- 底部：左侧迷你音乐栏 + 居中 dock -->
@@ -610,6 +591,7 @@
       </div>
     </nav>
     <div id="dockApps"></div>
+    <div id="dockTrash" title="拖到这里松手 = 取消钉住">🗑</div>
   </div>
   <div class="app-scrim" id="appScrim"></div>
   <div class="app-list" id="appList">
@@ -905,10 +887,11 @@ const settings={musicSrc:"usb",navApp:"",wall:"static",wallColor:"#0b0e14",autoP
             dynamic:[{id:"preset",name:"预设动态壁纸",src:"",vid:false}]},
   pick:{static:"preset",dynamic:"preset"},
   /* 四方向手势绑定，取值语义：
-       ""    = 未绑定（什么都不做）
-       "nav" = 跟随「当前导航源」（运行时解析成 settings.navApp，用户换源即跟着换）
-       其它  = 应用 key 或包名 */
-  gestures:{up:"",down:"nav",left:"",right:""}};
+       ""     = 未绑定（什么都不做）
+       "nav"  = 跟随「当前导航源」（运行时解析成 settings.navApp，用户换源即跟着换）
+       "home" = 返回原车机系统桌面（与 dock 右下角 🏠 按钮同一条路：原生 goHome）
+       其它   = 应用 key 或包名 */
+  gestures:{up:"home",down:"nav",left:"",right:""}};
 /* ---- 设置持久化（localStorage）：只存轻量字段 + 「上传的」壁纸项；内置预设不入库（由常量重建，避免超配额） ---- */
 // 只取「上传的」壁纸项（id 非 preset）
 function uploadedWalls(){
@@ -952,12 +935,21 @@ loadSettings();
 /* 手势配置归一化：旧存档没有 gestures 时 Object.assign 会留 undefined，缺某个方向也会让
    手势分发取到 undefined；这里统一补默认值，保证四个键永远是字符串。 */
 function normalizeGestures(){
-  const def={up:"",down:"nav",left:"",right:""};   // 默认：下滑=跟随导航源，其余未绑定
+  const def={up:"home",down:"nav",left:"",right:""};   // 默认：下滑=跟随导航源，上滑=返回原车机桌面
   const g=(settings.gestures&&typeof settings.gestures==="object")?settings.gestures:{};
   const out={};
   ["up","down","left","right"].forEach(function(k){
     out[k]=(typeof g[k]==="string")?g[k]:def[k];
   });
+  // ★ 一次性迁移（v1.5.15）：老存档里 up 已经是被存下来的 ""（空串也是字符串），
+  //   光改 def 不会生效 —— 必须显式补一次。只在「up 仍为空 + 迁移标记不存在」时补，
+  //   免得把用户自己绑好的应用覆盖掉。
+  try{
+    if(!localStorage.getItem("l6_gesture_up_v1515")){
+      if(!out.up) out.up=def.up;
+      localStorage.setItem("l6_gesture_up_v1515","1");
+    }
+  }catch(e){}
   settings.gestures=out;
 }
 normalizeGestures();
@@ -1097,22 +1089,23 @@ function buildDockApps(){
       var a=apps.filter(function(x){return x.pkg===pkg;})[0];
       var b=document.createElement("button");
       b.className="dock-app";
-      b.title=(a?a.name:pkg)+"（长按移除）";
+      b.dataset.pkg=pkg;                                  // 拖动排序后按 DOM 顺序落盘靠它
+      b.title=(a?a.name:pkg)+"（长按拖动排序，拖到垃圾桶取消钉住）";
       // 原生 icon 字段只是 emoji 占位 → 用 getAppIcon 取真实 PNG；取不到再回落 emoji
       var isrc=appIconSrc(pkg);
       if(isrc){ b.innerHTML='<img class="app-ic" src="'+isrc+'" alt="">'; }
       else{ b.textContent=(a&&a.icon)||"▦"; }
-      b.onclick=function(){ if(b.__lpFired && b.__lpFired()) return; launchAppPkg(pkg); };
-      onLongPress(b, function(){ toggleDockPin(pkg); });      // 长按 dock 图标 → 移出快捷方式
+      b.onclick=function(){ if(b.__lpFired && b.__lpFired()) return; if(dockSwallowClick()) return; launchAppPkg(pkg); };
+      bindDockDrag(b);                                       // v1.5.15：长按 → 拖动排序 / 拖到垃圾桶取消钉住
       box.appendChild(b);
     });
     // 「打开应用列表」左侧：「返回原桌面」（切回车机系统 Launcher）
     var homeb=document.createElement("button");
-    homeb.className="dock-app home"; homeb.title="返回原桌面"; homeb.textContent="🏠";
+    homeb.className="dock-app home fixed"; homeb.title="返回原桌面"; homeb.textContent="🏠";
     homeb.onclick=returnHome;
     box.appendChild(homeb);
     var more=document.createElement("button");
-    more.className="dock-app more"; more.title="打开应用列表"; more.textContent="📋";
+    more.className="dock-app more fixed"; more.title="打开应用列表"; more.textContent="📋";
     more.onclick=openAppList;
     box.appendChild(more);
   });
@@ -1135,6 +1128,139 @@ function toggleDockPin(pkg){
   toastL6(added?"已添加到快捷方式":"已从快捷方式移除");
   return added;
 }
+/* ===== dock 拖动排序 / 拖到垃圾桶取消钉住（v1.5.15）=====
+   长按「已钉」应用 550ms 进入拖动模式：原位图标留成淡影（仍占位，兄弟项不会乱跳），
+   另有一个跟随手指的 ghost 负责视觉；拖动中按指针横坐标与其余已钉项中心实时换位。
+   「🏠 返回原桌面」「📋 应用列表」是固定尾按钮（.fixed），永不参与换位。
+   指针落在垃圾桶热区（屏幕水平居中 · dock 正上方，热区 = 应用尺寸 3 倍）松手 = 取消钉住。 */
+var DOCK_LP_MS=550;                          // 长按判定；冒烟把它临时置 0 走真实路径
+var dockLpTimer=null, dockLpEl=null, dockLpFired=false;
+var dockDragEl=null, dockGhost=null, dockSwallowUntil=0;
+function dockSwallowClick(){ var s=Date.now()<dockSwallowUntil; dockSwallowUntil=0; return s; }
+function isDockDragging(){ return !!dockDragEl; }
+function dockBoxEl(){ return $("#dockApps"); }
+function dockHomeEl(){ var b=dockBoxEl(); return b?b.querySelector(".dock-app.home"):null; }
+function dockTrashEl(){ return document.getElementById("dockTrash"); }
+function rectOf(el){ try{ return el.getBoundingClientRect(); }catch(e){ return {left:0,top:0,width:0,height:0,right:0,bottom:0}; } }
+// 只列「已钉应用」（home/more 两个固定尾按钮带 .fixed，永不参与换位）
+function dockPinnedEls(){
+  var b=dockBoxEl(); if(!b) return [];
+  return [].slice.call(b.querySelectorAll(".dock-app")).filter(function(el){
+    return !el.classList.contains("fixed");
+  });
+}
+function ptOf(e){
+  var t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0]);
+  if(t) return {x:t.clientX,y:t.clientY};
+  return {x:e.clientX||0,y:e.clientY||0};
+}
+// 垃圾桶热区判定：热区就是元素本身（CSS 已按应用 3 倍定义尺寸）
+function dockTrashHit(px,py){
+  var t=dockTrashEl(); if(!t) return false;
+  var r=rectOf(t);
+  if(!(r.width>0)&&!(r.height>0)) return false;      // 无布局（异常）→ 永不判命中，宁可不动手
+  return px>=r.left && px<=r.right && py>=r.top && py<=r.bottom;
+}
+function dockTrashShow(on){
+  var t=dockTrashEl(); if(!t) return;
+  t.classList.toggle("on", !!on);
+  if(!on) t.classList.remove("hot");
+}
+// 拖动中实时换位：插到「中心点在指针右侧」的第一个已钉项之前（都没有 → 插到 home 之前 = 末尾）
+function dockReorderTo(px){
+  var b=dockBoxEl(), el=dockDragEl; if(!b||!el) return;
+  var rest=dockPinnedEls().filter(function(x){ return x!==el; });
+  var i=0;
+  for(;i<rest.length;i++){ var r=rectOf(rest[i]); if(px < r.left + r.width/2) break; }
+  var anchor=rest[i]||dockHomeEl()||null;
+  if(anchor===el) return;
+  if(el.nextSibling===anchor) return;
+  b.insertBefore(el, anchor);
+}
+function dockDragBegin(el, x, y){
+  if(dockDragEl||!el||!el.parentNode) return false;
+  dockDragEl=el;
+  dockSwallowUntil=Date.now()+1500;           // 拖动结束后紧随的 click 一律吃掉，绝不误启动 App
+  el.classList.add("dragging");
+  var g=document.createElement("button");
+  g.type="button"; g.className="dock-ghost"; g.innerHTML=el.innerHTML;   // 复用真实图标 / emoji
+  document.body.appendChild(g);
+  dockGhost=g;
+  dockDragMove(x,y);
+  dockTrashShow(true);
+  return true;
+}
+function dockDragMove(x,y){
+  if(!dockDragEl) return;
+  if(dockGhost){ dockGhost.style.left=x+"px"; dockGhost.style.top=y+"px"; }   // ghost 是 body 下的固定定位
+  var t=dockTrashEl(), hit=dockTrashHit(x,y);
+  if(t) t.classList.toggle("hot", hit);
+  if(dockGhost) dockGhost.classList.toggle("over", hit);                      // 悬在垃圾桶上 → ghost 缩小
+  dockReorderTo(x);
+}
+function dockDragEnd(x,y){
+  if(!dockDragEl) return "";
+  var el=dockDragEl, inTrash=dockTrashHit(x,y);
+  el.classList.remove("dragging");
+  if(dockGhost){ try{ dockGhost.parentNode.removeChild(dockGhost); }catch(e){} dockGhost=null; }
+  dockDragEl=null;
+  dockSwallowUntil=Date.now()+400;
+  dockTrashShow(false);
+  if(inTrash){                                        // 拖到垃圾桶松手 → 取消钉住
+    var pkg=(el.dataset&&el.dataset.pkg)||"";
+    if(pkg && isDockPinned(pkg)) toggleDockPin(pkg);  // 复用现有实现：落盘 + 重画 + 轻提示
+    else if(el.parentNode) el.parentNode.removeChild(el);
+    return "trash";
+  }
+  if(dockCommitOrder()) toastL6("已保存快捷方式顺序");
+  return "drop";
+}
+// 把当前 DOM 顺序写回 settings（只有真的变了才落盘）
+function dockCommitOrder(){
+  var cur=dockPinnedEls().map(function(el){ return (el.dataset&&el.dataset.pkg)||""; }).filter(Boolean);
+  var old=((settings.dockApps&&settings.dockApps.list)||[]);
+  if(cur.join("|")===old.join("|")) return false;
+  settings.dockApps=settings.dockApps||{}; settings.dockApps.list=cur;
+  if(typeof saveSettings==="function")saveSettings();
+  return true;
+}
+// 绑定长按进拖动：短按仍是「启动应用」（长按一旦触发，随后的 click 被吃掉）
+function bindDockDrag(el){
+  function down(e){
+    if(dockDragEl) return;
+    var p=ptOf(e);
+    dockLpEl=el; dockLpFired=false;
+    clearTimeout(dockLpTimer);
+    dockLpTimer=setTimeout(function(){
+      dockLpTimer=null;
+      if(dockLpEl!==el) return;
+      dockLpFired=true;
+      if(!dockDragBegin(el,p.x,p.y)) dockLpFired=false;
+    }, DOCK_LP_MS);
+  }
+  el.addEventListener("touchstart",down,{passive:true});
+  el.addEventListener("mousedown",down);
+  el.__lp=true;                    // 与 onLongPress 同款标记：冒烟据此断言「长按已绑定」
+  el.__dockDrag=true;
+  el.__lpFired=function(){ if(dockLpEl!==el) return false; var f=dockLpFired; dockLpFired=false; return f; };
+}
+function dockLpCancel(){ if(dockLpTimer){ clearTimeout(dockLpTimer); dockLpTimer=null; } }
+function dockDocMove(e){
+  if(!dockDragEl) return;
+  var p=ptOf(e); dockDragMove(p.x,p.y);
+  if(e.cancelable && e.preventDefault) e.preventDefault();   // 拖动中别让 WebView 抢去做滚动
+}
+function dockDocUp(e){
+  dockLpCancel();                       // 短按：550ms 内抬起 → 取消长按计时（click 照常触发）
+  if(!dockDragEl) return;
+  var p=ptOf(e); dockDragEnd(p.x,p.y);
+}
+document.addEventListener("mousemove",dockDocMove);
+document.addEventListener("mouseup",dockDocUp);
+document.addEventListener("touchmove",dockDocMove,{passive:false});
+document.addEventListener("touchend",dockDocUp);
+document.addEventListener("touchcancel",dockDocUp);
+window.addEventListener("blur",function(){ dockLpCancel(); if(dockDragEl) dockDragEnd(-1,-1); });
 // 页面内轻提示（不依赖原生 Toast）
 function toastL6(msg){
   var el=document.getElementById("l6Toast");
@@ -1244,7 +1370,7 @@ function openAppList(){ openAppPicker(null, function(a){ launchAppPkg(a.pkg); })
      down  下滑 = 手指从上往下（dy>0）
      left  左滑 = 手指从右往左（dx<0）
      right 右滑 = 手指从左往右（dx>0）
-   绑定值："" 未绑定 / "nav" 跟随导航源 / 其它为应用 key 或包名。 */
+   绑定值："" 未绑定 / "nav" 跟随导航源 / "home" 返回原车机桌面 / 其它为应用 key 或包名。 */
 const GESTURE_DIRS=[{k:"up",n:"上滑"},{k:"down",n:"下滑"},{k:"left",n:"左滑"},{k:"right",n:"右滑"}];
 // 抽屉要从「全部已装应用」里挑，这里缓存一份用于把包名还原成显示名
 window.__ALL_APPS=[];
@@ -1262,6 +1388,7 @@ function refreshGestureApps(){
 function gestureItem(dir){
   const v=(settings.gestures||{})[dir]||"";
   if(!v) return {kind:"none",pkg:"",name:"未绑定",icon:"🚫"};
+  if(v==="home") return {kind:"home",pkg:"",name:"返回原车机桌面",icon:"🏠"};
   if(v==="nav"){
     const a=NAV_APPS.filter(x=>(x.key||x.pkg)===settings.navApp)[0];
     return {kind:"nav",pkg:a?(a.pkg||""):"",name:"跟随导航源"+(a?"（"+a.name+"）":""),icon:"🧭"};
@@ -1284,26 +1411,31 @@ function renderGestures(){
     const nm=document.createElement("div"); nm.className="ges-dir"; nm.textContent=dir.n;
     const cur=document.createElement("div"); cur.className="set-cur";
     cur.innerHTML=iconHTML(it.pkg,it.icon,'src-ic')+'<b>'+it.name+'</b>';
-    // 只剩「选择应用 / 清除」两个按钮：「跟随导航源」入口已按需求移除，
-    // 但它仍是 "nav" 这一绑定值的语义（默认下滑就是它），所以 gestureItem 里那支仍要保留。
+    // 两个按钮：「选择应用」+「默认」。默认按钮 = 把该方向恢复成出厂绑定
+    // （下滑→跟随导航源，上滑→返回原车机桌面，左右→未绑定），而不是简单清空。
     const bPick=document.createElement("button"); bPick.className="set-opt"; bPick.textContent="📂 选择应用";
-    const bClr=document.createElement("button"); bClr.className="set-opt"; bClr.textContent="清除";
+    const bDef=document.createElement("button"); bDef.className="set-opt"; bDef.textContent="默认";
     bPick.onclick=function(){ openAppPicker(null,function(a){ setGesture(dir.k,a.key||a.pkg); }); };
-    bClr.onclick=function(){ setGesture(dir.k,""); };
+    bDef.onclick=function(){ setGesture(dir.k,gestureDefault(dir.k)); };
     row.appendChild(nm); row.appendChild(cur);
-    row.appendChild(bPick); row.appendChild(bClr);
+    row.appendChild(bPick); row.appendChild(bDef);
     box.appendChild(row);
   });
+}
+// 出厂默认绑定（「默认」按钮恢复的目标）
+function gestureDefault(k){
+  const d={up:"home",down:"nav",left:"",right:""};
+  return (typeof d[k]==="string")?d[k]:"";
 }
 // 写绑定 + 持久化 + 重画 + 轻提示
 function setGesture(dir,v){
   if(!settings.gestures||typeof settings.gestures!=="object"){
-    settings.gestures={up:"",down:"nav",left:"",right:""};   // 防御：被意外置空时重建
+    settings.gestures={up:"home",down:"nav",left:"",right:""};   // 防御：被意外置空时重建
   }
   settings.gestures[dir]=v||"";
   if(typeof saveSettings==="function")saveSettings();
   renderGestures();
-  if(typeof toastL6==="function")toastL6(dirName(dir)+"已设为"+(v==="nav"?"跟随导航源":gestureItem(dir).name));
+  if(typeof toastL6==="function")toastL6(dirName(dir)+"已设为"+gestureItem(dir).name);
 }
 // 方向 key → 中文名（同样要躲 const 的 TDZ）
 function dirName(k){
@@ -1316,12 +1448,17 @@ function dirName(k){
  * 执行某个方向绑定的动作。
  * 返回 false 表示「未绑定」，调用方可据此走兜底逻辑。
  * 通道选择很关键：
- *   nav → startNav()（原生 launchApp，带悬浮返回按钮 + HOME 保活，桌面场景下能回到导航）
+ *   home → returnHome()（原生 goHome，与 dock 右下角 🏠 按钮完全同一条路）
+ *   nav  → startNav()（原生 launchApp，带悬浮返回按钮 + HOME 保活，桌面场景下能回到导航）
  *   其它 App → launchAppPkg()（原生 launchPkg，不挂按钮、不进保活，避免音乐等 App 被塞个返回悬浮窗）
  */
 function runGesture(dir){
   const v=(settings.gestures||{})[dir]||"";
   if(!v) return false;
+  if(v==="home"){
+    returnHome();
+    return true;
+  }
   if(v==="nav"){
     if(!navApp) return false;          // 还没识别出导航 App → 交给原生兜底逻辑去提示
     startNav(navApp);
@@ -1498,6 +1635,7 @@ window.L6OtaEvent = function(evt){
       $ptt=document.getElementById("otaProgTxt"), $inst=document.getElementById("otaInstall");
   function setStatus(t, cls){ if(!$s) return; $s.textContent=t; $s.className="ota-status "+(cls||""); }
   if(evt.kind==="check"){
+    if(!otaBusy) otaSetState("idle");                     // 新一轮检查 → 放开「立即更新」（下载中不动它）
     if(evt.error){ setStatus("检查失败："+evt.error, "err"); return; }
     if(window.__l6Version===undefined && evt.currentVersion){
       try{ document.getElementById("otaCur").textContent=evt.currentVersion; window.__l6Version=evt.currentVersion; }catch(e){}
@@ -1527,6 +1665,7 @@ window.L6OtaEvent = function(evt){
       setStatus("已是最新版本（"+evt.currentVersion+"）"+srcText, "ok");
     }
   } else if(evt.kind==="download"){
+    if(!otaBusy) otaSetState("busy");                     // 保持禁用 + 显示「取消下载」
     $pt.hidden=false;
     $bar.style.width=(evt.progress||0)+"%";
     $ptt.textContent=(evt.progress||0)+"%";
@@ -1538,15 +1677,23 @@ window.L6OtaEvent = function(evt){
   } else if(evt.kind==="downloaded"){
     var mb=evt.size?("（"+Math.round(evt.size/1048576*10)/10+" MB）"):"";
     setStatus("下载完成"+mb+"，正在启动安装器…", "ok");
+    otaSetState("locked");                                // 已拿到安装包 → 不再允许重复下载
   } else if(evt.kind==="installing"){
     setStatus("已启动系统安装器，请在系统弹窗中确认安装", "ok");
+    otaSetState("locked");
+  } else if(evt.kind==="cancelled"){
+    $pt.hidden=true;
+    setStatus("已取消下载", "");
+    otaSetState("idle");                                  // 取消后回到可重试状态
   } else if(evt.kind==="needPermission"){
     // Android 8+ 需「允许安装未知应用」；原生已跳设置页，这里告知用户
     $pt.hidden=true;
     setStatus(evt.message||"请在设置中允许安装未知应用", "err");
+    otaSetState("locked");                                // 包已下载（等授权续装），别再下一遍
   } else if(evt.kind==="error"){
     setStatus("错误："+(evt.message||"未知"), "err");
     $pt.hidden=true;
+    otaSetState("idle");                                  // 失败 → 放开重试
   }
 };
 document.getElementById("otaCheck").onclick=function(){
@@ -1554,19 +1701,38 @@ document.getElementById("otaCheck").onclick=function(){
   document.getElementById("otaStatus").className="ota-status";
   try{ window.L6Native.checkOtaUpdate(); }catch(e){ document.getElementById("otaStatus").textContent="原生桥未就绪："+e.message; }
 };
-document.getElementById("otaInstall").onclick=function(){
-  var u=this.dataset.url, s=this.dataset.sha;
+/* ---- 在线更新：忙状态机（v1.5.15）----
+   ① 点「立即更新」立刻锁按钮 —— 原生事件是异步的，晚一步就挡不住连点导致的「下载多个安装包」；
+   ② 下载中显示「取消下载」，取消后回到可重试状态；
+   ③ 已下载 / 安装中锁定（不重复下载），出错或取消就放开重试。 */
+var otaBusy=false;
+function otaSetState(st){
+  otaBusy=(st==="busy");
+  var $i=document.getElementById("otaInstall"), $c=document.getElementById("otaCancel");
+  if($i) $i.disabled=(st!=="idle");
+  if($c) $c.hidden=(st!=="busy");
+  var $f=document.getElementById("otaForceBtn"), $fc=document.getElementById("otaForceCancel");
+  if($f) $f.disabled=(st!=="idle");
+  if($fc) $fc.hidden=(st!=="busy");
+}
+function otaStart(){
+  if(otaBusy) return;                                     // 已在下载 → 直接吃掉这次点击
+  var $i=document.getElementById("otaInstall"); if(!$i) return;
+  var u=$i.dataset.url, s=$i.dataset.sha;
   if(!u){ document.getElementById("otaStatus").textContent="无下载链接"; return; }
-  try{ window.L6Native.installOtaUpdate(u, s||""); }catch(e){}
-};
-document.getElementById("otaLater").onclick=function(){
-  document.getElementById("otaNew").hidden=true;
-  document.getElementById("otaStatus").textContent="稍后再更新";
-};
-document.getElementById("otaForceBtn").onclick=function(){
-  var $i=document.getElementById("otaInstall"), u=$i.dataset.url, s=$i.dataset.sha;
-  if(u){ try{ window.L6Native.installOtaUpdate(u, s||""); }catch(e){} }
-};
+  otaSetState("busy");                                    // 先锁再调原生：连点第二次必然被挡下
+  try{ window.L6Native.installOtaUpdate(u, s||""); }
+  catch(e){ otaSetState("idle"); document.getElementById("otaStatus").textContent="原生桥未就绪："+e.message; }
+}
+function otaCancel(){
+  if(!otaBusy) return;
+  document.getElementById("otaStatus").textContent="正在取消下载…";
+  try{ window.L6Native.cancelOtaUpdate(); }catch(e){}
+}
+document.getElementById("otaInstall").onclick=otaStart;
+document.getElementById("otaForceBtn").onclick=otaStart;
+document.getElementById("otaCancel").onclick=otaCancel;
+document.getElementById("otaForceCancel").onclick=otaCancel;
 
 /* ================================================================
    真实系统数据接入（音乐 = 系统媒体会话 / 导航 = 导航 App 通知）
@@ -1804,172 +1970,7 @@ window.L6ThemeEvent=function(isDark){ applyTheme(!!isDark); };
 readTheme();
 setTimeout(readTheme,1200);   // SHIM 注入晚于页面解析，补读一次
 
-/* ---- 运行日志：只保留「上报 api 接口」开关 + 上次上报状态 ----
-   开关经原生桥 setApiUpload / isApiUpload 控制 L6Log 的定时上报（60s 一次）；Tasker 广播保持常开。 */
-/* ---- 「立即上报」：手动触发一次 API 上报 ----
-   原生侧 uploadLog() → L6Log.uploadNow(true)，绕过「上报api接口」开关强制发送；
-   开关的语义被限定为「是否每 60s 自动上报」，手动按钮永远可用。 */
-var logNowBusy=false, logNowTimer=0;
-var LOG_NOW_TIMEOUT=30000;   // 等待原生回推结果的上限；单次请求超时已收敛到 10s（对齐接口说明），
-                             // 一次上报含「建连+读取」两段，留 30s 才不会把慢失败误报成「未收到结果」
-/* 收尾：撤销超时兜底 + 恢复按钮（结果回推 或 超时 都走这里） */
-function logNowFinish(){
-  if(logNowTimer){ clearTimeout(logNowTimer); logNowTimer=0; }
-  logNowBusy=false;
-  var b=$("#logNowBtn"); if(b){ b.disabled=false; b.textContent="立即上报"; }
-}
-var logNowEl=$("#logNowBtn");
-if(logNowEl){
-  logNowEl.onclick=function(){
-    if(logNowBusy)return;                       // 已有一次上报在飞 → 忽略重复点击（防连点）
-    var n=l6n(); if(!n||typeof n.uploadLog!=="function")return;
-    logNowBusy=true;
-    var b=$("#logNowBtn"); if(b){ b.disabled=true; b.textContent="上报中…"; }
-    var el=$("#logUpMsg"); if(el){ el.textContent="正在上报…"; el.style.color="var(--sub)"; }
-    try{ n.uploadLog(); }catch(e){ logNowFinish(); return; }
-    logNowTimer=setTimeout(function(){
-      logNowTimer=0; logNowBusy=false;
-      var b2=$("#logNowBtn"); if(b2){ b2.disabled=false; b2.textContent="立即上报"; }
-      var e2=$("#logUpMsg");
-      if(e2){ e2.textContent="⏳ 未收到上报结果（"+Math.max(1,Math.round(LOG_NOW_TIMEOUT/1000))+"s 超时），请检查服务端接口或网络";
-              e2.style.color="var(--red)"; }
-    },LOG_NOW_TIMEOUT);
-  };
-}
-/* 原生每次上报后回推的状态（{ok,msg,ts}），实时刷新卡片提示 */
-function L6LogUploadStatus(s){
-  var el=$("#logUpMsg"); if(!el||!s)return;
-  el.textContent=(s.ok?"✅ 上报成功":"⚠️ 上报失败")+"："+(s.msg||"")+" · "+new Date(s.ts).toLocaleTimeString();
-  el.style.color=s.ok?"var(--acc2)":"var(--red)";
-  logNowFinish();          // 拿到结果 = 本次手动上报结束 → 恢复按钮并撤销超时兜底
-}
-/* ---- 「测试接口」：一次性连通性探针（v1.5.7） ----
-   原生 probeLogApi() 依次做 DNS 解析 → TCP 建连 → 真发一次请求，三段结果 JSON 经
-   window.L6LogProbeResult 推回。加它的原因：上报失败只回一句「Connection reset」，
-   看不出断在建立连接 / 写入请求体 / 读取响应哪一段，前几版只能靠猜。 */
-var logTestBusy=false, logTestTimer=0;
-var LOG_TEST_TIMEOUT=20000;   // 三段串起来最坏要 8+30s；超时也给兜底文案，别永远停在「测试中…」
-function logTestFinish(){
-  if(logTestTimer){ clearTimeout(logTestTimer); logTestTimer=0; }
-  logTestBusy=false;
-  var b=$("#logTestBtn"); if(b){ b.disabled=false; b.textContent="🔌 测试接口"; }
-}
-var logTestEl=$("#logTestBtn");
-if(logTestEl){
-  logTestEl.onclick=function(){
-    if(logTestBusy)return;
-    var n=l6n();
-    var el=$("#logUpMsg");
-    if(!n||typeof n.testLogApi!=="function"){
-      if(el){ el.textContent="⚠️ 无原生桥接，装机后才能测试接口"; el.style.color="var(--red)"; }
-      return;
-    }
-    logTestBusy=true;
-    var b=$("#logTestBtn"); if(b){ b.disabled=true; b.textContent="测试中…"; }
-    if(el){ el.textContent="正在测试接口（DNS → TCP → 请求）…"; el.style.color="var(--sub)"; }
-    try{ n.testLogApi(); }catch(e){ logTestFinish(); return; }
-    logTestTimer=setTimeout(function(){
-      logTestTimer=0; logTestBusy=false;
-      var b2=$("#logTestBtn"); if(b2){ b2.disabled=false; b2.textContent="🔌 测试接口"; }
-      var e2=$("#logUpMsg");
-      if(e2){ e2.textContent="⏳ 未收到测试结果（"+Math.max(1,Math.round(LOG_TEST_TIMEOUT/1000))+"s 超时）"; e2.style.color="var(--red)"; }
-    },LOG_TEST_TIMEOUT);
-  };
-}
-/* 渲染探针结果：DNS / TCP / 请求三段逐段摊开，失败段原样带出 */
-function L6LogProbeResult(s){
-  logTestFinish();
-  var el=$("#logUpMsg"); if(!el||!s)return;
-  var seg=[];
-  var dnsSeg="DNS "+(s.dnsMs==null?"?":s.dnsMs+"ms")+" → "+(s.dns||"?")+(s.family?("（"+s.family+"）"):"");
-  if(s.dnsSource) dnsSeg+="［"+s.dnsSource+"］";
-  if(s.sysDns&&s.sysDns!==s.dns) dnsSeg+="；系统 DNS："+s.sysDns;
-  seg.push(dnsSeg);
-  seg.push(s.tcpMs>=0?("TCP:443 "+s.tcpMs+"ms"):("TCP:443 失败 "+(s.tcpErr||"")));
-  /* :2000 是保底通道端口。安全组没放行时这里必然「失败」，一旦放开就变「xx ms」——
-     它是判断「服务端那两处改动做到位没有」的唯一现场指标。 */
-  seg.push(s.tcp2000Ms>=0?("TCP:2000 "+s.tcp2000Ms+"ms"):("TCP:2000 失败 "+(s.tcp2000Err||"")));
-  if(s.channel)seg.push("通道 "+(s.trail||s.channel));
-  if(s.code>=0){ seg.push("HTTP "+s.code+"（"+(s.ms||0)+"ms）"); }
-  else { seg.push("请求失败·"+(s.phase||"?")+"："+(s.err||"?")); }
-  if(s.fatal){ seg.push("探针异常："+s.fatal); }
-  el.textContent=(s.ok?"✅ ":"❌ ")+(s.summary||"接口测试完成")+" ｜ "+seg.join(" ｜ ");
-  el.style.color=s.ok?"var(--acc2)":"var(--red)";
-  el.title="接口 "+(s.url||"")+(s.resp?("\n服务端响应："+s.resp):"");
-}
-/* ---- 「API 探测矩阵」（v1.5.12）----
-   原生 probeApiMatrix() 内建一组候选访问方式（域名带/不带 SNI、TLS1.2/1.3、明文、钉 IP、
-   不同路径、有无鉴权），每项都走完整链路 DNS→TCP→TLS→HTTP，逐项经
-   window.L6LogMatrixResult 推回（kind="case"），全部跑完再推一条 kind="done"。
-   为什么需要：上报失败在 App 里只显示一句「网络异常」，而「握手被 RST / 接口 4xx / 链路通」
-   三种根因完全不同；把十几条通路一次摊开，才能定论「哪条路真能打到 API」。
-   结论同时写进本地日志（标签 L6ApiMatrix）+ Download/L6/logs/api-matrix-*.json（导出取回）。 */
-var matrixBusy=false, matrixTimer=0, matrixRows=[], MATRIX_N=17;
-var MATRIX_TIMEOUT=200000;   // 17 项 × 最坏 6s 建连+6s 读 + 项间 0.4s，留足余量
-function matrixBtn(set){
-  var b=$("#logMatrixBtn"); if(!b)return;
-  b.disabled=!!set; b.textContent=set?"探测中…":"🔬 API 探测";
-}
-function matrixSay(msg,color){
-  var e=$("#matrixHint"); if(!e)return;
-  e.textContent=msg; e.style.color=color||"var(--sub)";
-}
-function matrixRender(msg){
-  var out=$("#matrixOut"); if(!out)return;
-  out.hidden=false;
-  out.textContent=(matrixRows.length?matrixRows.join("\n"):"")+(msg?((matrixRows.length?"\n":"")+msg):"");
-  out.scrollTop=out.scrollHeight;
-}
-function matrixFinish(){
-  if(matrixTimer){ clearTimeout(matrixTimer); matrixTimer=0; }
-  matrixBusy=false; matrixBtn(false);
-}
-/* 单项结果 → 一行人类可读结论（与原生写进日志的那行同字段、同顺序，便于逐字比对） */
-function matrixRowText(r){
-  var s="#"+r.idx+"/"+r.total+"  "+(r.name||"?");
-  s+="  ｜  "+(r.sni||"?")+"SNI/"+(r.tls||"默认");
-  s+="  ｜  DNS "+(r.dnsMs==null?"?":r.dnsMs+"ms")+" "+(r.dns||"?");
-  s+="  ｜  TCP "+(r.tcpMs>=0?r.tcpMs+"ms":"未建连");
-  if(r.tlsMs!=null)s+="  ｜  TLS "+r.tlsMs+"ms "+(r.proto||"")+(r.certCn?(" cn="+r.certCn):"");
-  if(r.err)s+="  ｜  ✗ "+(r.phase||"?")+"阶段 "+r.err;
-  if(r.code!=null&&r.code>=0)s+="  ｜  HTTP "+r.code+" "+(r.statusLine||"");
-  if(r.resp)s+="  ｜  "+r.resp;
-  s+="  ｜  "+(r.ms||0)+"ms";
-  return s;
-}
-var matrixBtnEl=$("#logMatrixBtn");
-if(matrixBtnEl){
-  matrixBtnEl.onclick=function(){
-    if(matrixBusy)return;
-    var n=l6n();
-    if(!n||typeof n.probeApiMatrix!=="function"){
-      matrixSay("⚠️ 无原生桥接，装机后才能探测","var(--red)"); return;
-    }
-    matrixBusy=true; matrixRows=[];
-    matrixBtn(true);
-    matrixSay("探测中…（共 "+MATRIX_N+" 项，逐项写本地日志）");
-    matrixRender("探测中…");
-    try{ n.probeApiMatrix(); }
-    catch(e){ matrixFinish(); matrixSay("⚠️ 调用失败："+e,"var(--red)"); return; }
-    matrixTimer=setTimeout(function(){
-      matrixTimer=0; matrixFinish();
-      matrixSay("⏳ "+Math.max(1,Math.round(MATRIX_TIMEOUT/1000))+"s 未收到结束信号；已收到的部分在下方（完整结论见本地日志）","var(--red)");
-    },MATRIX_TIMEOUT);
-  };
-}
-/* 原生回推：逐项（kind="case"）与结束（kind="done"）都走这里 */
-window.L6LogMatrixResult=function(s){
-  if(!s)return;
-  if(s.kind==="done"){
-    matrixFinish();
-    matrixSay("✅ 探测结束：通 "+s.pass+"/"+s.total+"，用时 "+Math.round((s.ms||0)/1000)+"s"
-      +(s.file?("；JSON 已存 "+s.file):""), (s.pass>0?"var(--acc2)":"var(--red)"));
-    return;
-  }
-  matrixRows.push(matrixRowText(s));
-  matrixRender();
-};
-/* ---- 「车机信号采集」（v1.5.14）----
+/* ---- 「车机信号采集」（v1.5.15）----
    场景：点「开始采集」→ 去按车门 / 车窗 / 车辆按钮 → 点「结束采集」→ 把日志发出来。
    原生每秒采一份系统快照并与上一秒比差异，每条变化经 window.L6SignalResult 推回：
      kind="cap"    能力清单（logcat / dumpsys / CarAPI 可读性 + 车辆相关属性键）
@@ -1979,7 +1980,7 @@ window.L6LogMatrixResult=function(s){
      kind="done"   结束汇总（含 JSON 落盘路径）
    为什么需要：要知道「操作车辆功能时这台车机吐了什么信号」，才能在将来对这些事件做响应
    （开车门提示、倒车切画面之类）。结论同时写进本地日志（标签 L6Signal）+ Download/L6/logs/signal-*.json。 */
-var sigBusy=false, sigRows=[], sigT0=0, sigTimer=0, sigChanges=0, sigMarks=0;
+var sigBusy=false, sigRows=[], sigT0=0, sigTimer=0, sigChanges=0;
 function sigBtn(active){
   var b=$("#sigBtn"); if(!b)return;
   b.textContent=active?"■ 结束采集":"▶ 开始采集";
@@ -1995,7 +1996,7 @@ function sigSayState(txt){
 }
 function sigTick(){
   if(!sigBusy)return;
-  sigSayState("采集中 "+Math.round((Date.now()-sigT0)/1000)+"s · 变化 "+sigChanges+" 条 · 标记 "+sigMarks+" 个");
+  sigSayState("采集中 "+Math.round((Date.now()-sigT0)/1000)+"s · 变化 "+sigChanges+" 条");
   sigTimer=setTimeout(sigTick,1000);
 }
 function sigRender(msg){
@@ -2019,7 +2020,7 @@ if(sigBtnEl){
     var n=l6n();
     if(!sigBusy){
       if(!n||typeof n.startSignalCapture!=="function"){ sigSay("⚠️ 无原生桥接，装机后才能采集","var(--red)"); return; }
-      sigBusy=true; sigRows=[]; sigChanges=0; sigMarks=0; sigT0=Date.now();
+      sigBusy=true; sigRows=[]; sigChanges=0; sigT0=Date.now();
       sigBtn(true);
       sigSay("采集中…保持在页面，逐条变化会写到下方（完整结论见本地日志）","var(--sub)");
       sigRender("采集中…");
@@ -2032,15 +2033,6 @@ if(sigBtnEl){
       sigSay("正在收尾…（落盘 + 汇总）");
     }
   };
-}
-var sigMarkEls=document.querySelectorAll(".sig-mark");
-for(var _sm=0;_sm<sigMarkEls.length;_sm++){
-  (function(b){
-    b.onclick=function(){
-      var n=l6n(); if(!n||typeof n.markSignal!=="function")return;
-      try{ n.markSignal(b.getAttribute("data-mark")||""); }catch(e){}
-    };
-  })(sigMarkEls[_sm]);
 }
 function sigFmt(v){
   if(v===null||v===undefined||v==="")return "(无)";
@@ -2063,20 +2055,15 @@ window.L6SignalResult=function(s){
     return;
   }
   if(s.kind==="beat"){
-    sigChanges=s.changes||sigChanges; sigMarks=s.marks||sigMarks;
-    sigSayState("采集中 "+Math.round((s.t||0)/1000)+"s · 变化 "+sigChanges+" 条 · 标记 "+sigMarks+" 个");
-    return;
-  }
-  if(s.kind==="mark"){
-    sigMarks++;
-    sigPush("["+((s.t||0)/1000).toFixed(1)+"s] ★ "+(s.label||"标记"));
+    sigChanges=s.changes||sigChanges;
+    sigSayState("采集中 "+Math.round((s.t||0)/1000)+"s · 变化 "+sigChanges+" 条");
     return;
   }
   if(s.kind==="done"){
     sigStopUi();
     sigSayState("已完成 · 变化 "+s.changes+" 条");
-    sigSay("✅ 采集结束：用时 "+Math.round((s.ms||0)/1000)+"s，变化 "+s.changes+" 条，标记 "+s.marks
-      +" 个，logcat "+(s.logcatLines||0)+" 行"+(s.file?("；JSON 已存 "+s.file):"")
+    sigSay("✅ 采集结束：用时 "+Math.round((s.ms||0)/1000)+"s，变化 "+s.changes+" 条，logcat "
+      +(s.logcatLines||0)+" 行"+(s.file?("；JSON 已存 "+s.file):"")
       +"。把「L6Signal」日志发出来即可。", (s.changes>0?"var(--acc2)":"var(--sub)"));
     sigPush("—— 采集结束（变化 "+s.changes+" 条）——");
     return;
@@ -2091,52 +2078,7 @@ function syncSig(){
   try{ on=!!(n&&n.isSignalCapturing&&n.isSignalCapturing()); }catch(e){}
   if(on&&!sigBusy){ sigBusy=true; if(!sigT0)sigT0=Date.now(); sigBtn(true); sigTick(); }
 }
-/* 读取 API 上报开关状态并同步到界面 */
-function syncLogApi(){
-  var n=l6n(); var b=false; try{ b=n&&n.isApiUpload?n.isApiUpload():false; }catch(e){}
-  var el=$("#logUpState"); if(el){ el.textContent=b?"已开启":"已关闭"; el.style.color=b?"var(--acc2)":"var(--red)"; }
-  var btn=$("#logApiBtn"); if(btn)btn.textContent=b?"● 开启":"○ 关闭";
-}
-$("#logApiBtn").onclick=function(){
-  var n=l6n(); if(!n||typeof n.setApiUpload!=="function")return;
-  var cur=true; try{cur=n.isApiUpload();}catch(e){}
-  n.setApiUpload(!cur); syncLogApi();
-};
-/* 进设置页先读一次上次上报结果（避免错过推送事件） */
-function syncLogUp(){
-  var n=l6n(); var s=null; try{ s=n&&n.getUploadStatus?n.getUploadStatus():null; }catch(e){}
-  if(s&&typeof s==="object")L6LogUploadStatus(s);
-}
-/* ---- 「接口 DNS」：手填可信 DNS 服务器，绕开本机坏掉的解析（v1.5.8）----
-   根因背景：本机 DNS 曾把接口域名解到错误 IP（60.205.231.18 其实只有别人家的证书），
-   带校验的 HTTPS 必然失败。留空 = 系统 DNS；填了 = 原生侧用 UDP 53 直查该 DNS。 */
-function dnsLooksValid(v){
-  v=(v||"").trim(); if(v==="")return true;
-  if(v.indexOf(":")>=0){ return /^[0-9a-fA-F:.]+$/.test(v); }   // IPv6 宽松校验
-  var p=v.split("."); if(p.length!==4)return false;
-  for(var i=0;i<4;i++){ if(!/^\d{1,3}$/.test(p[i])||+p[i]>255)return false; }
-  return true;
-}
-function dnsSay(msg,ok){ var h=$("#dnsHint"); if(h){ h.textContent=msg; h.style.color=ok?"var(--sub)":"var(--red)"; } }
-var dnsWired=false;
-function wireDnsInput(){
-  var el=$("#dnsInput"); if(!el||dnsWired)return;
-  dnsWired=true;
-  el.addEventListener("change",function(){
-    var n=l6n(), v=(el.value||"").trim();
-    if(!dnsLooksValid(v)){ dnsSay("⚠️ 请填合法 IP（如 223.5.5.5）；留空即用系统 DNS",false); return; }
-    el.value=v;
-    try{ if(n&&n.setDnsServer) n.setDnsServer(v); }catch(e){}
-    dnsSay(v?("✅ 已保存：解析走 "+v):"✅ 已清空：解析走系统 DNS",true);
-  });
-}
-function syncDnsInput(){
-  var el=$("#dnsInput"); if(!el)return;
-  var n=l6n(); try{ if(n&&n.getDnsServer) el.value=n.getDnsServer()||""; }catch(e){}
-}
-/* 设置页日志卡片整体同步：SHIM 注入后会重调一次 */
-function syncLogCfg(){ syncLogApi(); syncLogUp(); syncDnsInput(); syncSig(); }
-wireDnsInput();
+function syncLogCfg(){ syncSig(); }   /* 只剩车机信号采集需要进页同步 */
 syncLogCfg();
 
 /* ---- 设为默认桌面：跳系统「默认应用」设置页 ---- */

@@ -57,7 +57,7 @@ const NativeRaw = {
   getAppIcon: () => '',
   launchApp(k) { this.calls.push(['launchApp', k]); },
   launchPkg(p) { this.calls.push(['launchPkg', p]); },
-  launchMusic() {}, goHome() {}, isDefaultHome: () => false, isNightMode: () => true,
+  launchMusic() {}, goHome() { this.calls.push(['goHome']); }, isDefaultHome: () => false, isNightMode: () => true,
 };
 
 const errs = [];
@@ -148,15 +148,19 @@ setTimeout(() => {
     !window.inNavHot(HOT.l - 1, CY) && !window.inNavHot(HOT.r + 1, CY) &&
     !window.inNavHot(CX, HOT.t - 1) && !window.inNavHot(CX, HOT.b + 1));
 
-  /* ---------- ③ 默认值（下滑=nav，其余空）---------- */
-  check('默认 gestures = {up:"",down:"nav",left:"",right:""}',
-    G() === JSON.stringify({ up: '', down: 'nav', left: '', right: '' }), G());
+  /* ---------- ③ 默认值（下滑=nav，上滑=返回原车机桌面，左右空）---------- */
+  check('默认 gestures = {up:"home",down:"nav",left:"",right:""}',
+    G() === JSON.stringify({ up: 'home', down: 'nav', left: '', right: '' }), G());
   check('手势卡片渲染出 4 行', d.querySelectorAll('#setGestures .ges-row').length === 4,
     `实得 ${d.querySelectorAll('#setGestures .ges-row').length} 行`);
-  check('每行只有「选择应用 / 清除」2 个按钮',
+  check('每行只有「选择应用 / 默认」2 个按钮',
     d.querySelectorAll('#setGestures .ges-row').length > 0 &&
-    [...d.querySelectorAll('#setGestures .ges-row')].every(r => r.querySelectorAll('button').length === 2),
+    [...d.querySelectorAll('#setGestures .ges-row')].every(r => r.querySelectorAll('button').length === 2) &&
+    [...d.querySelectorAll('#setGestures .ges-row')].every(r => /默认/.test(r.querySelectorAll('button')[1].textContent || '')),
     `实得 ${[...d.querySelectorAll('#setGestures .ges-row')].map(r => r.querySelectorAll('button').length).join('/')}`);
+  check('「清除」按钮已改为「默认」',
+    !/清除/.test([...d.querySelectorAll('#setGestures button')].map(b => b.textContent).join('|')),
+    [...d.querySelectorAll('#setGestures button')].map(b => b.textContent).join(' / '));
   // 「跟随导航源」按钮已按需求移除；但它仍是 "nav" 绑定值的语义（默认下滑）， UI 上不能再出现入口
   check('「跟随导航源」按钮已移除',
     !/跟随导航源/.test([...d.querySelectorAll('#setGestures button')].map(b => b.textContent).join('|')),
@@ -171,20 +175,27 @@ setTimeout(() => {
   check('默认·下滑(dy>0) → 调起导航 App', hit('launchApp').length === 1,
     `launchApp=${JSON.stringify(hit('launchApp'))}`);
 
-  /* ---------- ⑤ 默认：上/左/右 → 什么都不做 ---------- */
-  [['上滑', 0, -60], ['左滑', -60, 0], ['右滑', 60, 0]].forEach(([n, dx, dy]) => {
+  /* ---------- ⑤ 默认：上滑 → 返回原车机桌面（goHome）；左/右 → 什么都不做 ---------- */
+  toHome(); reset();
+  tSwipe(CX, CY, 0, -60);
+  check('默认·上滑(dy<0) → 返回原车机桌面（与 dock 小房子同一条 goHome）',
+    hit('goHome').length === 1 && hit('launchApp').length === 0 && hit('launchPkg').length === 0,
+    `goHome=${hit('goHome').length} launchApp=${hit('launchApp').length}`);
+  [['左滑', -60, 0], ['右滑', 60, 0]].forEach(([n, dx, dy]) => {
     toHome(); reset();
     tSwipe(CX, CY, dx, dy);
     check(`默认·${n} → 不触发任何拉起`,
-      hit('launchApp').length === 0 && hit('launchPkg').length === 0 && curIdx() === 0,
-      `launchApp=${hit('launchApp').length} launchPkg=${hit('launchPkg').length} idx=${curIdx()}`);
+      hit('launchApp').length === 0 && hit('launchPkg').length === 0
+        && hit('goHome').length === 0 && curIdx() === 0,
+      `launchApp=${hit('launchApp').length} launchPkg=${hit('launchPkg').length} goHome=${hit('goHome').length}`);
   });
 
   /* ---------- ⑥ 热区外四方向都不响应 ---------- */
   [['下滑', 0, 60], ['上滑', 0, -60], ['左滑', -60, 0], ['右滑', 60, 0]].forEach(([n, dx, dy]) => {
     toHome(); reset();
     tSwipe(OUT_X, OUT_Y, dx, dy);
-    check(`热区外·${n} → 不响应`, hit('launchApp').length === 0 && hit('launchPkg').length === 0);
+    check(`热区外·${n} → 不响应`,
+      hit('launchApp').length === 0 && hit('launchPkg').length === 0 && hit('goHome').length === 0);
   });
 
   /* ---------- ⑦ 三条输入路径 ---------- */
@@ -238,8 +249,8 @@ setTimeout(() => {
   check('绑定写入 localStorage', !!saved.gestures && saved.gestures.right === PKG,
     JSON.stringify(saved.gestures));
   window.eval('settings.gestures={up:123,down:null};normalizeGestures();');
-  check('normalizeGestures 归一化脏值',
-    G() === JSON.stringify({ up: '', down: 'nav', left: '', right: '' }), G());
+  check('normalizeGestures 归一化脏值（非字符串 → 回落新默认 up=home）',
+    G() === JSON.stringify({ up: 'home', down: 'nav', left: '', right: '' }), G());
 
   /* ---------- ⑪ 设置页禁用 + dock 入口护栏 ---------- */
   clearAll();
@@ -254,6 +265,24 @@ setTimeout(() => {
   click(d.querySelector('[data-go="set"]'));
   const toSet = curIdx();
   check('dock 主页/设置按钮仍能双向翻页', backHome === 0 && toSet === 1, `home=${backHome} set=${toSet}`);
+
+  /* ---------- ⑫ v1.5.15：「默认」按钮 + 老存档一次性迁移 ---------- */
+  clearAll();
+  window.eval('setGesture("down","com.x.y");setGesture("up","com.x.y")');
+  const rows = d.querySelectorAll('#setGestures .ges-row');
+  click(rows[1].querySelectorAll('button')[1]);      // 下滑行的「默认」
+  click(rows[0].querySelectorAll('button')[1]);      // 上滑行的「默认」
+  check('「默认」按钮把下滑恢复成跟随导航源、上滑恢复成返回原车机桌面',
+    JSON.parse(G()).down === 'nav' && JSON.parse(G()).up === 'home', G());
+
+  window.eval('localStorage.removeItem("l6_gesture_up_v1515");'
+    + 'settings.gestures={up:"",down:"nav",left:"",right:""};normalizeGestures();');
+  check('老存档 up="" 被一次性迁移补成 home（只改 def 不生效）',
+    JSON.parse(G()).up === 'home', G());
+
+  window.eval('localStorage.removeItem("l6_gesture_up_v1515");'
+    + 'settings.gestures={up:"com.pkg.a",down:"nav",left:"",right:""};normalizeGestures();');
+  check('迁移不覆盖用户自己绑定的应用', JSON.parse(G()).up === 'com.pkg.a', G());
 
   /* ---------- 输出 ---------- */
   const pass = R.filter(r => r[1]).length;

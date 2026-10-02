@@ -153,6 +153,7 @@ public class MainActivity extends Activity {
             "launchPkg:function(p){try{R.launchPkg(p);}catch(e){}}," +
             "checkOtaUpdate:function(){try{R.checkOtaUpdate();}catch(e){}}," +
             "installOtaUpdate:function(u,s){try{R.installOtaUpdate(u,s);}catch(e){}}," +
+            "cancelOtaUpdate:function(){try{R.cancelOtaUpdate();}catch(e){}}," +
             "getOtaConfig:function(){try{return JSON.parse(R.getOtaConfig()||'{}');}catch(e){return{};}}," +
             // ---- 真实系统数据：媒体会话（音乐）+ 导航通知（导航）----
             "getSysState:function(){try{return JSON.parse(R.getSysState()||'{}');}catch(e){return{};}}," +
@@ -175,21 +176,9 @@ public class MainActivity extends Activity {
             "setLogBroadcast:function(b){try{R.setLogBroadcast(!!b);}catch(e){}}," +
             "isLogBroadcast:function(){try{return !!R.isLogBroadcast();}catch(e){return true;}}," +
             "exportLog:function(){try{R.exportLog();}catch(e){}}," +
-            "uploadLog:function(){try{R.uploadLog();}catch(e){}}," +
-            "testLogApi:function(){try{R.testLogApi();}catch(e){}}," +
-            "setApiUpload:function(b){try{R.setApiUpload(!!b);}catch(e){}}," +
-            "isApiUpload:function(){try{return !!R.isApiUpload();}catch(e){return true;}}," +
-            "getUploadStatus:function(){try{return JSON.parse(R.getUploadStatus()||'null');}catch(e){return null;}}," +
-            // ---- 接口 DNS（v1.5.8）：手填可信 DNS，解析绕开本机坏掉的解析器 ----
-            "setDnsServer:function(s){try{R.setDnsServer(String(s==null?'':s));}catch(e){}}," +
-            "getDnsServer:function(){try{return R.getDnsServer()||'';}catch(e){return '';}}," +
-            // ---- 接口探测矩阵（v1.5.12）：逐项试各种访问方式，结论落本地日志 + 结构化 JSON ----
-            "probeApiMatrix:function(){try{R.probeApiMatrix();}catch(e){}}," +
-            "isMatrixRunning:function(){try{return !!R.isMatrixRunning();}catch(e){return false;}}," +
-            // ---- 车机信号采集（v1.5.14）：点开始 → 操作车门/车窗/车辆按钮 → 点结束 ----
+            // ---- 车机信号采集（v1.5.15）：只有「开始/结束」两个动作，操作了什么由用户口头说明 ----
             "startSignalCapture:function(){try{R.startSignalCapture();}catch(e){}}," +
             "stopSignalCapture:function(){try{R.stopSignalCapture();}catch(e){}}," +
-            "markSignal:function(s){try{R.markSignal(String(s==null?'':s));}catch(e){}}," +
             "isSignalCapturing:function(){try{return !!R.isSignalCapturing();}catch(e){return false;}}" +
             "};" +
             // shim 注入后把日志卡片状态同步一次（含新加的接口 DNS 输入框）
@@ -203,32 +192,7 @@ public class MainActivity extends Activity {
         enterImmersive();
         appCtx = getApplicationContext();
         L6Log.init(this);
-        // 每次上传结果推回页面：设置页「运行日志」卡片实时显示「上次上传」状态
-        L6Log.setUploadListener(json -> {
-            if (web != null) {
-                final String js = "try{if(typeof L6LogUploadStatus==='function')L6LogUploadStatus("
-                        + json.toString() + ");}catch(e){}";
-                web.post(() -> web.evaluateJavascript(js, null));
-            }
-        });
-        // 探针结果推回页面（设置页「测试接口」按钮）
-        L6Log.setProbeListener(json -> {
-            if (web != null) {
-                final String js = "try{if(typeof L6LogProbeResult==='function')L6LogProbeResult("
-                        + json.toString() + ");}catch(e){}";
-                web.post(() -> web.evaluateJavascript(js, null));
-            }
-        });
-        // 接口探测矩阵逐项推回页面（设置页「API 探测」按钮）。
-        // 走 Ota.safeJs 同款 Base64 包一层：矩阵结果里全是中文（方式名 / 错误原文 / 证书 SAN），
-        // 直接拼进 evaluateJavascript 会被引号或换行炸掉，而报错又是静默的。
-        L6Log.setMatrixListener(json -> {
-            if (web != null) {
-                final String js = L6Log.matrixJs(json.toString());
-                web.post(() -> web.evaluateJavascript(js, null));
-            }
-        });
-        // 车机信号采集：能力清单 / 每条变化 / 标记 / 心跳 / 结束，都走同一条回推。
+        // 车机信号采集：能力清单 / 每条变化 / 心跳 / 结束，都走同一条回推。
         // 变化里的 from/to 是车机属性原文（可能含引号与中文），同样必须 Base64 包一层。
         SignalCapture.setListener(json -> {
             if (web != null) {
@@ -1359,6 +1323,13 @@ public class MainActivity extends Activity {
             });
         }
 
+        /** 取消正在进行的下载（页面「取消下载」按钮）；结果以 kind=cancelled 事件回推。 */
+        @JavascriptInterface
+        public void cancelOtaUpdate() {
+            L6Log.i("L6Ota", "取消下载");
+            Ota.cancelDownload();
+        }
+
         /* ==================== 悬浮窗权限 + 默认桌面 ==================== */
 
         /** 是否已授予悬浮窗权限（"显示在其他应用上层"）。未授权时不影响使用（用系统 HOME 返回）。 */
@@ -1569,7 +1540,7 @@ public class MainActivity extends Activity {
             L6Log.clear();
         }
 
-        /** 当天日志文件绝对路径（便于人工/工具从 Download/L6/logs 收集）。 */
+        /** 当天日志文件绝对路径（便于人工/工具从 Download/L6 收集）。 */
         @JavascriptInterface
         public String getLogPath() {
             return L6Log.getLogPath();
@@ -1584,18 +1555,6 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean isLogBroadcast() {
             return L6Log.isBroadcastEnabled();
-        }
-
-        /** 设置页开关：是否把日志定时上报到 LOG_UPLOAD_URL 接口（关闭后不再打服务器，状态持久化）。 */
-        @JavascriptInterface
-        public void setApiUpload(boolean b) {
-            L6Log.setApiUploadEnabled(b);
-            toast(b ? "已开启日志上报_api接口" : "已关闭日志上报_api接口");
-        }
-
-        @JavascriptInterface
-        public boolean isApiUpload() {
-            return L6Log.isApiUploadEnabled();
         }
 
         /** 下载/导出当天日志文件：经 OtaFileProvider 暴露 content://，用系统分享面板保存到任意应用。 */
@@ -1618,77 +1577,13 @@ public class MainActivity extends Activity {
             }
         }
 
-        /**
-         * 手动触发一次日志上传（每 60s 还会自动上传；网络在后台线程执行）。
-         * 走的是 uploadNow(true)：即便「上报api接口」开关处于关闭，手动点按钮也要真的发出去，
-         * 否则在关闭态点击会完全静默 —— 不打服务器、也不回调状态，界面看起来像按钮坏了。
-         */
-        @JavascriptInterface
-        public void uploadLog() {
-            L6Log.uploadNow(true);
-        }
-
-        /**
-         * 「测试接口」：一次性连通性探针（DNS 解析 → TCP 建连 → 真发一次请求），
-         * 结果经 window.L6LogProbeResult 回推页面。用来回答「请求到底走到哪一步挂的」——
-         * 上传失败只给一个「Connection reset」，只有把三段耗时与对端 IP 摊开才能定位。
-         */
-        @JavascriptInterface
-        public void testLogApi() {
-            L6Log.i("L6LogUp", "接口连通性测试");
-            L6Log.probeLogApi();
-        }
-
-        /** 最近一次上传结果 JSON（{ok,msg,ts}），供设置页显示「上次上传」。 */
-        @JavascriptInterface
-        public String getUploadStatus() {
-            return L6Log.getUploadStatus();
-        }
-
-        /**
-         * 设置页「接口 DNS」：手填可信 DNS 服务器（如 223.5.5.5），
-         * 解析绕开本机那份坏掉的解析（实测本机曾把接口域名解到别人家的 IP）。
-         * 空串 = 回落系统 DNS。
-         */
-        @JavascriptInterface
-        public void setDnsServer(String s) {
-            L6Log.setCustomDns(s);
-        }
-
-        /** 读取设置页「接口 DNS」当前的取值（空串 = 用系统 DNS）。 */
-        @JavascriptInterface
-        public String getDnsServer() {
-            return L6Log.getCustomDns();
-        }
-
-        /**
-         * 「API 探测矩阵」：把「用 API 直接访问车机数据」的各种访问方式各试一遍
-         * （同域名不同握手形态 / 明文 / 不同路径 / 有无鉴权 / 不同方法），
-         * 每项走完整链路 DNS → TCP → TLS → HTTP，逐项写本地日志（L6ApiMatrix）
-         * 并另存一份 JSON；逐项结果经 window.L6LogMatrixResult 回推页面。
-         *
-         * 存在的理由：「网络侧按 SNI 阻断」这条规律是在 PC 上用 Python 验出来的，
-         * 车机（Android 9 / 仅 TLS1.2 / 物联网卡）必须在真机上复验，并列出哪些通路真能打到 API。
-         */
-        @JavascriptInterface
-        public void probeApiMatrix() {
-            L6Log.i("L6ApiMatrix", "用户从设置页触发 API 探测矩阵");
-            L6Log.probeApiMatrix();
-        }
-
-        /** 探测矩阵是否还在跑（页面用它禁用按钮，避免连点叠两轮）。 */
-        @JavascriptInterface
-        public boolean isMatrixRunning() {
-            return L6Log.isMatrixRunning();
-        }
-
         /*
-         * ---------------- 车机信号采集（v1.5.14）----------------
-         * 场景：用户点「开始采集」→ 去按车门/车窗/车辆按钮 → 点「结束采集」→ 把日志发出来。
+         * ---------------- 车机信号采集（v1.5.15）----------------
+         * 场景：用户点「开始采集」→ 自行操作车辆功能 → 点「结束采集」→ 把日志发出来（操作了什么由用户说明）。
          * 目的：看清「操作车辆功能时，这台车机向外吐了什么信号」，为将来在这些事件上做响应
          *      （开车门提示、倒车切画面等）打底。
          * 只读、不申请新权限；采集期间每秒比对系统快照差异，逐条写本地日志（标签 L6Signal）
-         * 并另存 Download/L6/logs/signal-*.json。
+         * 并另存 Download/L6/signal-*.json。
          */
 
         /** 开始采集（已结束/未开始时有效；已在跑则忽略）。 */
@@ -1703,12 +1598,6 @@ public class MainActivity extends Activity {
         public void stopSignalCapture() {
             L6Log.i("L6Signal", "用户从设置页结束车机信号采集");
             SignalCapture.stop();
-        }
-
-        /** 打一个标记（如「车门」），插进采集时间轴，便于把变化对齐到操作。 */
-        @JavascriptInterface
-        public void markSignal(String label) {
-            SignalCapture.mark(label);
         }
 
         /** 是否正在采集（页面用它切换按钮文案并防重复开始）。 */

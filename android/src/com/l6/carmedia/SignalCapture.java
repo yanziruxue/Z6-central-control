@@ -65,12 +65,10 @@ public final class SignalCapture {
     private static volatile Listener listener;
     private static volatile boolean running;
     private static volatile boolean stopReq;
+    /** 本次采集的开始时间（ISO，写进产物）。 */
     private static volatile String startedIso = "";
-    /** 本次采集的起点（相对时间的基准）。每次 start 重置。 */
-    private static volatile long startAt;
     private static Thread worker;
     private static Context appCtx;
-    private static final List<Mark> marks = new ArrayList<>();
 
     private SignalCapture() {
     }
@@ -94,9 +92,7 @@ public final class SignalCapture {
         appCtx = c == null ? null : c.getApplicationContext();
         running = true;
         stopReq = false;
-        startAt = System.currentTimeMillis();
         startedIso = iso();
-        marks.clear();
         worker = new Thread(new Runnable() {
             public void run() {
                 loop();
@@ -112,25 +108,6 @@ public final class SignalCapture {
             return;
         }
         stopReq = true;
-    }
-
-    /**
-     * 打一个标记（用户在按某个车辆按钮前后点一下，便于把变化对齐到操作）。
-     * 不参与 diff —— 只是往时间轴上插一条注释。
-     */
-    public static void mark(String label) {
-        if (!running) {
-            return;
-        }
-        String lab = (label == null || label.trim().isEmpty()) ? "标记" : label.trim();
-        long t = elapsed();
-        marks.add(new Mark(t, lab));
-        L6Log.i(TAG, stamp(t) + " ★ " + lab);
-        JSONObject o = new JSONObject();
-        try {
-            o.put("kind", "mark").put("t", t).put("label", lab);
-        } catch (Throwable ignored) { }
-        emit(o);
     }
 
     /* ==================== 采集主循环 ==================== */
@@ -200,11 +177,11 @@ public final class SignalCapture {
                 if (t >= nextBeat) {
                     nextBeat = t + BEAT_MS;
                     L6Log.i(TAG, stamp(t) + " · 采集中（轮次 " + rounds + "，累计变化 "
-                            + changes.size() + " 条，标记 " + marks.size() + " 个）");
+                            + changes.size() + " 条）");
                     JSONObject b = new JSONObject();
                     try {
                         b.put("kind", "beat").put("t", t).put("rounds", rounds)
-                                .put("changes", changes.size()).put("marks", marks.size());
+                                .put("changes", changes.size());
                     } catch (Throwable ignored) { }
                     emit(b);
                 }
@@ -230,20 +207,19 @@ public final class SignalCapture {
             L6Log.i(TAG, "落盘失败：" + e);
         }
         L6Log.i(TAG, stamp(dur) + " END 采集结束：用时 " + (dur / 1000) + "s，变化 "
-                + changes.size() + " 条，标记 " + marks.size() + " 个，logcat " + logLines
+                + changes.size() + " 条，logcat " + logLines
                 + " 行" + (file.isEmpty() ? "" : "，已存 " + file));
 
         JSONObject o = new JSONObject();
         try {
             o.put("kind", "done").put("ms", dur).put("changes", changes.size())
-                    .put("marks", marks.size()).put("logcatLines", logLines).put("file", file);
+                    .put("logcatLines", logLines).put("file", file);
         } catch (Throwable ignored) { }
         emit(o);
 
         running = false;
         stopReq = false;
         worker = null;
-        marks.clear();
     }
 
     /**
@@ -312,11 +288,6 @@ public final class SignalCapture {
             if (cap != null) {
                 o.put("capability", cap);
             }
-            JSONArray mk = new JSONArray();
-            for (Mark m : marks) {
-                mk.put(new JSONObject().put("t", m.t).put("label", m.label));
-            }
-            o.put("marks", mk);
             JSONArray cs = new JSONArray();
             for (SigDiff.Change ch : changes) {
                 cs.put(new JSONObject()
@@ -378,20 +349,6 @@ public final class SignalCapture {
     }
 
     /* ==================== 小工具 ==================== */
-
-    private static final class Mark {
-        final long t;
-        final String label;
-
-        Mark(long t, String label) {
-            this.t = t;
-            this.label = label;
-        }
-    }
-
-    private static long elapsed() {
-        return System.currentTimeMillis() - startAt;
-    }
 
     /** 相对时间戳，如 {@code [+12.3s]}。 */
     private static String stamp(long t) {

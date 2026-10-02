@@ -230,8 +230,19 @@ public class Ota {
      * Android 8.0+ 需要先有「允许安装未知应用」授权；未授权时保存待装文件、跳系统设置页，
      * 用户授权回来后由 MainActivity.onResume 调 resumeInstallIfPending() 续装。
      */
+    /**
+     * 取消正在进行的下载（页面「取消下载」按钮）。幂等：没有下载在跑时调用也无副作用。
+     * 置位后立刻断开在途连接 —— 否则阻塞中的 read() 要等 60s 读超时才会自己退出。
+     */
+    public static void cancelDownload() {
+        cancelFlag = true;
+        HttpURLConnection c = activeConn;
+        if (c != null) { try { c.disconnect(); } catch (Throwable ignored) {} }
+    }
+
     public static void downloadAndInstall(Activity act, String url, String sha256, EventCb cb) {
         new Thread(() -> {
+            cancelFlag = false;                       // 新一轮下载：清掉上一轮的取消位
             Config cfg = loadConfig(act);
             File dir = new File(act.getFilesDir(), "update");
             if (!dir.exists() && !dir.mkdirs()) {
@@ -261,14 +272,22 @@ public class Ota {
             boolean ok = false;
             String lastErr = "";
             for (int i = 0; i < urls.size(); i++) {
+                if (cancelFlag) break;                            // 已取消 → 不再试下一源
                 final String src = (i == 0) ? "主源" : "镜像";
                 emit(cb, "kind", "download", "progress", 0, "source", src);
                 ok = httpDownload(urls.get(i), out, pct ->
                         emit(cb, "kind", "download", "progress", pct, "source", src));
                 if (ok) break;
                 try { out.delete(); } catch (Throwable ignored) {}
+                if (cancelFlag) break;                            // 取消时 httpDownload 也返回 false，别当「下载失败」
                 lastErr = (i == 0) ? "主源下载失败，正在尝试国内镜像…" : "下载失败：主源与镜像均不可用";
                 if (i < urls.size() - 1) emit(cb, "kind", "retry", "message", lastErr, "source", "镜像");
+            }
+            if (cancelFlag) {
+                try { out.delete(); } catch (Throwable ignored) {}   // 删半包，别在 files/update 留垃圾
+                emit(cb, "kind", "cancelled");
+                L6Log.i("L6Ota", "用户取消下载");
+                return;
             }
             if (!ok) {
                 emitError(cb, lastErr.isEmpty() ? "下载失败（HTTP 或网络错误）" : lastErr);
@@ -362,6 +381,10 @@ public class Ota {
     // 检查更新时记录的另一源（GitHub）APK 下载地址，供下载失败时回落（落实「github 保底」）
     private static String lastFallbackUrl = "";
     private static String lastFallbackSha = "";
+
+    // 用户取消下载（v1.5.15）：页面点「取消下载」置位，下载线程自查后立刻断开连接、删掉半包
+    private static volatile boolean cancelFlag = false;
+    private static volatile HttpURLConnection activeConn = null;
 
     /* ---------------- HTTP ---------------- */
 
@@ -538,6 +561,7 @@ public class Ota {
             c.setConnectTimeout(15000);
             c.setReadTimeout(60000);
             c.setRequestProperty("User-Agent", "L6CarMedia-OTA/1.0");
+            activeConn = c;                      // 暴露给 cancelDownload()，取消时能立刻断开在读的连接
             int code = c.getResponseCode();
             if (code >= 400) return false;
             int total = c.getContentLength();
@@ -548,6 +572,7 @@ public class Ota {
             int lastPct = -1;
             int n;
             while ((n = in.read(buf)) > 0) {
+                if (cancelFlag) return false;    // 取消：立刻停写（finally 关流/断连，半包由调用方删）
                 os.write(buf, 0, n);
                 done += n;
                 if (total > 0) {
@@ -568,6 +593,7 @@ public class Ota {
             try { if (os != null) os.close(); } catch (Throwable ignored) {}
             try { if (in != null) in.close(); } catch (Throwable ignored) {}
             if (c != null) c.disconnect();
+            if (activeConn == c) activeConn = null;   // 只清自己那条，别把新下载的连接抹掉
         }
     }
 
