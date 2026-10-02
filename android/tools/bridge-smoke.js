@@ -212,10 +212,10 @@ setTimeout(() => {
     window.toggleDockPin('com.kugou.android');
     pinRemoveOk = !(dockAppsBox && [...dockAppsBox.querySelectorAll('.dock-app')].some(b => (b.title || '').indexOf('酷狗音乐') >= 0));
   }
-  // 日夜主题：跟随系统（isNightMode 桥 → applyTheme 切 html[data-theme]）
+  // 车机主题恒深色：applyTheme 忽略系统日夜模式（白天模式也强制 dark，避免设置页显白）
   const themeBridgeOk = typeof window.L6Native.isNightMode === 'function';
-  window.applyTheme(false);
-  const themeLightOk = d.documentElement.getAttribute('data-theme') === 'light';
+  window.applyTheme(false);   // 白天模式 → 也应为 dark
+  const themeLightOk = d.documentElement.getAttribute('data-theme') === 'dark';
   window.applyTheme(true);
   const themeDarkOk = d.documentElement.getAttribute('data-theme') === 'dark';
   const dockRendered = !!dockAppsBox && dockAppsBox.querySelectorAll('.dock-app').length >= 1; // 至少「打开应用列表」按钮
@@ -282,7 +282,7 @@ setTimeout(() => {
   console.log('默认桌面文案(不再劝退/含「切回导航」) ->', homeCopyOk, '| 已设置态 ->', (homeMsgSet || '').slice(0, 28) + '…');
   console.log('启动/唤醒按钮已移除 ->', musicLaunchBtnGone, '| 桥 launchMusic ->', launchMusicBridgeOk, '| 播放键拉起 kugou ->', musicLaunchCall, '| 本地源不代拉 ->', localNoLaunch);
   console.log('dock 设置分区已移除 ->', dockSetGone, '| 抽屉长按已绑定 ->', lpBound, '| 长按钉入 ->', pinAddOk, '| 长按移除 ->', pinRemoveOk);
-  console.log('日夜主题：桥 isNightMode ->', themeBridgeOk, '| 浅色 ->', themeLightOk, '| 深色 ->', themeDarkOk);
+  console.log('车机主题恒深色：桥 isNightMode ->', themeBridgeOk, '| 白天模式 ->', themeLightOk, '(应 true) | 夜间模式 ->', themeDarkOk);
   console.log('dock 渲染(含打开应用列表) ->', dockRendered);
   console.log('应用列表抽屉打开 ->', appListOpened, '| 项 ->', appListItems);
   console.log('空态自诊断(读不到 vs 真没装) ->', emptyDiagOk);

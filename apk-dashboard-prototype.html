@@ -10,41 +10,26 @@
     --bg:#0b0e14; --panel:rgba(255,255,255,.06); --panel2:rgba(255,255,255,.04);
     --line:rgba(255,255,255,.10); --txt:#e8edf5; --sub:#8b97ab; --acc:#3da9fc;
     --acc2:#34d399; --warn:#fbbf24; --red:#f87171; --pur:#a78bfa;
-    --r:14px;
+    --r:calc(14 * var(--u));
+
+    /* ===== 响应式单位 --u —— 全屏自适应的核心 =====
+       --u = 1 个「设计像素」。取 100vw/1920 与 100vh/720 中较小者：
+       按「更吃紧的那一维」缩放，任何宽高比下内容都不会溢出错位；富余的那一维由 flex 容器
+       自然吸收（不是留黑边，是内容真的铺满 / 卡片变宽变高）。
+       clamp 兜住两端：极小屏不至于缩没（0.4px），超大屏不至于撑爆（3px）。
+       ★ 1920x720 只在「算缩放系数」时出现 —— 它已经不再是画布，也不再要求屏幕是这个分辨率。
+       ★ 旧 WebView 不支持 min()/clamp() 时，文件末尾的 fitUnit() 会用真实视口算同一套值并内联覆盖。 */
+    --u:clamp(.4px, min(100vw / 1920, 100vh / 720), 3px);
   }
-  /* ===== 白天（浅色）主题：跟随系统 UI_MODE_NIGHT；由 html[data-theme="light"] 触发 =====
-     变量之外还有一批硬编码的「半透明白 / 深色面」，浅色下必须单独翻转，否则会白底白块。 */
-  html[data-theme="light"]{
-    --bg:#eef1f6; --panel:rgba(0,0,0,.05); --panel2:rgba(0,0,0,.035);
-    --line:rgba(0,0,0,.12); --txt:#16202e; --sub:#56667a; --acc:#1f7fe0;
-    --acc2:#0f9d63; --warn:#a9741a; --red:#cf3f3f; --pur:#6d4be0;
-  }
-  html[data-theme="light"] .bar,
-  html[data-theme="light"] .ota-bar{background:rgba(0,0,0,.12)}
-  html[data-theme="light"] .pl li:hover{background:rgba(0,0,0,.05)}
-  html[data-theme="light"] .dock-pill,
-  html[data-theme="light"] #dockApps,
-  html[data-theme="light"] .set-opt.pick{background:rgba(0,0,0,.05)}
-  html[data-theme="light"] .dock-app.more{background:rgba(0,0,0,.09)}
-  html[data-theme="light"] .app-list{background:rgba(249,251,254,.98);box-shadow:0 -12px 40px rgba(0,0,0,.22)}
-  html[data-theme="light"] .al-grip{background:rgba(0,0,0,.22)}
-  html[data-theme="light"] .al-item{background:rgba(0,0,0,.04)}
-  html[data-theme="light"] .l6-toast{background:rgba(255,255,255,.97);border-color:rgba(0,0,0,.12)}
-  html[data-theme="light"] #miniNav{background:rgba(255,255,255,.9)}
-  /* 浅色下文字是深色 → 壁纸压暗层改「极轻提亮层」。
-     ⚠️ 曾用 45%~70% 的白，结果是照片壁纸整片发白、像糊了一层不透明（用户反馈）；
-     现在只保留极轻的一层（暗照片上给文字一点底衬），并可被「壁纸压暗层」开关整体关掉。 */
-  html[data-theme="light"] #wallScrim{background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.20))}
-  html[data-theme="light"] .np-title,
-  html[data-theme="light"] .np-title.big{text-shadow:0 1px 3px rgba(255,255,255,.9),0 4px 14px rgba(255,255,255,.75)}
-  html[data-theme="light"] body.dynwall{background:linear-gradient(120deg,#dfe6f2,#c9d8f5,#e6dcf7,#d6efe2)}
+  /* 车机仪表盘恒为深色：不再支持浅色主题（applyTheme 恒置 data-theme="dark"）。
+     原先整套 html[data-theme="light"] 变量与覆盖规则已随之移除，避免死代码。 */
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
   html,body{height:100%;background:var(--bg);color:var(--txt);
     font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
   /* 竖屏兜底 */
   #rotate{display:none;position:fixed;inset:0;background:#05070b;z-index:99;
-    flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--sub)}
-  #rotate .ico{font-size:54px;animation:spin 2s ease-in-out infinite}
+    flex-direction:column;align-items:center;justify-content:center;gap:calc(14 * var(--u));color:var(--sub)}
+  #rotate .ico{font-size:calc(54 * var(--u));animation:spin 2s ease-in-out infinite}
   @keyframes spin{0%,100%{transform:rotate(0)}50%{transform:rotate(90deg)}}
   @media (orientation:portrait){
     #app{display:none!important} #rotate{display:flex!important}
@@ -52,190 +37,201 @@
   /* #app 抬到壁纸层之上（壁纸层 z-index:0），否则会被壁纸盖住 */
   #app{display:flex;flex-direction:column;height:100%;position:relative;z-index:1}
 
-  /* ===== 1920x720 设计画布：整体等比缩放（scale 由 JS 按实际窗口写入 --l6s），比例不符时留黑边 ===== */
-  /* transform 使 #stage 成为内部 position:fixed 元素（壁纸层/抽屉/弹层/Toast）的包含块，全部随画布缩放 */
-  #stage{position:fixed;left:50%;top:50%;width:1920px;height:720px;
-    transform:translate(-50%,-50%) scale(var(--l6s,1));transform-origin:center center;overflow:hidden}
-  /* ===== 主页「下滑调导航」热区：1520x520 居中于 1920x720 画布（左上 200,100）=====
+  /* ===== 全屏舞台（响应式重排，无固定画布、无整体缩放）=====
+     #stage 就是整个视口，不再有 1920x720 画布，也没有 transform:scale —— 界面改为：
+       · 容器（#app / #viewport / #track / .page / .card / dock …）全部 flex + 百分比，自然铺满任意分辨率；
+       · 尺寸 / 字号 / 间距统一写成 calc(N * var(--u))，随视口缩放（--u 定义见 :root，并在文件末尾由 JS 兜底重算）；
+       · 绝对定位元素改用百分比 / 边缘偏移，锚定容器而不是画布坐标。
+     仍保留 position:fixed + overflow:hidden，维持与壁纸层 / 抽屉 / 弹层 / Toast 的层级与裁切关系。 */
+  #stage{position:fixed;inset:0;width:100%;height:100%;overflow:hidden}
+  /* ===== 主页「下滑调导航」热区：屏幕中心 79.167% × 72.222% 那块 =====
+     原设计是「1520×520 居中于 1920×720 画布（左上 200,100）」，换算成相对 #stage 的百分比：
+     left 200/1920=10.417% · top 100/720=13.889% · width 1520/1920=79.167% · height 520/720=72.222%。
+     这样任意分辨率/宽高比下热区都是「屏幕中心那一块」，不再依赖固定画布坐标。
      仅为命中判定提供 rect —— 不可见、不拦截事件（pointer-events:none）。
      ★ 绝不能 display:none：那样 getBoundingClientRect() 全为 0，判定永远失败。
-     ★ rect 已含 #stage 的 scale 变换，因此不必手工乘缩放系数。
+     ★ 百分比布局下 rect 即真实渲染位置，无需任何手写缩放系数。
      调试时可临时加 outline:1px solid #0f0 看范围 */
-  #navHot{position:absolute;left:200px;top:100px;width:1520px;height:520px;
+  #navHot{position:absolute;left:10.417%;top:13.889%;width:79.167%;height:72.222%;
     pointer-events:none;z-index:0}
   body{background:#05070b}
 
   /* ===== 顶部状态栏（含负载/温度/延时） ===== */
-  #statusbar{display:flex;align-items:center;gap:18px;padding:8px 18px;
+  #statusbar{display:flex;align-items:center;gap:calc(18 * var(--u));padding:calc(8 * var(--u)) calc(18 * var(--u));
     background:linear-gradient(180deg,rgba(255,255,255,.07),transparent);
-    font-size:13px;flex:0 0 auto}
-  .sb-conn{display:flex;align-items:center;gap:7px;font-weight:600}
-  .dot{width:9px;height:9px;border-radius:50%;background:var(--acc2);
-    box-shadow:0 0 8px var(--acc2);animation:pulse 2s infinite}
+    font-size:calc(13 * var(--u));flex:0 0 auto}
+  .sb-conn{display:flex;align-items:center;gap:calc(7 * var(--u));font-weight:600}
+  .dot{width:calc(9 * var(--u));height:calc(9 * var(--u));border-radius:50%;background:var(--acc2);
+    box-shadow:0 0 calc(8 * var(--u)) var(--acc2);animation:pulse 2s infinite}
   @keyframes pulse{50%{opacity:.4}}
   .sb-conn small{color:var(--sub);font-weight:400}
-  .sb-clock{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;margin-left:auto}
+  .sb-clock{font-size:calc(18 * var(--u));font-weight:700;font-variant-numeric:tabular-nums;margin-left:auto}
 
   /* ===== 中部滑动区（音乐/导航上下切换） ===== */
   #viewport{flex:1 1 auto;position:relative;overflow:hidden}
   #track{height:100%;transition:transform .38s cubic-bezier(.22,.61,.36,1)}
-  .page{height:100%;display:flex;gap:14px;padding:14px 18px;align-items:stretch}
+  .page{height:100%;display:flex;gap:calc(14 * var(--u));padding:calc(14 * var(--u)) calc(18 * var(--u));align-items:stretch}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);
-    padding:14px;display:flex;flex-direction:column;min-height:0}
+    padding:calc(14 * var(--u));display:flex;flex-direction:column;min-height:0}
 
   /* ---- 音乐页：右 2/3 改为纯歌词显示（无卡片外框） ---- */
-  .lyrics{flex:1;display:flex;flex-direction:column;min-width:0;padding:2px 4px}
+  .lyrics{flex:1;display:flex;flex-direction:column;min-width:0;padding:calc(2 * var(--u)) calc(4 * var(--u))}
   /* 歌词整体靠右一点（左内边距把文字中心右推），进度条仍在原位不动 */
   .lyr{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;
-    justify-content:center;gap:10px;padding-left:30%;
+    justify-content:center;gap:calc(10 * var(--u));padding-left:30%;
     -webkit-mask-image:linear-gradient(180deg,transparent,#000 18%,#000 82%,transparent);
     mask-image:linear-gradient(180deg,transparent,#000 18%,#000 82%,transparent)}
   /* 亮色壁纸下也要可读：字重 + 多层投影 */
-  .lyr p{font-size:20px;font-weight:700;color:#e6edf7;opacity:.6;text-align:center;transition:.28s;
-    text-shadow:0 1px 3px rgba(0,0,0,.9),0 4px 14px rgba(0,0,0,.8),0 10px 34px rgba(0,0,0,.7)}
-  .lyr p.on{font-size:25px;color:#fff;opacity:1;
-    text-shadow:0 1px 4px rgba(0,0,0,.95),0 6px 20px rgba(0,0,0,.9),0 14px 40px rgba(0,0,0,.8)}
+  .lyr p{font-size:calc(20 * var(--u));font-weight:700;color:#e6edf7;opacity:.6;text-align:center;transition:.28s;
+    text-shadow:0 1px calc(3 * var(--u)) rgba(0,0,0,.9),0 calc(4 * var(--u)) calc(14 * var(--u)) rgba(0,0,0,.8),0 calc(10 * var(--u)) calc(34 * var(--u)) rgba(0,0,0,.7)}
+  .lyr p.on{font-size:calc(25 * var(--u));color:#fff;opacity:1;
+    text-shadow:0 1px calc(4 * var(--u)) rgba(0,0,0,.95),0 calc(6 * var(--u)) calc(20 * var(--u)) rgba(0,0,0,.9),0 calc(14 * var(--u)) calc(40 * var(--u)) rgba(0,0,0,.8)}
   /* 占位行：真实歌词不足 6 行时撑住行数，保持歌词区不回跳 */
   .lyr p.ph{opacity:0}
-  .progress{margin-top:10px}
-  .bar{height:6px;border-radius:6px;background:rgba(255,255,255,.12);position:relative;cursor:pointer}
-  .bar > i{position:absolute;left:0;top:0;bottom:0;width:38%;border-radius:6px;
+  .progress{margin-top:calc(10 * var(--u))}
+  .bar{height:calc(6 * var(--u));border-radius:calc(6 * var(--u));background:rgba(255,255,255,.12);position:relative;cursor:pointer}
+  .bar > i{position:absolute;left:0;top:0;bottom:0;width:38%;border-radius:calc(6 * var(--u));
     background:linear-gradient(90deg,var(--acc),var(--pur))}
-  .bar > i::after{content:"";position:absolute;right:-6px;top:50%;transform:translateY(-50%);
-    width:12px;height:12px;border-radius:50%;background:#fff}
-  .ptime{display:flex;justify-content:space-between;font-size:11px;color:var(--sub);margin-top:6px}
+  .bar > i::after{content:"";position:absolute;right:calc(-6 * var(--u));top:50%;transform:translateY(-50%);
+    width:calc(12 * var(--u));height:calc(12 * var(--u));border-radius:50%;background:#fff}
+  .ptime{display:flex;justify-content:space-between;font-size:calc(11 * var(--u));color:var(--sub);margin-top:calc(6 * var(--u))}
 
   /* ---- OTA 在线更新卡片 ---- */
-  .ota-card{display:flex;flex-direction:column;gap:8px;padding:10px 12px;background:var(--panel2);border-radius:10px}
-  .ota-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
-  .ota-cur{font-size:12px;color:var(--sub)}.ota-cur b{color:var(--txt);font-weight:700}
-  .ota-status{font-size:12px;color:var(--sub);min-height:18px}
-  .dns-inp{flex:1 1 240px;min-width:160px;font-size:12px;color:var(--txt);background:var(--panel2);
-    border:1px solid var(--line);border-radius:10px;padding:8px 10px;outline:none}
+  .ota-card{display:flex;flex-direction:column;gap:calc(8 * var(--u));padding:calc(10 * var(--u)) calc(12 * var(--u));background:var(--panel2);border-radius:calc(10 * var(--u))}
+  .ota-row{display:flex;justify-content:space-between;align-items:center;gap:calc(8 * var(--u));flex-wrap:wrap}
+  .ota-cur{font-size:calc(12 * var(--u));color:var(--sub)}.ota-cur b{color:var(--txt);font-weight:700}
+  .ota-status{font-size:calc(12 * var(--u));color:var(--sub);min-height:calc(18 * var(--u))}
+  .dns-inp{flex:1 1 calc(240 * var(--u));min-width:calc(160 * var(--u));font-size:calc(12 * var(--u));color:var(--txt);background:var(--panel2);
+    border:1px solid var(--line);border-radius:calc(10 * var(--u));padding:calc(8 * var(--u)) calc(10 * var(--u));outline:none}
   .dns-inp:focus{border-color:var(--acc)}
   .dns-inp::placeholder{color:var(--sub)}
   /* 上报失败文案会带上 HTTP 码与服务端 error 原文，变长后必须允许断行，否则溢出卡片 */
   #logUpMsg{word-break:break-all;line-height:1.45}
+  /* API 探测矩阵结果（v1.5.12）：十几条通路逐行平铺，要与日志里的逐项结论逐字对应 */
+  .matrix-out{font-family:inherit;font-size:calc(11 * var(--u));line-height:1.5;color:var(--txt);
+    background:var(--panel);border:1px solid var(--line);border-radius:calc(8 * var(--u));
+    padding:calc(8 * var(--u));margin-top:calc(6 * var(--u));max-height:calc(200 * var(--u));
+    overflow:auto;white-space:pre-wrap;word-break:break-all}
   .ota-status.ok{color:var(--acc2)}.ota-status.err{color:var(--red)}
-  .ota-new-v{font-size:14px;font-weight:700;color:var(--acc2);margin-top:4px}
-  .ota-cl{font-size:12px;color:var(--sub)}.ota-cl summary{cursor:pointer;padding:4px 0;user-select:none}
-  .ota-cl pre{white-space:pre-wrap;font-family:inherit;background:var(--panel);padding:8px;border-radius:6px;max-height:160px;overflow:auto;margin-top:4px;color:var(--txt);font-size:12px;line-height:1.5}
-  .ota-actions{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
-  .ota-actions .set-opt{padding:6px 12px}
+  .ota-new-v{font-size:calc(14 * var(--u));font-weight:700;color:var(--acc2);margin-top:calc(4 * var(--u))}
+  .ota-cl{font-size:calc(12 * var(--u));color:var(--sub)}.ota-cl summary{cursor:pointer;padding:calc(4 * var(--u)) 0;user-select:none}
+  .ota-cl pre{white-space:pre-wrap;font-family:inherit;background:var(--panel);padding:calc(8 * var(--u));border-radius:calc(6 * var(--u));max-height:calc(160 * var(--u));overflow:auto;margin-top:calc(4 * var(--u));color:var(--txt);font-size:calc(12 * var(--u));line-height:1.5}
+  .ota-actions{display:flex;gap:calc(8 * var(--u));margin-top:calc(6 * var(--u));flex-wrap:wrap}
+  .ota-actions .set-opt{padding:calc(6 * var(--u)) calc(12 * var(--u))}
   .set-opt.primary{background:var(--acc);color:#00081a;border-color:var(--acc);font-weight:700}
   .set-opt.ghost{background:transparent;color:var(--sub);border:1px solid var(--line)}
-  .ota-progress{display:flex;align-items:center;gap:8px;margin-top:8px}
-  .ota-bar{flex:1;height:6px;border-radius:3px;background:rgba(255,255,255,.1);position:relative;overflow:hidden}
+  .ota-progress{display:flex;align-items:center;gap:calc(8 * var(--u));margin-top:calc(8 * var(--u))}
+  .ota-bar{flex:1;height:calc(6 * var(--u));border-radius:calc(3 * var(--u));background:rgba(255,255,255,.1);position:relative;overflow:hidden}
   .ota-bar i{position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,var(--acc),var(--pur));transition:width .25s}
-  .ota-progtxt{font-size:11px;color:var(--sub);font-variant-numeric:tabular-nums;min-width:38px;text-align:right}
+  .ota-progtxt{font-size:calc(11 * var(--u));color:var(--sub);font-variant-numeric:tabular-nums;min-width:calc(38 * var(--u));text-align:right}
   /* 强制更新蒙层 */
   #otaForce{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:60;display:none;
-    flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;padding:24px;text-align:center}
+    flex-direction:column;align-items:center;justify-content:center;gap:calc(14 * var(--u));color:#fff;padding:calc(24 * var(--u));text-align:center}
   #otaForce.on{display:flex}
-  #otaForce h2{font-size:20px;color:var(--warn);margin:0}
-  #otaForce p{font-size:13px;color:var(--sub);max-width:520px;white-space:pre-wrap;line-height:1.6;max-height:240px;overflow:auto;margin:0;padding:0 8px}
-  #otaForce .set-opt.primary{padding:10px 22px;font-size:14px}
+  #otaForce h2{font-size:calc(20 * var(--u));color:var(--warn);margin:0}
+  #otaForce p{font-size:calc(13 * var(--u));color:var(--sub);max-width:calc(520 * var(--u));white-space:pre-wrap;line-height:1.6;max-height:calc(240 * var(--u));overflow:auto;margin:0;padding:0 calc(8 * var(--u))}
+  #otaForce .set-opt.primary{padding:calc(10 * var(--u)) calc(22 * var(--u));font-size:calc(14 * var(--u))}
 
   /* ---- 底部 dock 左侧：迷你音乐栏（歌曲图标 / 歌名·歌手 / 上一曲 / 播放暂停 / 下一曲） ---- */
-  .mb-cover{flex:0 0 auto;width:44px;height:44px;border-radius:50%;font-size:20px;
+  .mb-cover{flex:0 0 auto;width:calc(66 * var(--u));height:calc(66 * var(--u));border-radius:50%;font-size:calc(30 * var(--u));
     background:linear-gradient(135deg,#3da9fc33,#a78bfa33);overflow:hidden;
     display:flex;align-items:center;justify-content:center}
   /* 真实数据接入后，这里换成系统媒体会话里的专辑封面 */
   .mb-cover img{width:100%;height:100%;object-fit:cover;display:block}
-  .mb-meta{display:flex;flex-direction:column;gap:3px;min-width:0}
-  .np-title{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .np-artist{color:var(--sub);font-size:11px}
-  .mb-src{display:flex;align-items:center;gap:6px}
-  .src-tag{font-size:10px;padding:1px 7px;border-radius:20px;
+  .mb-meta{display:flex;flex-direction:column;gap:calc(5 * var(--u));min-width:0}
+  .np-title{font-size:calc(20 * var(--u));font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .np-artist{color:var(--sub);font-size:calc(16 * var(--u))}
+  .mb-src{display:flex;align-items:center;gap:calc(9 * var(--u))}
+  .src-tag{font-size:calc(15 * var(--u));padding:calc(2 * var(--u)) calc(10 * var(--u));border-radius:calc(20 * var(--u));
     background:var(--acc2)22;color:var(--acc2);border:1px solid var(--acc2)55}
-  .mb-ctrls{display:flex;align-items:center;gap:6px;margin-left:2px}
-  .mbtn{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
-    background:var(--panel2);color:var(--txt);font-size:13px;cursor:pointer;
+  .mb-ctrls{display:flex;align-items:center;gap:calc(9 * var(--u));margin-left:calc(2 * var(--u))}
+  .mbtn{width:calc(50 * var(--u));height:calc(50 * var(--u));border-radius:50%;border:1px solid var(--line);
+    background:var(--panel2);color:var(--txt);font-size:calc(19 * var(--u));cursor:pointer;
     display:flex;align-items:center;justify-content:center;transition:.15s}
   .mbtn:active{transform:scale(.9)}
-  .mbtn.play{width:40px;height:40px;border:none;font-size:15px;
-    background:linear-gradient(135deg,var(--acc),var(--pur));box-shadow:0 4px 12px #3da9fc55}
+  .mbtn.play{width:calc(58 * var(--u));height:calc(58 * var(--u));border:none;font-size:calc(22 * var(--u));
+    background:linear-gradient(135deg,var(--acc),var(--pur));box-shadow:0 calc(4 * var(--u)) calc(12 * var(--u)) #3da9fc55}
 
-  .list{flex:1.1;gap:8px}
-  .tabs{display:flex;gap:6px}
-  .tab{font-size:12px;padding:5px 12px;border-radius:20px;border:1px solid var(--line);
+  .list{flex:1.1;gap:calc(8 * var(--u))}
+  .tabs{display:flex;gap:calc(6 * var(--u))}
+  .tab{font-size:calc(12 * var(--u));padding:calc(5 * var(--u)) calc(12 * var(--u));border-radius:calc(20 * var(--u));border:1px solid var(--line);
     background:transparent;color:var(--sub);cursor:pointer}
   .tab.on{background:var(--acc);color:#06121f;border-color:var(--acc);font-weight:600}
-  .pl{flex:1;overflow:auto;display:flex;flex-direction:column;gap:6px}
-  .pl li{list-style:none;display:flex;align-items:center;gap:10px;padding:9px 10px;
-    border-radius:10px;font-size:14px;cursor:pointer;transition:.12s}
+  .pl{flex:1;overflow:auto;display:flex;flex-direction:column;gap:calc(6 * var(--u))}
+  .pl li{list-style:none;display:flex;align-items:center;gap:calc(10 * var(--u));padding:calc(9 * var(--u)) calc(10 * var(--u));
+    border-radius:calc(10 * var(--u));font-size:calc(14 * var(--u));cursor:pointer;transition:.12s}
   .pl li:hover{background:rgba(255,255,255,.05)}
   .pl li.on{background:var(--acc)1f;border:1px solid var(--acc)55}
-  .pl li .n{color:var(--sub);width:18px;text-align:center;font-size:12px}
+  .pl li .n{color:var(--sub);width:calc(18 * var(--u));text-align:center;font-size:calc(12 * var(--u))}
   .pl li .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .pl li .d{color:var(--sub);font-size:11px}
-  .pl li .eq{color:var(--acc);font-size:12px;width:14px}
+  .pl li .d{color:var(--sub);font-size:calc(11 * var(--u))}
+  .pl li .eq{color:var(--acc);font-size:calc(12 * var(--u));width:calc(14 * var(--u))}
 
   /* ---- 音乐页：左 1/3 车模型 + 状态 ---- */
-  .carpanel{flex:1;gap:10px;background:transparent;border:0}
-  .cp-head{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
-  .cp-src{font-size:11px;color:var(--sub);font-weight:400}
-  .car-model{flex:1.32;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0;gap:4px}
+  .carpanel{flex:1;gap:calc(10 * var(--u));background:transparent;border:0}
+  .cp-head{font-size:calc(13 * var(--u));font-weight:600;display:flex;align-items:center;gap:calc(8 * var(--u))}
+  .cp-src{font-size:calc(11 * var(--u));color:var(--sub);font-weight:400}
+  .car-model{flex:1.32;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0;gap:calc(4 * var(--u))}
   /* 车模=「长安欧尚Z6 燃油版」俯视图（门关为底图）；门/后备箱开时叠加真实开启部位，位置用绝对比例标注 */
-  .car-wrap{position:relative;display:inline-block;max-width:100%;max-height:274px}
-  .car-img{display:block;max-width:100%;max-height:274px;width:auto;height:auto;filter:drop-shadow(0 10px 22px rgba(0,0,0,.5))}
+  .car-wrap{position:relative;display:inline-block;max-width:100%;max-height:calc(274 * var(--u))}
+  .car-img{display:block;max-width:100%;max-height:calc(274 * var(--u));width:auto;height:auto;filter:drop-shadow(0 calc(10 * var(--u)) calc(22 * var(--u)) rgba(0,0,0,.5))}
   /* 开启叠加层：底图=门关图，门/后备箱开时叠加对应部位的「真实开启」图，位置与底图同坐标系 */
   .car-ov{position:absolute;pointer-events:none;opacity:0;transition:opacity .2s ease;z-index:2}
   .car-ov.on{opacity:1}
   /* 车门旁小圆点＝车窗状态（点圆点切车窗、点圆点外圈切车门；不显示门文字） */
-  .dmark{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;padding:7px;cursor:pointer;user-select:none;z-index:3}
-  .dmark .dl{font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;background:rgba(6,10,16,.55);border:1px solid var(--line);color:var(--txt);white-space:nowrap}
+  .dmark{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;padding:calc(7 * var(--u));cursor:pointer;user-select:none;z-index:3}
+  .dmark .dl{font-size:calc(10 * var(--u));font-weight:700;padding:1px calc(6 * var(--u));border-radius:calc(8 * var(--u));background:rgba(6,10,16,.55);border:1px solid var(--line);color:var(--txt);white-space:nowrap}
   .dmark.open .dl{background:linear-gradient(135deg,var(--warn),#ff6b6b);color:#22140a;border-color:transparent}
   /* 车窗状态点：关＝蓝 · 开＝橙 */
-  .wdot{display:block;width:11px;height:11px;border-radius:50%;background:var(--acc2);
-    border:1px solid rgba(255,255,255,.40);box-shadow:0 0 0 2.5px rgba(6,10,16,.5);transition:.2s}
+  .wdot{display:block;width:calc(11 * var(--u));height:calc(11 * var(--u));border-radius:50%;background:var(--acc2);
+    border:1px solid rgba(255,255,255,.40);box-shadow:0 0 0 calc(2.5 * var(--u)) rgba(6,10,16,.5);transition:.2s}
   .wdot.open{background:var(--warn);border-color:rgba(255,255,255,.6);
-    box-shadow:0 0 0 2.5px rgba(6,10,16,.5),0 0 10px rgba(255,107,107,.85)}
+    box-shadow:0 0 0 calc(2.5 * var(--u)) rgba(6,10,16,.5),0 0 calc(10 * var(--u)) rgba(255,107,107,.85)}
   /* 胎压标注（轮位） */
-  .tpc{position:absolute;transform:translate(-50%,-50%);font-size:10px;font-weight:700;padding:0 6px;border-radius:7px;background:rgba(6,10,16,.5);border:1px solid var(--line);color:var(--txt);z-index:2;font-variant-numeric:tabular-nums}
+  .tpc{position:absolute;transform:translate(-50%,-50%);font-size:calc(10 * var(--u));font-weight:700;padding:0 calc(6 * var(--u));border-radius:calc(7 * var(--u));background:rgba(6,10,16,.5);border:1px solid var(--line);color:var(--txt);z-index:2;font-variant-numeric:tabular-nums}
   .tpc.low{background:rgba(255,107,107,.2);border-color:var(--warn);color:#ff9a9a}
-  .legend{display:flex;gap:14px;font-size:11px;color:var(--sub)}
-  .legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
+  .legend{display:flex;gap:calc(14 * var(--u));font-size:calc(11 * var(--u));color:var(--sub)}
+  .legend i{width:calc(9 * var(--u));height:calc(9 * var(--u));border-radius:50%;display:inline-block;margin-right:calc(4 * var(--u));vertical-align:middle}
   .legend .c{background:var(--acc2)} .legend .o{background:var(--warn)}
-  .car-status{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:9px;padding-right:2px}
-  .cs-sec{display:flex;flex-direction:column;gap:5px}
-  .cs-label{font-size:10px;color:var(--sub);letter-spacing:1px;display:flex;align-items:center;gap:6px}
-  .cs-label::before{content:"";width:3px;height:10px;background:var(--acc);border-radius:2px}
-  .cs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  .car-status{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:calc(9 * var(--u));padding-right:calc(2 * var(--u))}
+  .cs-sec{display:flex;flex-direction:column;gap:calc(5 * var(--u))}
+  .cs-label{font-size:calc(10 * var(--u));color:var(--sub);letter-spacing:1px;display:flex;align-items:center;gap:calc(6 * var(--u))}
+  .cs-label::before{content:"";width:calc(3 * var(--u));height:calc(10 * var(--u));background:var(--acc);border-radius:calc(2 * var(--u))}
+  .cs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:calc(5 * var(--u))}
   .cs-grid.g4{grid-template-columns:repeat(4,1fr)}
-  .cst{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:4px 2px;text-align:center}
-  .cst .v{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
-  .cst .k{font-size:10px;color:var(--sub)}
-  .cst .u{font-size:9px;color:var(--sub)}
+  .cst{background:var(--panel2);border:1px solid var(--line);border-radius:calc(8 * var(--u));padding:calc(4 * var(--u)) calc(2 * var(--u));text-align:center}
+  .cst .v{font-size:calc(13 * var(--u));font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+  .cst .k{font-size:calc(10 * var(--u));color:var(--sub)}
+  .cst .u{font-size:calc(9 * var(--u));color:var(--sub)}
   .cst.warn{border-color:var(--warn)} .cst.warn .v{color:var(--warn)}
   .cst.ok .v{color:var(--acc2)}
-  .music{flex:2;display:flex;gap:14px;min-width:0}
+  .music{flex:2;display:flex;gap:calc(14 * var(--u));min-width:0}
 
   /* ===== 底部：左侧迷你音乐栏 + 居中 dock 栏 ===== */
   #bottomRow{flex:0 0 auto;position:relative;display:flex;align-items:center;
-    justify-content:center;padding:10px 18px 14px}
+    justify-content:center;padding:calc(10 * var(--u)) calc(18 * var(--u)) calc(14 * var(--u))}
   /* 音乐栏固定在底部左侧，dock 仍保持窗口居中 */
-  #musicBar{position:absolute;left:18px;top:50%;transform:translateY(-50%);
-    display:flex;align-items:center;gap:10px;max-width:420px;
-    padding:5px 14px 5px 6px;border-radius:34px;background:rgba(255,255,255,.07);
-    border:1px solid var(--line);backdrop-filter:blur(8px)}
+  #musicBar{position:absolute;left:calc(24 * var(--u));top:50%;transform:translateY(-50%);
+    display:flex;align-items:center;gap:calc(16 * var(--u));max-width:calc(620 * var(--u));
+    padding:calc(8 * var(--u)) calc(22 * var(--u)) calc(8 * var(--u)) calc(10 * var(--u));border-radius:calc(44 * var(--u));background:rgba(255,255,255,.07);
+    border:1px solid var(--line);backdrop-filter:blur(calc(8 * var(--u)))}
   #dock{display:flex;justify-content:center}
-  .dock-pill{display:flex;gap:8px;background:rgba(255,255,255,.06);
-    border:1px solid var(--line);border-radius:30px;padding:8px 12px;
-    box-shadow:0 8px 24px rgba(0,0,0,.4)}
-  .dock-btn{width:54px;height:54px;border-radius:50%;border:1px solid transparent;
-    background:transparent;color:var(--sub);font-size:22px;cursor:pointer;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;transition:.15s}
-  .dock-btn small{font-size:10px}
+  .dock-pill{display:flex;gap:calc(14 * var(--u));background:rgba(255,255,255,.06);
+    border:1px solid var(--line);border-radius:calc(40 * var(--u));padding:calc(12 * var(--u)) calc(18 * var(--u));
+    box-shadow:0 calc(8 * var(--u)) calc(24 * var(--u)) rgba(0,0,0,.4)}
+  .dock-btn{width:calc(80 * var(--u));height:calc(80 * var(--u));border-radius:50%;border:1px solid transparent;
+    background:transparent;color:var(--sub);font-size:calc(32 * var(--u));cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(3 * var(--u));transition:.15s}
+  .dock-btn small{font-size:calc(15 * var(--u))}
   .dock-btn:active{transform:scale(.9)}
   .dock-btn.on{background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f;
-    border-color:transparent;box-shadow:0 6px 16px #3da9fc55}
+    border-color:transparent;box-shadow:0 calc(6 * var(--u)) calc(16 * var(--u)) #3da9fc55}
   /* dock 右侧应用快捷方式 */
-  #dockApps{position:absolute;right:18px;top:50%;transform:translateY(-50%);
-    display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:30px;
-    background:rgba(255,255,255,.06);border:1px solid var(--line);backdrop-filter:blur(8px)}
-  .dock-app{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);
-    background:transparent;color:var(--txt);font-size:20px;cursor:pointer;
+  #dockApps{position:absolute;right:calc(24 * var(--u));top:50%;transform:translateY(-50%);
+    display:flex;align-items:center;gap:calc(14 * var(--u));padding:calc(8 * var(--u)) calc(14 * var(--u));border-radius:calc(40 * var(--u));
+    background:rgba(255,255,255,.06);border:1px solid var(--line);backdrop-filter:blur(calc(8 * var(--u)))}
+  .dock-app{width:calc(68 * var(--u));height:calc(68 * var(--u));border-radius:50%;border:1px solid var(--line);
+    background:transparent;color:var(--txt);font-size:calc(30 * var(--u));cursor:pointer;
     display:flex;align-items:center;justify-content:center;transition:.15s}
   .dock-app:active{transform:scale(.9)}
   .dock-app.more{background:rgba(255,255,255,.1)}
@@ -243,90 +239,89 @@
   .app-scrim{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.5);
     opacity:0;visibility:hidden;transition:opacity .25s ease}
   .app-scrim.open{opacity:1;visibility:visible}
-  .app-list{position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:605px;
+  .app-list{position:fixed;left:0;right:0;bottom:0;z-index:30;max-height:calc(605 * var(--u));
     display:flex;flex-direction:column;background:rgba(16,20,30,.98);
-    border-top:1px solid var(--line);border-radius:24px 24px 0 0;backdrop-filter:blur(14px);
-    box-shadow:0 -12px 40px rgba(0,0,0,.55);
+    border-top:1px solid var(--line);border-radius:calc(24 * var(--u)) calc(24 * var(--u)) 0 0;backdrop-filter:blur(calc(14 * var(--u)));
+    box-shadow:0 calc(-12 * var(--u)) calc(40 * var(--u)) rgba(0,0,0,.55);
     transform:translateY(100%);visibility:hidden;
     transition:transform .3s cubic-bezier(.2,.85,.25,1),visibility .3s}
   .app-list.open{transform:translateY(0);visibility:visible}
-  .al-grip{width:42px;height:5px;border-radius:3px;background:rgba(255,255,255,.3);margin:9px auto 3px}
+  .al-grip{width:calc(42 * var(--u));height:calc(5 * var(--u));border-radius:calc(3 * var(--u));background:rgba(255,255,255,.3);margin:calc(9 * var(--u)) auto calc(3 * var(--u))}
   .al-head{display:flex;align-items:center;justify-content:space-between;
-    padding:6px 18px 12px;font-size:15px;font-weight:600;border-bottom:1px solid var(--line)}
-  .al-close{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);
-    background:transparent;color:var(--sub);font-size:16px;cursor:pointer}
-  .al-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px;padding:16px;overflow:auto}
-  .al-item{display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;
-    border-radius:14px;border:1px solid transparent;background:rgba(255,255,255,.04);cursor:pointer;transition:.15s}
+    padding:calc(6 * var(--u)) calc(18 * var(--u)) calc(12 * var(--u));font-size:calc(15 * var(--u));font-weight:600;border-bottom:1px solid var(--line)}
+  .al-close{width:calc(34 * var(--u));height:calc(34 * var(--u));border-radius:50%;border:1px solid var(--line);
+    background:transparent;color:var(--sub);font-size:calc(16 * var(--u));cursor:pointer}
+  .al-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(calc(92 * var(--u)),1fr));gap:calc(12 * var(--u));padding:calc(16 * var(--u));overflow:auto}
+  .al-item{display:flex;flex-direction:column;align-items:center;gap:calc(6 * var(--u));padding:calc(10 * var(--u)) calc(6 * var(--u));
+    border-radius:calc(14 * var(--u));border:1px solid transparent;background:rgba(255,255,255,.04);cursor:pointer;transition:.15s}
   .al-item:active{transform:scale(.95);border-color:var(--acc)}
   .al-item.pinned{background:rgba(61,169,252,.14);border-color:var(--acc)}
-  .al-item.pinned::after{content:"已钉";position:absolute;margin:-6px 0 0 34px;
-    font-size:9px;color:#06121f;background:var(--acc);border-radius:8px;padding:1px 5px}
-  .al-item .ai-ic{font-size:26px}
-  .al-item .ai-nm{font-size:11px;color:var(--sub);text-align:center;line-height:1.3}
-  .al-empty{padding:30px;text-align:center;color:var(--sub);font-size:13px}
+  .al-item.pinned::after{content:"已钉";position:absolute;margin:calc(-6 * var(--u)) 0 0 calc(34 * var(--u));
+    font-size:calc(9 * var(--u));color:#06121f;background:var(--acc);border-radius:calc(8 * var(--u));padding:1px calc(5 * var(--u))}
+  .al-item .ai-ic{font-size:calc(26 * var(--u))}
+  .al-item .ai-nm{font-size:calc(11 * var(--u));color:var(--sub);text-align:center;line-height:1.3}
+  .al-empty{padding:calc(30 * var(--u));text-align:center;color:var(--sub);font-size:calc(13 * var(--u))}
   /* 空态自诊断（桥没注入 / 方法没暴露 / 桥抛错）—— 便于现场一眼看出是读数失败而非真的没装应用 */
-  .al-diag{margin-top:10px;font-size:11px;line-height:1.6;opacity:.7;word-break:break-all;
-    padding:8px 10px;border-radius:8px;background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3)}
+  .al-diag{margin-top:calc(10 * var(--u));font-size:calc(11 * var(--u));line-height:1.6;opacity:.7;word-break:break-all;
+    padding:calc(8 * var(--u)) calc(10 * var(--u));border-radius:calc(8 * var(--u));background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3)}
   /* 页面内轻提示（长按钉入 / 移出 dock 快捷方式） */
-  .l6-toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,8px);z-index:60;
-    max-width:1344px;padding:9px 16px;border-radius:20px;font-size:13px;
+  .l6-toast{position:fixed;left:50%;bottom:calc(96 * var(--u));transform:translate(-50%,calc(8 * var(--u)));z-index:60;
+    max-width:calc(1344 * var(--u));padding:calc(9 * var(--u)) calc(16 * var(--u));border-radius:calc(20 * var(--u));font-size:calc(13 * var(--u));
     background:rgba(8,12,20,.92);color:var(--txt);border:1px solid var(--line);
     opacity:0;visibility:hidden;transition:.22s ease;pointer-events:none}
   .l6-toast.on{opacity:1;visibility:visible;transform:translate(-50%,0)}
 
   /* ---- 迷你导航卡片（仅在真实导航时显示） ---- */
-  #miniNav{position:absolute;left:18px;right:18px;top:8px;z-index:6;display:none;
-    align-items:center;gap:12px;padding:8px 14px;border-radius:12px;
-    background:rgba(8,12,20,.82);border:1px solid var(--line);backdrop-filter:blur(4px)}
+  #miniNav{position:absolute;left:calc(18 * var(--u));right:calc(18 * var(--u));top:calc(8 * var(--u));z-index:6;display:none;
+    align-items:center;gap:calc(12 * var(--u));padding:calc(8 * var(--u)) calc(14 * var(--u));border-radius:calc(12 * var(--u));
+    background:rgba(8,12,20,.82);border:1px solid var(--line);backdrop-filter:blur(calc(4 * var(--u)))}
   #miniNav.show{display:flex}
-  #miniNav .m-arr{font-size:26px;color:var(--acc)}
-  #miniNav .m-turn{font-size:14px;font-weight:600;flex:1;text-align:left}
-  #miniNav .m-meta{display:flex;gap:14px;font-size:12px;color:var(--sub);white-space:nowrap}
+  #miniNav .m-arr{font-size:calc(26 * var(--u));color:var(--acc)}
+  #miniNav .m-turn{font-size:calc(14 * var(--u));font-weight:600;flex:1;text-align:left}
+  #miniNav .m-meta{display:flex;gap:calc(14 * var(--u));font-size:calc(12 * var(--u));color:var(--sub);white-space:nowrap}
   #miniNav .m-meta b{color:var(--txt);font-variant-numeric:tabular-nums}
 
 
   /* ---- 设置页 ---- */
-  .set-panel{flex:1;gap:12px}
-  .set-scroll{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:18px;padding-right:4px}
-  .set-sec{display:flex;flex-direction:column;gap:8px}
-  .set-label{font-size:12px;color:var(--sub);letter-spacing:1px;display:flex;align-items:center;gap:6px}
-  .set-label::before{content:"";width:3px;height:11px;background:var(--acc);border-radius:2px}
-  .set-opts{display:flex;gap:10px;flex-wrap:wrap}
-  .set-opt{font-size:14px;padding:11px 16px;border-radius:12px;border:1px solid var(--line);
-    background:var(--panel2);color:var(--txt);cursor:pointer;transition:.15s;display:flex;align-items:center;gap:6px}
+  .set-panel{flex:1;gap:calc(12 * var(--u))}
+  .set-scroll{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:calc(18 * var(--u));padding-right:calc(4 * var(--u))}
+  .set-sec{display:flex;flex-direction:column;gap:calc(8 * var(--u))}
+  .set-label{font-size:calc(12 * var(--u));color:var(--sub);letter-spacing:1px;display:flex;align-items:center;gap:calc(6 * var(--u))}
+  .set-label::before{content:"";width:calc(3 * var(--u));height:calc(11 * var(--u));background:var(--acc);border-radius:calc(2 * var(--u))}
+  .set-opts{display:flex;gap:calc(10 * var(--u));flex-wrap:wrap}
+  .set-opt{font-size:calc(14 * var(--u));padding:calc(11 * var(--u)) calc(16 * var(--u));border-radius:calc(12 * var(--u));border:1px solid var(--line);
+    background:var(--panel2);color:var(--txt);cursor:pointer;transition:.15s;display:flex;align-items:center;gap:calc(6 * var(--u))}
   .set-opt:active{transform:scale(.96)}
   .set-opt.on{background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f;border-color:transparent;font-weight:600}
-  .set-hint{font-size:11px;color:var(--sub);line-height:1.5}
-  .set-cur{font-size:12px;color:var(--txt);margin:8px 2px 2px;padding:6px 10px;border-radius:8px;
+  .set-hint{font-size:calc(11 * var(--u));color:var(--sub);line-height:1.5}
+  .set-cur{font-size:calc(12 * var(--u));color:var(--txt);margin:calc(8 * var(--u)) calc(2 * var(--u)) calc(2 * var(--u));padding:calc(6 * var(--u)) calc(10 * var(--u));border-radius:calc(8 * var(--u));
     background:rgba(61,169,252,.12);border:1px solid rgba(61,169,252,.3);
-    display:flex;align-items:center;gap:6px}
-  .set-cur .src-ic{font-size:16px;line-height:1}
+    display:flex;align-items:center;gap:calc(6 * var(--u))}
+  .set-cur .src-ic{font-size:calc(16 * var(--u));line-height:1}
   .set-cur b{color:var(--txt);font-weight:700}
   .set-opt.pick{background:rgba(255,255,255,.08);border:1px dashed var(--acc);color:var(--acc)}
   /* 源卡片一行排列：本地源按钮（U盘/蓝牙）· 当前源（图标+名称）·「选择应用」靠右。
      与旧版「两栏」的区别：本地源按钮也在同一行内，故按钮改小一号，极窄屏才换行。 */
-  .src-row{display:flex;align-items:center;gap:8px;margin:8px 0 2px;flex-wrap:wrap}
-  .src-row .set-opts{flex:0 0 auto;gap:8px}
-  .src-row .set-opt{font-size:13px;padding:8px 12px}
+  .src-row{display:flex;align-items:center;gap:calc(8 * var(--u));margin:calc(8 * var(--u)) 0 calc(2 * var(--u));flex-wrap:wrap}
+  .src-row .set-opts{flex:0 0 auto;gap:calc(8 * var(--u))}
+  .src-row .set-opt{font-size:calc(13 * var(--u));padding:calc(8 * var(--u)) calc(12 * var(--u))}
   .src-row .set-cur{flex:0 1 auto;min-width:0;margin:0}
   .src-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .src-row .set-opt.pick{flex:0 0 auto;white-space:nowrap;margin-left:auto}
   /* 手势配置行：方向名 + 当前绑定 + [选择应用] [清除] */
-  .ges-row{display:flex;align-items:center;gap:8px;margin:6px 0}
-  .ges-dir{flex:0 0 auto;width:46px;font-size:13px;opacity:.75}
+  .ges-row{display:flex;align-items:center;gap:calc(8 * var(--u));margin:calc(6 * var(--u)) 0}
+  .ges-dir{flex:0 0 auto;width:calc(46 * var(--u));font-size:calc(13 * var(--u));opacity:.75}
   .ges-row .set-cur{flex:1 1 auto;min-width:0;margin:0}
   .ges-row .set-cur b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .ges-row .set-opt{flex:0 0 auto;padding:6px 10px;font-size:12px;white-space:nowrap}
+  .ges-row .set-opt{flex:0 0 auto;padding:calc(6 * var(--u)) calc(10 * var(--u));font-size:calc(12 * var(--u));white-space:nowrap}
   /* 真实应用图标（原生 getAppIcon 返回 PNG data URL）；取不到时回落 emoji 占位 */
-  .app-ic{width:20px;height:20px;border-radius:5px;object-fit:contain;display:inline-block;
+  .app-ic{width:calc(20 * var(--u));height:calc(20 * var(--u));border-radius:calc(5 * var(--u));object-fit:contain;display:inline-block;
     vertical-align:middle;background:rgba(255,255,255,.06)}
-  .app-ic.src-ic{width:18px;height:18px}
-  .app-ic-fb{font-size:16px;line-height:1}
-  .al-item .app-ic{width:34px;height:34px;border-radius:9px}
-  .al-item .app-ic-fb{font-size:26px}
-  .dock-app .app-ic{width:24px;height:24px;border-radius:6px}
-  html[data-theme="light"] .app-ic{background:rgba(0,0,0,.05)}
+  .app-ic.src-ic{width:calc(18 * var(--u));height:calc(18 * var(--u))}
+  .app-ic-fb{font-size:calc(16 * var(--u));line-height:1}
+  .al-item .app-ic{width:calc(34 * var(--u));height:calc(34 * var(--u));border-radius:calc(9 * var(--u))}
+  .al-item .app-ic-fb{font-size:calc(26 * var(--u))}
+  .dock-app .app-ic{width:calc(34 * var(--u));height:calc(34 * var(--u));border-radius:calc(9 * var(--u))}
   .nav-app.def{border-color:var(--acc)}
   /* 动态壁纸 */
   body.dynwall{background:linear-gradient(120deg,#0b0e14,#15233f,#241433,#0f1f17);
@@ -340,31 +335,31 @@
   #wallScrim{position:fixed;inset:0;z-index:0;display:none;pointer-events:none;
     background:linear-gradient(180deg,rgba(6,9,14,.26),rgba(6,9,14,.48))}
   /* 壁纸：类型切换（左）+ 上传按钮（右） */
-  .wall-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .wall-bar{display:flex;gap:calc(10 * var(--u));align-items:center;flex-wrap:wrap}
   .wall-bar .set-opts{flex:1 1 auto}
-  .up-btn{font-size:13px;padding:10px 14px;border-radius:12px;border:1px dashed var(--line);
-    background:var(--panel2);color:var(--txt);cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:.15s}
+  .up-btn{font-size:calc(13 * var(--u));padding:calc(10 * var(--u)) calc(14 * var(--u));border-radius:calc(12 * var(--u));border:1px dashed var(--line);
+    background:var(--panel2);color:var(--txt);cursor:pointer;display:inline-flex;align-items:center;gap:calc(6 * var(--u));transition:.15s}
   .up-btn:active{transform:scale(.97)}
   /* 壁纸列表：每项一张缩略图 + 名称，选中项高亮 */
-  .wall-grid{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
-  .wall-item{width:112px;border-radius:10px;border:1px solid var(--line);overflow:hidden;
+  .wall-grid{display:flex;gap:calc(10 * var(--u));flex-wrap:wrap;margin-top:calc(4 * var(--u))}
+  .wall-item{width:calc(112 * var(--u));border-radius:calc(10 * var(--u));border:1px solid var(--line);overflow:hidden;
     background:var(--panel2);cursor:pointer;transition:.15s}
   .wall-item:active{transform:scale(.97)}
   .wall-item.on{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
   .wall-item.on .wi-name{color:var(--acc)}
-  .wall-item .wi-thumb{height:62px;display:flex;align-items:center;justify-content:center;
-    font-size:22px;background:#0c121b center/cover no-repeat}
-  .wall-item .wi-name{font-size:10px;color:var(--sub);padding:5px 6px;
+  .wall-item .wi-thumb{height:calc(62 * var(--u));display:flex;align-items:center;justify-content:center;
+    font-size:calc(22 * var(--u));background:#0c121b center/cover no-repeat}
+  .wall-item .wi-name{font-size:calc(10 * var(--u));color:var(--sub);padding:calc(5 * var(--u)) calc(6 * var(--u));
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .set-empty{font-size:12px;color:var(--sub);padding:6px 0}
-  .nav-empty{font-size:12px;color:var(--sub);line-height:1.7;padding:10px 0}
-  .set-hint{font-size:12px;color:var(--sub);margin-top:6px;line-height:1.5}
+  .set-empty{font-size:calc(12 * var(--u));color:var(--sub);padding:calc(6 * var(--u)) 0}
+  .nav-empty{font-size:calc(12 * var(--u));color:var(--sub);line-height:1.7;padding:calc(10 * var(--u)) 0}
+  .set-hint{font-size:calc(12 * var(--u));color:var(--sub);margin-top:calc(6 * var(--u));line-height:1.5}
 </style>
 </head>
 <body data-page-node-id="rFqGwwoKWLaLOhDIUFuGcx">
 <div id="rotate" data-page-node-id="Z248YuTFGhL7E6BaXs8eri"><div class="ico" data-page-node-id="7RGS5n8CDlfOsKEsaNg2Ar">📱</div><div data-page-node-id="QHzHioYH6b9JQfsiKcGHij">请旋转设备为横屏</div></div>
 <div id="stage">
-<!-- 主页下滑调导航的命中热区（1520x520 居中），纯判定用、不可见 -->
+<!-- 主页下滑调导航的命中热区（屏幕中心 79.167%×72.222%），纯判定用、不可见 -->
 <div id="navHot" aria-hidden="true"></div>
 <div id="wallMedia"></div>
 <video id="wallVideo" autoplay loop muted playsinline></video>
@@ -448,7 +443,7 @@
             <div class="set-sec">
               <div class="set-label">手势</div>
               <div id="setGestures"><!-- 由 renderGestures() 生成四行 --></div>
-              <div class="set-hint">需从屏幕中心 1520×520 区域内起手才生效。默认<b>「下滑」跟随导航源</b>（跟着上面导航源变），点「选择应用」可换成任意已装应用。</div>
+              <div class="set-hint">需从屏幕中心区域（约屏幕宽 79% / 高 72% 的那块）起手才生效，任意分辨率下自动适配。默认<b>「下滑」跟随导航源</b>（跟着上面导航源变），点「选择应用」可换成任意已装应用。</div>
             </div>
             <!-- 悬浮窗权限已并入下方「系统权限」卡片 -->
             <div class="set-sec">
@@ -515,17 +510,44 @@
                   <button class="set-opt" id="logNowBtn">立即上报</button>
                   <!-- 测试接口：一次性连通性探针（DNS → TCP → 真发一次请求），把失败段摊开 -->
                   <button class="set-opt" id="logTestBtn">🔌 测试接口</button>
-                  <button class="set-opt" id="logApiBtn">● 开启</button>
+                  <button class="set-opt" id="logApiBtn">○ 关闭</button>
                 </div>
+                <div class="ota-row">
+                  <!-- API 探测矩阵：逐项试各种访问方式（握手形态/明文/钉IP/路径/鉴权/方法），
+                       每项走完整 DNS→TCP→TLS→HTTP；结论写入本地日志(标签 L6ApiMatrix)并另存 JSON。
+                       上报开关只约束每 60s 的自动任务，探测是手动触发，不受它限制。 -->
+                  <button class="set-opt" id="logMatrixBtn">🔬 API 探测</button>
+                  <span class="set-hint" id="matrixHint">逐项试通接口的访问方式，结论写入本地日志</span>
+                </div>
+                <pre id="matrixOut" class="matrix-out" hidden></pre>
                 <div class="ota-row">
                   <span class="ota-cur">接口 DNS：</span>
                   <input id="dnsInput" class="dns-inp" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="留空=系统 DNS（可填 223.5.5.5）">
                   <span class="set-hint" id="dnsHint">本机解析不准时可填可信 DNS（如 223.5.5.5）</span>
                 </div>
-                <div class="ota-status" id="logUpMsg">每分钟自动上报一次到日志接口（首次约 5s 后开始）。</div>
+                <div class="ota-status" id="logUpMsg">每分钟自动上报一次「最近 1 分钟」的日志（首次约 5s 后开始）；「立即上报」可随时手动补发一次。</div>
               </div>
             </div>
             <div class="set-sec">
+            <div class="set-sec">
+              <div class="set-label">车机信号采集</div>
+              <div class="ota-card">
+                <div class="ota-row">
+                  <span class="ota-cur">采集状态：<b id="sigState">未采集</b></span>
+                  <button class="set-opt" id="sigBtn">▶ 开始采集</button>
+                </div>
+                <div class="ota-row">
+                  <!-- 标记按钮：操作某个车辆按钮前后各点一下，日志里会插一条标记行，便于把变化对齐到操作。
+                       不点也不影响 —— 每条变化本来就带相对时间戳。 -->
+                  <button class="set-opt sig-mark" data-mark="车门">🚪 车门</button>
+                  <button class="set-opt sig-mark" data-mark="车窗">🪟 车窗</button>
+                  <button class="set-opt sig-mark" data-mark="车辆">🔘 车辆</button>
+                  <button class="set-opt sig-mark" data-mark="其他">📍 其他</button>
+                </div>
+                <pre id="sigOut" class="matrix-out" hidden></pre>
+                <div class="ota-status" id="sigMsg">点「开始采集」后**保持在页面**，依次操作车门 / 车窗 / 车辆按钮，完成后点「结束采集」；结论写入本地日志（标签 L6Signal）并另存 JSON。</div>
+              </div>
+            </div>
               <div class="set-label">在线更新</div>
               <div class="ota-card">
                 <div class="ota-row">
@@ -802,10 +824,9 @@ function setWallForPage(onHome){
   if(!onHome){wm.style.display="none";wv.style.display="none";if(ws)ws.style.display="none";document.body.style.background="var(--bg)";}
   else{applyWall();}
 }
-/* ===== 主页「下滑」调起导航的热区判定（1520x520 居中于 1920x720 画布）=====
-   触点坐标是真实窗口像素，而界面在 #stage 内被 scale 缩放 —— 不能直接比像素。
-   这里取 #navHot 的 getBoundingClientRect()（本身已含缩放），坐标换算交由浏览器完成，
-   既避开 vh/vw 不受 transform 影响的坑，也避免手写 scale 系数与实际渲染不同步。 */
+/* ===== 主页「下滑」调起导航的热区判定（屏幕中心 79.167%×72.222%）=====
+   热区 #navHot 用百分比锚定 #stage，getBoundingClientRect() 给出的就是真实渲染像素，
+   触点坐标直接和它比较即可 —— 任意分辨率/宽高比下自动成立，无需任何缩放系数换算。 */
 function inNavHot(cx,cy){
   try{
     const h=document.getElementById("navHot");
@@ -814,17 +835,22 @@ function inNavHot(cx,cy){
       return r.width>0 && cx>=r.left && cx<=r.right && cy>=r.top && cy<=r.bottom;
     }
   }catch(e){}
-  // 兜底：热区元素缺失时按 #stage 还原设计坐标，再与 200,100 → 1720,620 比较
+  // 兜底：热区元素缺失时，按 #stage 的同一组百分比判定
   try{
     const st=document.getElementById("stage");
     if(!st)return false;
     const r=st.getBoundingClientRect();
     if(!r.width||!r.height)return false;
-    const dx=(cx-r.left)/r.width*1920, dy=(cy-r.top)/r.height*720;
-    return dx>=200 && dx<=1720 && dy>=100 && dy<=620;
+    return cx>=r.left+r.width*NAV_HOT.l && cx<=r.left+r.width*NAV_HOT.r &&
+           cy>=r.top +r.height*NAV_HOT.t && cy<=r.top +r.height*NAV_HOT.b;
   }catch(e){ return false; }
 }
-const SWIPE_MIN=40;   // 手势触发阈值（设计像素）
+/* 热区百分比：必须与 CSS #navHot 的 left/top/width/height 保持一致（left+width=89.583%，top+height=86.111%） */
+const NAV_HOT={l:.10417,t:.13889,r:.89583,b:.86111};
+/* 手势触发阈值：随屏高缩放（720 屏高 → 40px），小屏不至于「一碰就触发」、大屏不至于拖半天不动 */
+let SWIPE_MIN=40;
+function syncSwipeMin(){ SWIPE_MIN=Math.max(24,Math.round(window.innerHeight*40/720)); }
+syncSwipeMin(); window.addEventListener("resize",syncSwipeMin);
 let sx=0,sy=0,sv=false,svHot=false;
 vp.addEventListener("touchstart",e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;sv=true;
   svHot=inNavHot(sx,sy)},{passive:true});
@@ -846,12 +872,12 @@ vp.addEventListener("pointerup",()=>psv=false);
 vp.addEventListener("pointercancel",()=>psv=false);
 /**
  * 滑动分发：调 x/y 位移取主方向，再查该方向绑了什么。
- *   hot = 按下点是否落在 1520×520 中心热区内。
+ *   hot = 按下点是否落在屏幕中心热区（79.167%×72.222%）内。
  *   设置页(末页)：完全禁用滑动，只能点 dock 返回；
  *   非主页：照常纵向翻页（当前两页结构下不会走到，保留给以后加页）；
  *   主页：必须命中热区，其余交 runGesture(dir) —— 未绑定则什么都不做。
  */
-function handleSwipe(dx,dy,hot){   // 阈值由各输入路径把关：触摸/拖拽 40px，滚轮 8px
+function handleSwipe(dx,dy,hot){   // 阈值由各输入路径把关：触摸/拖拽 SWIPE_MIN(随屏高)，滚轮 8px
   if(idx===pages.length-1)return;                     // 设置页：只能用 dock 返回
   if(idx!==0){ go(idx+(dy<0?1:-1)); return; }         // 非主页：纵向翻页不受热区限制
   if(!hot) return;                                    // 主页：热区外一律不响应（防误触）
@@ -1766,7 +1792,8 @@ setTimeout(readHomeState,1200);   // SHIM 注入晚于页面解析，补读一�
 
 /* ---- 白天/黑夜主题：跟随系统 UI_MODE_NIGHT（原生 onConfigurationChanged / onResume 回推） ---- */
 function applyTheme(isDark){
-  document.documentElement.setAttribute("data-theme", isDark?"dark":"light");
+  // 车机仪表盘恒为深色：忽略系统日夜模式，避免白天模式把设置页等浅色背景显白（白屏）
+  document.documentElement.setAttribute("data-theme","dark");
 }
 function readTheme(){
   const n=l6n();
@@ -1783,7 +1810,8 @@ setTimeout(readTheme,1200);   // SHIM 注入晚于页面解析，补读一次
    原生侧 uploadLog() → L6Log.uploadNow(true)，绕过「上报api接口」开关强制发送；
    开关的语义被限定为「是否每 60s 自动上报」，手动按钮永远可用。 */
 var logNowBusy=false, logNowTimer=0;
-var LOG_NOW_TIMEOUT=15000;   // 等待原生回推结果的上限；超时给兜底提示，避免永远停在「正在上报…」
+var LOG_NOW_TIMEOUT=30000;   // 等待原生回推结果的上限；单次请求超时已收敛到 10s（对齐接口说明），
+                             // 一次上报含「建连+读取」两段，留 30s 才不会把慢失败误报成「未收到结果」
 /* 收尾：撤销超时兜底 + 恢复按钮（结果回推 或 超时 都走这里） */
 function logNowFinish(){
   if(logNowTimer){ clearTimeout(logNowTimer); logNowTimer=0; }
@@ -1857,7 +1885,11 @@ function L6LogProbeResult(s){
   if(s.dnsSource) dnsSeg+="［"+s.dnsSource+"］";
   if(s.sysDns&&s.sysDns!==s.dns) dnsSeg+="；系统 DNS："+s.sysDns;
   seg.push(dnsSeg);
-  seg.push(s.tcpMs>=0?("TCP "+s.tcpMs+"ms"):("TCP 失败 "+(s.tcpErr||"")));
+  seg.push(s.tcpMs>=0?("TCP:443 "+s.tcpMs+"ms"):("TCP:443 失败 "+(s.tcpErr||"")));
+  /* :2000 是保底通道端口。安全组没放行时这里必然「失败」，一旦放开就变「xx ms」——
+     它是判断「服务端那两处改动做到位没有」的唯一现场指标。 */
+  seg.push(s.tcp2000Ms>=0?("TCP:2000 "+s.tcp2000Ms+"ms"):("TCP:2000 失败 "+(s.tcp2000Err||"")));
+  if(s.channel)seg.push("通道 "+(s.trail||s.channel));
   if(s.code>=0){ seg.push("HTTP "+s.code+"（"+(s.ms||0)+"ms）"); }
   else { seg.push("请求失败·"+(s.phase||"?")+"："+(s.err||"?")); }
   if(s.fatal){ seg.push("探针异常："+s.fatal); }
@@ -1865,9 +1897,203 @@ function L6LogProbeResult(s){
   el.style.color=s.ok?"var(--acc2)":"var(--red)";
   el.title="接口 "+(s.url||"")+(s.resp?("\n服务端响应："+s.resp):"");
 }
+/* ---- 「API 探测矩阵」（v1.5.12）----
+   原生 probeApiMatrix() 内建一组候选访问方式（域名带/不带 SNI、TLS1.2/1.3、明文、钉 IP、
+   不同路径、有无鉴权），每项都走完整链路 DNS→TCP→TLS→HTTP，逐项经
+   window.L6LogMatrixResult 推回（kind="case"），全部跑完再推一条 kind="done"。
+   为什么需要：上报失败在 App 里只显示一句「网络异常」，而「握手被 RST / 接口 4xx / 链路通」
+   三种根因完全不同；把十几条通路一次摊开，才能定论「哪条路真能打到 API」。
+   结论同时写进本地日志（标签 L6ApiMatrix）+ Download/L6/logs/api-matrix-*.json（导出取回）。 */
+var matrixBusy=false, matrixTimer=0, matrixRows=[], MATRIX_N=17;
+var MATRIX_TIMEOUT=200000;   // 17 项 × 最坏 6s 建连+6s 读 + 项间 0.4s，留足余量
+function matrixBtn(set){
+  var b=$("#logMatrixBtn"); if(!b)return;
+  b.disabled=!!set; b.textContent=set?"探测中…":"🔬 API 探测";
+}
+function matrixSay(msg,color){
+  var e=$("#matrixHint"); if(!e)return;
+  e.textContent=msg; e.style.color=color||"var(--sub)";
+}
+function matrixRender(msg){
+  var out=$("#matrixOut"); if(!out)return;
+  out.hidden=false;
+  out.textContent=(matrixRows.length?matrixRows.join("\n"):"")+(msg?((matrixRows.length?"\n":"")+msg):"");
+  out.scrollTop=out.scrollHeight;
+}
+function matrixFinish(){
+  if(matrixTimer){ clearTimeout(matrixTimer); matrixTimer=0; }
+  matrixBusy=false; matrixBtn(false);
+}
+/* 单项结果 → 一行人类可读结论（与原生写进日志的那行同字段、同顺序，便于逐字比对） */
+function matrixRowText(r){
+  var s="#"+r.idx+"/"+r.total+"  "+(r.name||"?");
+  s+="  ｜  "+(r.sni||"?")+"SNI/"+(r.tls||"默认");
+  s+="  ｜  DNS "+(r.dnsMs==null?"?":r.dnsMs+"ms")+" "+(r.dns||"?");
+  s+="  ｜  TCP "+(r.tcpMs>=0?r.tcpMs+"ms":"未建连");
+  if(r.tlsMs!=null)s+="  ｜  TLS "+r.tlsMs+"ms "+(r.proto||"")+(r.certCn?(" cn="+r.certCn):"");
+  if(r.err)s+="  ｜  ✗ "+(r.phase||"?")+"阶段 "+r.err;
+  if(r.code!=null&&r.code>=0)s+="  ｜  HTTP "+r.code+" "+(r.statusLine||"");
+  if(r.resp)s+="  ｜  "+r.resp;
+  s+="  ｜  "+(r.ms||0)+"ms";
+  return s;
+}
+var matrixBtnEl=$("#logMatrixBtn");
+if(matrixBtnEl){
+  matrixBtnEl.onclick=function(){
+    if(matrixBusy)return;
+    var n=l6n();
+    if(!n||typeof n.probeApiMatrix!=="function"){
+      matrixSay("⚠️ 无原生桥接，装机后才能探测","var(--red)"); return;
+    }
+    matrixBusy=true; matrixRows=[];
+    matrixBtn(true);
+    matrixSay("探测中…（共 "+MATRIX_N+" 项，逐项写本地日志）");
+    matrixRender("探测中…");
+    try{ n.probeApiMatrix(); }
+    catch(e){ matrixFinish(); matrixSay("⚠️ 调用失败："+e,"var(--red)"); return; }
+    matrixTimer=setTimeout(function(){
+      matrixTimer=0; matrixFinish();
+      matrixSay("⏳ "+Math.max(1,Math.round(MATRIX_TIMEOUT/1000))+"s 未收到结束信号；已收到的部分在下方（完整结论见本地日志）","var(--red)");
+    },MATRIX_TIMEOUT);
+  };
+}
+/* 原生回推：逐项（kind="case"）与结束（kind="done"）都走这里 */
+window.L6LogMatrixResult=function(s){
+  if(!s)return;
+  if(s.kind==="done"){
+    matrixFinish();
+    matrixSay("✅ 探测结束：通 "+s.pass+"/"+s.total+"，用时 "+Math.round((s.ms||0)/1000)+"s"
+      +(s.file?("；JSON 已存 "+s.file):""), (s.pass>0?"var(--acc2)":"var(--red)"));
+    return;
+  }
+  matrixRows.push(matrixRowText(s));
+  matrixRender();
+};
+/* ---- 「车机信号采集」（v1.5.14）----
+   场景：点「开始采集」→ 去按车门 / 车窗 / 车辆按钮 → 点「结束采集」→ 把日志发出来。
+   原生每秒采一份系统快照并与上一秒比差异，每条变化经 window.L6SignalResult 推回：
+     kind="cap"    能力清单（logcat / dumpsys / CarAPI 可读性 + 车辆相关属性键）
+     kind="change" 一条变化（src/key/from/to）
+     kind="mark"   用户打的标记
+     kind="beat"   10s 心跳（证明采集活着）
+     kind="done"   结束汇总（含 JSON 落盘路径）
+   为什么需要：要知道「操作车辆功能时这台车机吐了什么信号」，才能在将来对这些事件做响应
+   （开车门提示、倒车切画面之类）。结论同时写进本地日志（标签 L6Signal）+ Download/L6/logs/signal-*.json。 */
+var sigBusy=false, sigRows=[], sigT0=0, sigTimer=0, sigChanges=0, sigMarks=0;
+function sigBtn(active){
+  var b=$("#sigBtn"); if(!b)return;
+  b.textContent=active?"■ 结束采集":"▶ 开始采集";
+  if(active){ b.classList.add("primary"); } else { b.classList.remove("primary"); }
+}
+function sigSay(msg,color){
+  var e=$("#sigMsg"); if(!e)return;
+  if(msg!==undefined)e.textContent=msg;
+  if(color)e.style.color=color;
+}
+function sigSayState(txt){
+  var e=$("#sigState"); if(e)e.textContent=txt;
+}
+function sigTick(){
+  if(!sigBusy)return;
+  sigSayState("采集中 "+Math.round((Date.now()-sigT0)/1000)+"s · 变化 "+sigChanges+" 条 · 标记 "+sigMarks+" 个");
+  sigTimer=setTimeout(sigTick,1000);
+}
+function sigRender(msg){
+  var out=$("#sigOut"); if(!out)return;
+  out.hidden=false;
+  out.textContent=(sigRows.length?sigRows.join("\n"):"")+(msg?((sigRows.length?"\n":"")+msg):"");
+  out.scrollTop=out.scrollHeight;
+}
+function sigPush(line){
+  sigRows.push(line);
+  if(sigRows.length>400)sigRows.splice(0,sigRows.length-400);   /* 只留最近 400 行，避免采集久了页面卡顿 */
+  sigRender();
+}
+function sigStopUi(){
+  if(sigTimer){clearTimeout(sigTimer);sigTimer=0;}
+  sigBusy=false; sigBtn(false);
+}
+var sigBtnEl=$("#sigBtn");
+if(sigBtnEl){
+  sigBtnEl.onclick=function(){
+    var n=l6n();
+    if(!sigBusy){
+      if(!n||typeof n.startSignalCapture!=="function"){ sigSay("⚠️ 无原生桥接，装机后才能采集","var(--red)"); return; }
+      sigBusy=true; sigRows=[]; sigChanges=0; sigMarks=0; sigT0=Date.now();
+      sigBtn(true);
+      sigSay("采集中…保持在页面，逐条变化会写到下方（完整结论见本地日志）","var(--sub)");
+      sigRender("采集中…");
+      try{ n.startSignalCapture(); }
+      catch(e){ sigStopUi(); sigSay("⚠️ 调用失败："+e,"var(--red)"); return; }
+      sigTick();
+    }else{
+      if(!n||typeof n.stopSignalCapture!=="function")return;
+      try{ n.stopSignalCapture(); }catch(e){}
+      sigSay("正在收尾…（落盘 + 汇总）");
+    }
+  };
+}
+var sigMarkEls=document.querySelectorAll(".sig-mark");
+for(var _sm=0;_sm<sigMarkEls.length;_sm++){
+  (function(b){
+    b.onclick=function(){
+      var n=l6n(); if(!n||typeof n.markSignal!=="function")return;
+      try{ n.markSignal(b.getAttribute("data-mark")||""); }catch(e){}
+    };
+  })(sigMarkEls[_sm]);
+}
+function sigFmt(v){
+  if(v===null||v===undefined||v==="")return "(无)";
+  var t=String(v);
+  return t.length>120?(t.slice(0,120)+"…"):t;
+}
+/* 原生回推入口 */
+window.L6SignalResult=function(s){
+  if(!s)return;
+  if(s.kind==="cap"){
+    var c=s.cap||{};
+    function vd(x){ if(!x)return "?"; if(x.ok)return "可读"; return (x.err?"不可读":"不可用"); }
+    var ca=c.car||{};
+    sigPush("【能力清单】logcat "+vd(c.logcat)+" ｜ dumpsys "+vd(c.dumpsys)
+      +" ｜ CarAPI "+(ca.class?"有":"无")+"/车机特性"+(ca.automotiveFeature?"有":"无")
+      +" ｜ 属性 "+((c.propCount==null)?"?":c.propCount)+" 个，疑车辆键 "
+      +((c.vehicleKeyCount==null)?"?":c.vehicleKeyCount)+" 个");
+    var vk=c.vehicleKeys||[];
+    for(var i=0;i<vk.length;i++)sigPush("   车辆键 · "+vk[i]);
+    return;
+  }
+  if(s.kind==="beat"){
+    sigChanges=s.changes||sigChanges; sigMarks=s.marks||sigMarks;
+    sigSayState("采集中 "+Math.round((s.t||0)/1000)+"s · 变化 "+sigChanges+" 条 · 标记 "+sigMarks+" 个");
+    return;
+  }
+  if(s.kind==="mark"){
+    sigMarks++;
+    sigPush("["+((s.t||0)/1000).toFixed(1)+"s] ★ "+(s.label||"标记"));
+    return;
+  }
+  if(s.kind==="done"){
+    sigStopUi();
+    sigSayState("已完成 · 变化 "+s.changes+" 条");
+    sigSay("✅ 采集结束：用时 "+Math.round((s.ms||0)/1000)+"s，变化 "+s.changes+" 条，标记 "+s.marks
+      +" 个，logcat "+(s.logcatLines||0)+" 行"+(s.file?("；JSON 已存 "+s.file):"")
+      +"。把「L6Signal」日志发出来即可。", (s.changes>0?"var(--acc2)":"var(--sub)"));
+    sigPush("—— 采集结束（变化 "+s.changes+" 条）——");
+    return;
+  }
+  /* kind === "change" */
+  sigChanges++;
+  sigPush("["+((s.t||0)/1000).toFixed(1)+"s] "+(s.src||"")+" | "+(s.key||"")+": "+sigFmt(s.from)+" → "+sigFmt(s.to));
+};
+/* 进设置页时同步一次采集状态（避免「开始后切页回来按钮还是旧的」） */
+function syncSig(){
+  var n=l6n(); var on=false;
+  try{ on=!!(n&&n.isSignalCapturing&&n.isSignalCapturing()); }catch(e){}
+  if(on&&!sigBusy){ sigBusy=true; if(!sigT0)sigT0=Date.now(); sigBtn(true); sigTick(); }
+}
 /* 读取 API 上报开关状态并同步到界面 */
 function syncLogApi(){
-  var n=l6n(); var b=true; try{ b=n&&n.isApiUpload?n.isApiUpload():true; }catch(e){}
+  var n=l6n(); var b=false; try{ b=n&&n.isApiUpload?n.isApiUpload():false; }catch(e){}
   var el=$("#logUpState"); if(el){ el.textContent=b?"已开启":"已关闭"; el.style.color=b?"var(--acc2)":"var(--red)"; }
   var btn=$("#logApiBtn"); if(btn)btn.textContent=b?"● 开启":"○ 关闭";
 }
@@ -1909,7 +2135,7 @@ function syncDnsInput(){
   var n=l6n(); try{ if(n&&n.getDnsServer) el.value=n.getDnsServer()||""; }catch(e){}
 }
 /* 设置页日志卡片整体同步：SHIM 注入后会重调一次 */
-function syncLogCfg(){ syncLogApi(); syncLogUp(); syncDnsInput(); }
+function syncLogCfg(){ syncLogApi(); syncLogUp(); syncDnsInput(); syncSig(); }
 wireDnsInput();
 syncLogCfg();
 
@@ -1952,14 +2178,24 @@ applyAutoPlayOnLaunch();
 </script>
 </div>
 <script>
-/* 1920x720 设计画布等比缩放：scale = min(实际宽/1920, 实际高/720)，窗口变化时重算 */
+/* ===== 响应式单位 --u：不做画布缩放，只算「1 个设计像素 = 多少真实像素」 =====
+   规则与 CSS :root 的 clamp()/min() 完全一致：取 100vw/1920 与 100vh/720 的较小者
+   （按更吃紧的一维缩放），再夹到 [0.4, 3]。这里用 JS 再算一遍并内联覆盖，理由是：
+     · 内联自定义属性优先级最高 —— 老 WebView 不支持 min()/clamp() 时也能拿到正确值；
+     · 窗口尺寸变化 / 旋转时立即重算，不必等 CSS 重排。
+   ★ 它只是「缩放系数」：1920x720 不再是画布，容器仍由 flex / 百分比自然铺满。 */
 (function(){
-  function fitStage(){
-    var s = Math.min(window.innerWidth/1920, window.innerHeight/720);
-    document.documentElement.style.setProperty("--l6s", String(s));
+  function fitUnit(){
+    var u = Math.min(window.innerWidth / 1920, window.innerHeight / 720);
+    u = Math.max(.4, Math.min(3, u));
+    u = Math.round(u * 10000) / 10000;
+    document.documentElement.style.setProperty("--u", u + "px");
+    return u;
   }
-  window.addEventListener("resize", fitStage);
-  fitStage();
+  window.fitUnit = fitUnit;                                  // 暴露给冒烟测试断言
+  window.addEventListener("resize", fitUnit);
+  window.addEventListener("orientationchange", fitUnit);
+  fitUnit();
 })();
 </script>
 </body>

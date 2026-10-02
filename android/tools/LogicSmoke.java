@@ -3,6 +3,7 @@ import com.l6.carmedia.LogBatch;
 import com.l6.carmedia.LogDiag;
 import com.l6.carmedia.LrcParse;
 import com.l6.carmedia.NavParse;
+import com.l6.carmedia.SigDiff;
 
 import java.util.List;
 
@@ -60,6 +61,7 @@ public class LogicSmoke {
         batch();
         diag();
         dns();
+        sig();
 
         System.out.println();
         System.out.println("结果: 通过 " + pass + " / 失败 " + fail);
@@ -264,9 +266,81 @@ public class LogicSmoke {
                 !DnsQuery.isIp("") && !DnsQuery.isIp("dns.alidns.com") && !DnsQuery.isIp("223.5.5.5/24"));
     }
 
+    /* ---------------- 车机信号采集 diff（SigDiff，v1.5.14）---------------- */
+
+    /**
+     * 采集的全部判断都压在 diff 上：把「上一秒快照」和「这一秒快照」比出差异。
+     * 这块在车机上没法反复按键复现，必须在这里把边界钉死。
+     */
+    private static void sig() {
+        java.util.TreeMap<String, String> a = new java.util.TreeMap<>();
+        a.put("prop:persist.sys.door.fl", "0");
+        a.put("audio:vol.music", "10/15");
+        a.put("set.global:x", "1");
+
+        java.util.TreeMap<String, String> b = new java.util.TreeMap<>();
+        b.put("prop:persist.sys.door.fl", "1");   // 值变了
+        b.put("audio:vol.music", "10/15");        // 没变 → 不该出现
+        b.put("set.global:y", "2");               // 新增
+        // set.global:x 消失
+
+        List<SigDiff.Change> d = SigDiff.diff(a, b);
+        report("diff 命中「变化/新增/消失」三类，未变化的项不报", d.size() == 3, "size=" + d.size());
+        report("diff 结果按 key 升序（两次采集才能逐行比对）",
+                d.size() == 3
+                        && "prop:persist.sys.door.fl".equals(d.get(0).key)
+                        && "set.global:x".equals(d.get(1).key)
+                        && "set.global:y".equals(d.get(2).key));
+
+        SigDiff.Change c0 = d.get(0);
+        report("change 能拆出 src / name",
+                "prop".equals(c0.src()) && "persist.sys.door.fl".equals(c0.name()));
+        report("changed 的 from / to 正确",
+                SigDiff.CHANGED == c0.kind && "0".equals(c0.from) && "1".equals(c0.to));
+        report("describe() 人类可读", "persist.sys.door.fl: 0 → 1".equals(c0.describe()), c0.describe());
+        report("removed 的 kind / to 正确",
+                SigDiff.REMOVED == d.get(1).kind && d.get(1).to == null);
+        report("added 的 kind / from 正确",
+                SigDiff.ADDED == d.get(2).kind && d.get(2).from == null);
+
+        report("null 快照当空处理（不抛）", SigDiff.diff(null, b).size() == 3);
+        report("两边都 null → 无变化", SigDiff.diff(null, null).isEmpty());
+        report("完全相同的快照 → 无变化", SigDiff.diff(a, new java.util.TreeMap<>(a)).isEmpty());
+
+        java.util.Set<String> ig = new java.util.HashSet<>();
+        ig.add("prop:persist.sys.door.fl");
+        report("忽略清单能挡掉脏键", SigDiff.diff(a, b, ig).size() == 2);
+        report("不传 ignore 等价于空清单", SigDiff.diff(a, b).size() == 3);
+
+        // 词边界：不然 acc 会撞 accessibility、lock 会撞 clock，车辆键清单被垃圾淹没
+        report("命中真车辆键 door", SigDiff.hit("prop:persist.sys.door.fl", "door"));
+        report("不命中 accessibility 里的 acc", !SigDiff.hit("set.secure:accessibility_enabled", "acc"));
+        report("不命中 clock_format 里的 lock", !SigDiff.hit("set.system:clock_format", "lock"));
+        report("命中 car_lock（下划线是合法边界）", SigDiff.hit("prop:ro.car_lock", "car_lock"));
+        report("命中 vehicle.speed_hit 里的 speed", SigDiff.hit("prop:ro.vehicle.speed_hit", "speed"));
+        report("中间夹字母不算命中（doorx）", !SigDiff.hit("prop:persist.sys.doorx", "door"));
+        report("空关键字 / 空键 / null 都安全",
+                !SigDiff.hit("prop:x", "") && !SigDiff.hit("", "door") && !SigDiff.hit(null, "door"));
+
+        java.util.TreeMap<String, String> s2 = new java.util.TreeMap<>();
+        s2.put("prop:persist.sys.door.fl", "1");
+        s2.put("prop:persist.sys.gear", "P");
+        s2.put("set.secure:accessibility_enabled", "1");
+        s2.put("sys:model", "Z6");
+        List<String> hitKeys = SigDiff.match(s2, new String[]{"door", "gear", "acc"});
+        report("match 挑出 2 个车辆键（acc 没误伤 accessibility）",
+                hitKeys.size() == 2
+                        && "prop:persist.sys.door.fl".equals(hitKeys.get(0))
+                        && "prop:persist.sys.gear".equals(hitKeys.get(1)), hitKeys.toString());
+        report("match 对 null 快照安全", SigDiff.match(null, new String[]{"door"}).isEmpty());
+        report("match 对 null 关键字安全", SigDiff.match(s2, null).isEmpty());
+
+        report("eq(null,null) 真、eq(\"\",null) 假",
+                SigDiff.eq(null, null) && !SigDiff.eq("", null) && SigDiff.eq("", ""));
+    }
+
     /** 拼一个 DNS 应答（1 问题 + CNAME + A），用来单测解包。 */
     private static byte[] mkDnsResp(int id, int rcode) { return mkDnsResp(id, rcode, true); }
-
     private static byte[] mkDnsResp(int id, int rcode, boolean withA) {
         java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
         o.write((id >> 8) & 0xFF); o.write(id & 0xFF);

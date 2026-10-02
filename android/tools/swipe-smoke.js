@@ -2,7 +2,7 @@
  * 手势体系冒烟测试（不依赖设备，用 jsdom 跑）。
  *
  * 覆盖 v1.4.20 的四方向可配置手势：
- *  ① 中心热区 1520×520（左上 200,100）边界判定
+ *  ① 中心热区（屏幕 79.167%×72.222%，即原设计 1520×520）边界判定
  *  ② 默认绑定：down="nav"（下滑→当前导航源），up/left/right=""（不做任何事）
  *  ③ 触摸 / 滚轮 / 鼠标拖拽 三条输入路径都接进 inNavHot
  *  ④ 方向→坐标映射：上滑 dy<0 / 下滑 dy>0 / 左滑 dx<0 / 右滑 dx>0
@@ -25,8 +25,14 @@ const ROOT = path.resolve(__dirname, '..');
 const JAVA = path.join(ROOT, 'src', 'com', 'l6', 'carmedia', 'MainActivity.java');
 const HTML = path.resolve(ROOT, '..', 'apk-dashboard-prototype.html');
 
-/* 热区设计尺寸（与 HTML 里 #navHot 必须一致） */
-const HOT = { l: 200, t: 100, r: 1720, b: 620 };
+/* 热区：响应式改造后 #navHot 用百分比锚定 #stage，这里按「模拟视口 × 百分比」还原真实 rect。
+   百分比必须与 HTML 里 #navHot 的 left/top/width/height 一致（见下方 CSS 断言）。 */
+const HOT_PCT = { l: 0.10417, t: 0.13889, w: 0.79167, h: 0.72222 };
+const VW = 1920, VH = 720;                      // 模拟车机屏（1920×720 下 --u 恰好 = 1）
+const HOT = {
+  l: VW * HOT_PCT.l, t: VH * HOT_PCT.t,
+  r: VW * (HOT_PCT.l + HOT_PCT.w), b: VH * (HOT_PCT.t + HOT_PCT.h),
+};
 const CX = 960, CY = 360;                       // 热区中心
 const OUT_X = 80, OUT_Y = 690;                  // 热区外（左边缘 / 底部 dock 区）
 const PKG = 'com.demo.player';                  // 用于绑定测试的假包名
@@ -69,13 +75,13 @@ setTimeout(() => {
   window.L6NativeRaw = NativeRaw;
   window.eval(shim);
 
-  /* jsdom 无布局：按 id 打桩 rect，模拟 scale=1 的 1920×720 画布 */
+  /* jsdom 无布局：按 id 打桩 rect —— #stage 铺满整个视口，#navHot 是它内部的百分比区域 */
   const rect = (l, t, r, b) => ({
-    left: l, top: t, right: r, bottom: b, width: r - l, height: b - l, x: l, y: t,
+    left: l, top: t, right: r, bottom: b, width: r - l, height: b - t, x: l, y: t,
     toJSON() { return {}; },
   });
   window.Element.prototype.getBoundingClientRect = function () {
-    if (this.id === 'stage') return rect(0, 0, 1920, 720);
+    if (this.id === 'stage') return rect(0, 0, VW, VH);
     if (this.id === 'navHot') return rect(HOT.l, HOT.t, HOT.r, HOT.b);
     return rect(0, 0, 0, 0);
   };
@@ -113,7 +119,24 @@ setTimeout(() => {
 
   /* ---------- ① 结构 ---------- */
   check('热区 #navHot 存在', !!d.getElementById('navHot'));
-  check('画布 #stage 存在', !!d.getElementById('stage'));
+  check('全屏舞台 #stage 存在', !!d.getElementById('stage'));
+  // ===== 响应式重排护栏：不再有 1920×720 固定画布，也不再整体 scale =====
+  const rawHtml = fs.readFileSync(HTML, 'utf8');
+  check('#stage 铺满视口（无固定画布、无 --l6s 整体缩放）',
+    /#stage\{position:fixed;inset:0;width:100%;height:100%/.test(rawHtml) &&
+    !/--l6s/.test(rawHtml) && !/translate\(-50%,-50%\) scale/.test(rawHtml));
+  const hotCss = ((rawHtml.match(/#navHot\{[^}]*\}/) || [''])[0] || '').replace(/\s+/g, ' ');
+  check('#navHot 用百分比锚定（与冒烟夹具 HOT_PCT 一致）',
+    /left:10\.417%/.test(hotCss) && /top:13\.889%/.test(hotCss) &&
+    /width:79\.167%/.test(hotCss) && /height:72\.222%/.test(hotCss), hotCss);
+  const uNow = parseFloat(d.documentElement.style.getPropertyValue('--u'));
+  const uWant = Math.max(0.4, Math.min(3, Math.min(window.innerWidth / 1920, window.innerHeight / 720)));
+  check('fitUnit() 已按真实视口写入 --u = min(vw/1920, vh/720)',
+    typeof window.fitUnit === 'function' && Math.abs(uNow - uWant) < 1e-3,
+    `--u=${uNow} 期望=${uWant.toFixed(4)}（jsdom 视口 ${window.innerWidth}×${window.innerHeight}）`);
+  check('尺寸已改为 calc(N * var(--u))（随视口缩放）',
+    (rawHtml.match(/var\(--u\)/g) || []).length > 300,
+    `var(--u) 出现 ${(rawHtml.match(/var\(--u\)/g) || []).length} 次`);
   check('手势容器 #setGestures 存在', !!d.getElementById('setGestures'));
   ['inNavHot', 'handleSwipe', 'runGesture', 'setGesture', 'renderGestures', 'gestureItem']
     .forEach(fn => check(`函数 ${fn} 已定义`, window.eval(`typeof ${fn}`) === 'function'));

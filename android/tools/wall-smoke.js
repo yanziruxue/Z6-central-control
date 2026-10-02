@@ -91,11 +91,10 @@ setTimeout(() => {
   ok('<video>.src 已设置', (wv.getAttribute('src') || '').indexOf('data:video/mp4') === 0);
   ok('未误用 background-image', wm.style.display === 'none', wm.style.display);
 
-  console.log('\n== ⑤ 壁纸压暗层（浅色白层过强 → 照片壁纸整片发白）==');
+  console.log('\n== ⑤ 壁纸压暗层（车机恒深色）==');
   const raw = fs.readFileSync(HTML, 'utf8');
-  const lightScrim = raw.match(/html\[data-theme="light"\] #wallScrim\{background:linear-gradient\(180deg,rgba\(255,255,255,\.(\d+)\)/);
-  ok('浅色主题压暗层已减弱（顶部白 ≤25%）', !!lightScrim && Number(lightScrim[1]) <= 25,
-    lightScrim ? 'top alpha=.' + lightScrim[1] : '未匹配到规则');
+  // 浅色主题已整体移除（车机恒深色）：确认 html[data-theme="light"] 覆盖（含 #wallScrim 提亮层）已彻底删除，不留死代码
+  ok('浅色主题覆盖已移除（恒深色）', !/html\[data-theme="light"\]\s*#wallScrim/.test(raw));
   const darkScrim = raw.match(/#wallScrim\{position:fixed[\s\S]{0,140}?rgba\(6,9,14,\.(\d+)\)/);
   ok('深色主题压暗层不过重（≤35%）', !!darkScrim && Number(darkScrim[1]) <= 35,
     darkScrim ? 'top alpha=.' + darkScrim[1] : '未匹配到规则');
