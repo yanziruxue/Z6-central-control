@@ -239,7 +239,9 @@
   .dock-ghost .app-ic{width:calc(34 * var(--u));height:calc(34 * var(--u));border-radius:calc(9 * var(--u))}
   /* 悬在垃圾桶上时缩小 —— 否则跟着手指的图标正好盖住垃圾桶图标，用户看不到「要往哪扔」 */
   .dock-ghost.over{transform:scale(.5);opacity:.8}
-  /* 垃圾桶：屏幕水平居中 · dock 正上方；热区 = 应用尺寸的 3 倍（68u × 3 = 204u） */
+  /* 垃圾桶：**应用栏（#dockApps）正上方 · 水平随应用栏居中**（热区 = 应用尺寸的 3 倍，68u × 3 = 204u）
+     —— 它就是 #dockApps 的子元素，所以 left:50% / bottom:100% 量的是「应用栏」的盒子，
+        不是屏幕、也不是底栏：应用栏宽度会随应用数量变，这样写才不用 JS 去算坐标。 */
   #dockTrash{position:absolute;left:50%;bottom:calc(100% + 28 * var(--u));margin-left:calc(-102 * var(--u));
     width:calc(204 * var(--u));height:calc(204 * var(--u));border-radius:50%;z-index:70;
     display:flex;align-items:center;justify-content:center;font-size:calc(72 * var(--u));color:#ffb4b4;
@@ -247,6 +249,54 @@
     opacity:0;visibility:hidden;transition:opacity .18s ease,transform .18s ease;pointer-events:none}
   #dockTrash.on{opacity:1;visibility:visible}
   #dockTrash.hot{background:rgba(255,70,70,.45);border-color:#ff7b7b;transform:scale(1.12)}
+  /* ---- 主页模块三栏（v1.5.16）：状态 / 导航 / 音乐 ----
+     顺序由 settings.homeMode.order 决定（JS 只写 inline order，DOM 不动）；未勾选的 display:none。
+     宽度按 flex 比例分：状态 1 : 导航 1 : 音乐 2（只开状态+音乐时就是改造前的 1:2 观感）。 */
+  #pageMusic > [data-mod]{min-width:0}
+  #pageMusic > [data-mod="nav"]{flex:1}
+  /* 导航悬浮窗口：视觉上就是一张浮在壁纸上的窗口（半透明 + 边框 + 模糊 + 投影），整张可点 */
+  .home-nav{flex:1;min-width:0;display:flex;flex-direction:column;gap:calc(10 * var(--u));
+    justify-content:center;padding:calc(16 * var(--u));border-radius:calc(20 * var(--u));
+    border:1px solid rgba(61,169,252,.35);background:rgba(16,22,34,.55);
+    backdrop-filter:blur(calc(10 * var(--u)));box-shadow:0 calc(10 * var(--u)) calc(30 * var(--u)) rgba(0,0,0,.45);
+    cursor:pointer;transition:.15s}
+  .home-nav:active{transform:scale(.99)}
+  .home-nav .hn-head{display:flex;align-items:center;gap:calc(8 * var(--u))}
+  .home-nav .hn-tag{font-size:calc(11 * var(--u));padding:calc(3 * var(--u)) calc(9 * var(--u));
+    border-radius:calc(99 * var(--u));background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f;font-weight:700}
+  .home-nav .hn-tag.idle{background:rgba(255,255,255,.12);color:var(--sub)}
+  .home-nav .hn-app{font-size:calc(12 * var(--u));color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .home-nav .hn-turn{display:flex;align-items:center;gap:calc(10 * var(--u))}
+  .home-nav .hn-arr{font-size:calc(40 * var(--u));color:var(--acc);line-height:1}
+  .home-nav .hn-road{font-size:calc(16 * var(--u));font-weight:700;line-height:1.35;min-width:0}
+  .home-nav .hn-meta{font-size:calc(12 * var(--u));color:var(--sub);line-height:1.5}
+  .home-nav .hn-meta b{color:var(--txt);font-variant-numeric:tabular-nums}
+  .home-nav .hn-acts{display:flex;gap:calc(8 * var(--u));flex-wrap:wrap}
+  .home-nav .hn-btn{font-size:calc(12 * var(--u));padding:calc(8 * var(--u)) calc(12 * var(--u));
+    border-radius:calc(10 * var(--u));border:1px solid var(--line);background:var(--panel2);
+    color:var(--txt);cursor:pointer;transition:.15s}
+  .home-nav .hn-btn:active{transform:scale(.96)}
+  .home-nav .hn-btn.ghost{background:transparent;color:var(--sub)}
+
+  /* ---- 设置页「主页模式」：勾选 + 按住 ⠿ 左右拖动排序（v1.5.16）---- */
+  .hm-row{display:flex;gap:calc(10 * var(--u));align-items:stretch}
+  .hm-item{flex:1 1 0;display:flex;align-items:center;gap:calc(8 * var(--u));min-width:0;
+    font-size:calc(14 * var(--u));padding:calc(11 * var(--u)) calc(12 * var(--u));border-radius:calc(12 * var(--u));
+    border:1px solid var(--line);background:var(--panel2);color:var(--txt);cursor:pointer;transition:.15s;
+    -webkit-user-select:none;user-select:none}
+  .hm-item .hm-ck{color:var(--sub)}
+  .hm-item .hm-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+  .hm-item .hm-grip{color:var(--sub);cursor:grab}
+  .hm-item.on{background:linear-gradient(135deg,var(--acc),var(--pur));color:#06121f;border-color:transparent;font-weight:600}
+  .hm-item.on .hm-ck,.hm-item.on .hm-grip{color:#06121f}
+  .hm-item:active{transform:scale(.97)}
+  .hm-item.dragging{opacity:.3}
+  .hm-ghost{position:fixed;z-index:71;pointer-events:none;opacity:.95;transform:translate(-50%,-50%);
+    display:flex;align-items:center;gap:calc(8 * var(--u));white-space:nowrap;
+    font-size:calc(14 * var(--u));font-weight:600;padding:calc(11 * var(--u)) calc(12 * var(--u));border-radius:calc(12 * var(--u));
+    border:1px solid var(--acc);background:rgba(30,38,54,.95);color:var(--txt);
+    box-shadow:0 calc(10 * var(--u)) calc(24 * var(--u)) rgba(0,0,0,.6)}
+
   /* 应用列表（安卓抽屉：底部上滑 + 背景遮罩 + 顶部手柄） */
   .app-scrim{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.5);
     opacity:0;visibility:hidden;transition:opacity .25s ease}
@@ -391,7 +441,7 @@
       <!-- 页 0：音乐 -->
       <section class="page" id="pageMusic">
         <!-- 左 1/3：车模型 + 车辆状态（开门/开窗实时显示，数据来自 Linux 服务端） -->
-        <div class="card carpanel">
+        <div class="card carpanel" data-mod="state">
           <div class="cp-head">车辆状态</div>
           <div class="car-model">
                         <div class="car-wrap">
@@ -417,8 +467,10 @@
           </div>
           <div class="car-status" id="carStatus"></div>
         </div>
+        <!-- 中间：导航悬浮窗口（设置 → 主页模式 勾选「导航」后显示；v1.5.16） -->
+        <div class="home-nav" id="homeNav" data-mod="nav"></div>
         <!-- 右 2/3：歌词显示（无卡片外框） -->
-        <div class="music">
+        <div class="music" data-mod="music">
           <div class="lyrics">
             <div class="lyr" id="lyr"></div>
             <div class="progress">
@@ -436,6 +488,18 @@
         <div class="card set-panel">
           <div class="cp-head">设置 · 音乐源 / 导航源 / 壁纸</div>
           <div class="set-scroll">
+            <!-- 主页模式（v1.5.16）：勾选主页要显示的模块 + 按住 ⠿ 左右拖动排序 -->
+            <div class="set-sec">
+              <div class="set-label">主页模式</div>
+              <div class="hm-row" id="homeModeList"><!-- 由 renderHomeMode() 生成三项 --></div>
+              <div class="set-hint">勾选主页要显示的模块（默认<b>状态 + 音乐</b>）；按住右侧 <b>⠿</b> 左右拖动可调顺序。三个模块<b>全部取消</b>时自动恢复默认。</div>
+            </div>
+            <!-- 画中画（v1.5.16）：默认关闭 —— 系统只允许应用自己变小窗，不能把第三方导航 App 装进来 -->
+            <div class="set-sec">
+              <div class="set-label">画中画</div>
+              <div class="set-opts"><button class="set-opt" id="pipBtn">○ 关闭</button></div>
+              <div class="set-hint">开启后，主页「导航」窗口上的 <b>⧉ 画中画</b> 可把<b>本应用</b>缩成系统小窗，浮在导航 App 之上。Android 的画中画只支持应用自己变小窗，<b>无法把第三方导航 App 装进我们的窗口</b>；想让导航浮在上面，用 <b>↗ 悬浮窗</b> 去开导航 App 自己的悬浮窗权限。<b>默认关闭</b>。</div>
+            </div>
             <div class="set-sec">
               <div class="set-label">音乐源</div>
               <!-- 一行排列：U盘 / 蓝牙（本地源）· 当前音乐源（图标+名称）· 选择应用 -->
@@ -590,8 +654,10 @@
         <button class="dock-btn" data-go="set" data-page-node-id="D3LKVeCYZbBWkT1YOdT1yZ">⚙️<small data-page-node-id="KMer5qxHbfq2mJ7pXMuuCh">设置</small></button>
       </div>
     </nav>
-    <div id="dockApps"></div>
-    <div id="dockTrash" title="拖到这里松手 = 取消钉住">🗑</div>
+    <!-- 应用栏：钉入的应用 + 固定尾按钮（🏠/📋）+ 常驻垃圾桶（拖动时才显示，位置跟着应用栏走） -->
+    <div id="dockApps">
+      <div id="dockTrash" title="拖到这里松手 = 取消钉住">🗑</div>
+    </div>
   </div>
   <div class="app-scrim" id="appScrim"></div>
   <div class="app-list" id="appList">
@@ -613,7 +679,7 @@ let playing=false, vol=62;
 /* 真实系统数据（媒体会话 / 导航通知）—— 由原生桥经 window.L6SysEvent 回填；
    没有桥接（浏览器直接打开原型）或未授权时 active=false，页面显示「未播放 / 暂无歌词」空状态。 */
 var REAL={media:{active:false,playing:false,dur:0,pos:0,title:"",artist:""},
-  nav:{active:false,app:""},acc:false,lrc:null,lrcKey:""};
+  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:""},acc:false,lrc:null,lrcKey:""};
 // 歌词区（右侧 2/3）：整屏歌词 + 当前句高亮，由真实播放进度驱动
 let lyrIdx=0;
 function renderLyrics(){
@@ -661,7 +727,12 @@ function mediaCtl(a){try{window.L6Native&&window.L6Native.mediaControl&&window.L
 let navApp="amap";
 const miniNav=$("#miniNav");
 // 迷你卡片仅在「有真实导航数据」时显示（无导航时不占顶部空间，也不存在「最上方的悬浮导航」）
-function syncMiniNav(){ try{ miniNav.classList.toggle("show", !!REAL.nav.active); }catch(e){} }
+function syncMiniNav(){
+  // ★ 与主页中间栏的 #homeNav 互斥：导航窗口已启用时，导航信息已在那边显示，
+  //   顶部迷你卡再出现就是同一份数据显示两遍（车机上尤其乱）。
+  try{ miniNav.classList.toggle("show", !!REAL.nav.active && !homeNavOn()); }catch(e){}
+  try{ syncHomeNav(); }catch(e){}
+}
 // 当前识别到的导航 App（来自原生桥接），供 startNav 取显示名
 let NAV_APPS=[];
 let lastNavStart=0, lastNavKey="";
@@ -883,6 +954,10 @@ const DEFAULT_WALL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEB
 // 壁纸改为「列表 + 当前选中」模型：wallList 存该类型下可用壁纸，pick 记选中项 id。
 const settings={musicSrc:"usb",navApp:"",wall:"static",wallColor:"#0b0e14",autoPlay:false,wallDim:true,
   dockApps:{list:[],max:6},
+  /* 主页模式（v1.5.16）：主页三栏「状态 / 导航 / 音乐」的显示（on）与顺序（order）。
+     默认 on = 状态 + 音乐（= 改造前的观感）⇒ 不需要一次性迁移键：老存档本就没这个键，直接取这里。 */
+  homeMode:{order:["state","nav","music"],on:["state","music"]},
+  pipEnabled:false,     // 画中画默认关：要真正生效 manifest 需 resizeableActivity=true（超宽屏表现待装车实测）
   wallList:{static:[{id:"preset",name:"预设壁纸",src:DEFAULT_WALL}],
             dynamic:[{id:"preset",name:"预设动态壁纸",src:"",vid:false}]},
   pick:{static:"preset",dynamic:"preset"},
@@ -902,7 +977,8 @@ function saveSettings(){
   const data={ musicSrc:settings.musicSrc, navApp:settings.navApp, wall:settings.wall,
     wallColor:settings.wallColor, pick:settings.pick, autoPlay:settings.autoPlay,
     wallDim:settings.wallDim,
-    dockApps:settings.dockApps, gestures:settings.gestures, wallList:uploadedWalls() };
+    dockApps:settings.dockApps, gestures:settings.gestures, wallList:uploadedWalls(),
+    homeMode:settings.homeMode, pipEnabled:settings.pipEnabled };
   try{ localStorage.setItem("l6_settings_v1", JSON.stringify(data)); }
   catch(e){
     // 配额超限：退为只存元信息（丢弃壁纸数据），至少保住「类型 / 选中项 / 音乐源」等设置
@@ -1077,7 +1153,12 @@ function returnHome(){
 }
 // 渲染 dock 右侧：已钉应用图标 + 最右侧「打开应用列表」
 function buildDockApps(){
-  var box=$("#dockApps"); if(!box)return; box.innerHTML="";
+  var box=$("#dockApps"); if(!box)return;
+  // ★ 只能删「应用按钮」：垃圾桶 #dockTrash 常驻在应用栏内部（位置跟着应用栏走），
+  //   用 innerHTML="" 会把它一起清掉 —— 而它必须在，否则拖动时没有落点。
+  [].slice.call(box.querySelectorAll(".dock-app")).forEach(function(el){
+    if(el.parentNode) el.parentNode.removeChild(el);
+  });
   var n=l6n(); if(!n)return;
   // 钉入的应用可能来自「全部应用」抽屉（含 other 类，如游戏）→ 必须用 getAllApps；
   // 旧版用 getInstalledApps（只回 music/nav）会漏掉这些 App 的图标。
@@ -1132,7 +1213,8 @@ function toggleDockPin(pkg){
    长按「已钉」应用 550ms 进入拖动模式：原位图标留成淡影（仍占位，兄弟项不会乱跳），
    另有一个跟随手指的 ghost 负责视觉；拖动中按指针横坐标与其余已钉项中心实时换位。
    「🏠 返回原桌面」「📋 应用列表」是固定尾按钮（.fixed），永不参与换位。
-   指针落在垃圾桶热区（屏幕水平居中 · dock 正上方，热区 = 应用尺寸 3 倍）松手 = 取消钉住。 */
+   指针落在垃圾桶热区（**应用栏 #dockApps 正上方 · 水平随应用栏居中**，热区 = 应用尺寸 3 倍）松手 = 取消钉住；
+   垃圾桶是 #dockApps 的子元素，位置纯 CSS 跟随应用栏（应用栏宽度随应用数量变，不能用 JS 算坐标）。 */
 var DOCK_LP_MS=550;                          // 长按判定；冒烟把它临时置 0 走真实路径
 var dockLpTimer=null, dockLpEl=null, dockLpFired=false;
 var dockDragEl=null, dockGhost=null, dockSwallowUntil=0;
@@ -1261,6 +1343,223 @@ document.addEventListener("touchmove",dockDocMove,{passive:false});
 document.addEventListener("touchend",dockDocUp);
 document.addEventListener("touchcancel",dockDocUp);
 window.addEventListener("blur",function(){ dockLpCancel(); if(dockDragEl) dockDragEnd(-1,-1); });
+/* ===== 主页模式：状态 / 导航 / 音乐（v1.5.16）=====
+   设置页勾选要显示的模块 + 按住 ⠿ 左右拖动排序；
+   主页三栏只写 inline order（DOM 不动）—— 这样车辆状态 / 歌词的桥接绑定不会失效。
+   三个模块全取消 → 自动回默认「状态 + 音乐」。 */
+var HM_DEF_ORDER=["state","nav","music"], HM_DEF_ON=["state","music"];
+var HM_NAMES={state:"状态",nav:"导航",music:"音乐"};
+var HM_LP_MS=350;                                  // 长按进拖动（冒烟里可置 0）
+var hmLpTimer=null, hmLpEl=null, hmLpFired=false, hmDragEl=null, hmGhost=null;
+var hmDownPt=null, hmSwallowUntil=0;
+function hmSwallowClick(){ var v=Date.now()<hmSwallowUntil; hmSwallowUntil=0; return v; }
+function isHmDragging(){ return !!hmDragEl; }
+// 归一化：order 永远含且仅含三个模块（补齐缺失 + 去重 + 踢掉非法键）
+// ★ 键表写成本地字面量，**故意不引用 HM_DEF_ORDER / HM_NAMES** —— 那两个是 var，
+//   在本模块赋值前被调到会得到 undefined，一旦抛错整段 <script> 就断（见文件末尾的 init 注释）。
+function hmCfg(){
+  var KEYS=["state","nav","music"], DEF_ON=["state","music"];
+  var m=(settings&&settings.homeMode)||{};
+  var order=((m.order&&m.order.length)?m.order.slice():[]).filter(function(k,i,a){
+    return KEYS.indexOf(k)>=0 && a.indexOf(k)===i; });
+  KEYS.forEach(function(k){ if(order.indexOf(k)<0) order.push(k); });
+  var on=((m.on&&m.on.length)?m.on.slice():[]).filter(function(k,i,a){
+    return order.indexOf(k)>=0 && a.indexOf(k)===i; });
+  return {order:order,on:on.length?on:DEF_ON.slice()};
+}
+function hmSave(order,on){
+  settings.homeMode={order:order.slice(),on:on.slice()};
+  if(typeof saveSettings==="function")saveSettings();
+  renderHomeMode(); applyHomeMode();
+}
+function hmEls(){ var b=document.getElementById("homeModeList"); return b?[].slice.call(b.querySelectorAll(".hm-item")):[]; }
+function renderHomeMode(){
+  var box=document.getElementById("homeModeList"); if(!box) return;
+  var c=hmCfg();
+  box.innerHTML="";
+  c.order.forEach(function(k){
+    var on=c.on.indexOf(k)>=0;
+    var b=document.createElement("button");
+    b.type="button";
+    b.className="hm-item"+(on?" on":"");
+    b.dataset.mod=k;
+    b.title=HM_NAMES[k]+"（点击"+(on?"取消显示":"显示")+"；按住 ⠿ 左右拖动排序）";
+    b.innerHTML='<span class="hm-ck">'+(on?"☑":"☐")+'</span>'+
+                '<span class="hm-name">'+HM_NAMES[k]+'</span>'+
+                '<span class="hm-grip">⠿</span>';
+    b.onclick=function(){
+      if(b.__hmFired && b.__hmFired()) return;      // 长按已触发 → 吃掉随后的 click
+      if(hmSwallowClick()) return;
+      hmToggle(k);
+    };
+    bindHmDrag(b);
+    box.appendChild(b);
+  });
+}
+function hmToggle(k){
+  var c=hmCfg(), i=c.on.indexOf(k);
+  if(i>=0) c.on.splice(i,1); else c.on.push(k);
+  if(!c.on.length){ c.on=HM_DEF_ON.slice(); toastL6("已恢复默认：状态 + 音乐"); }
+  hmSave(c.order,c.on);
+}
+// 主页按 order 排三栏；未勾选的模块不显示，剩下的按 flex 比例撑满
+function applyHomeMode(){
+  var page=document.getElementById("pageMusic"); if(!page) return;
+  var c=hmCfg();
+  c.order.forEach(function(k,i){
+    var el=page.querySelector('[data-mod="'+k+'"]'); if(!el) return;
+    el.style.order=String(i);                       // 设计像素 -> 视觉顺序
+    el.style.display=(c.on.indexOf(k)>=0)?"":"none";
+  });
+  try{ syncMiniNav(); }catch(e){}                   // 顺带刷新顶部迷你卡的互斥状态
+}
+function homeNavOn(){ try{ return hmCfg().on.indexOf("nav")>=0; }catch(e){ return false; } }
+/* ---- 主页导航悬浮窗口 #homeNav ---- */
+function hmPt(e){ var t=(e.touches&&e.touches[0])||(e.changedTouches&&e.changedTouches[0]);
+  if(t) return {x:t.clientX,y:t.clientY}; return {x:e.clientX||0,y:e.clientY||0}; }
+function hmRect(el){ try{ return el.getBoundingClientRect(); }
+  catch(e){ return {left:0,top:0,width:0,height:0,right:0,bottom:0}; } }
+function hmDragBegin(el,x,y){
+  if(hmDragEl||!el||!el.parentNode) return false;
+  hmDragEl=el;
+  hmSwallowUntil=Date.now()+1500;
+  el.classList.add("dragging");
+  var g=document.createElement("div");
+  g.className="hm-ghost";
+  g.innerHTML=el.innerHTML;
+  var r=hmRect(el);
+  g.style.width=((r.width||120))+"px";
+  document.body.appendChild(g);
+  hmGhost=g;
+  hmDragMove(x,y);
+  return true;
+}
+// 拖到「中心点在指针右侧」的第一个兄弟项之前（都没有 → 追加到末尾）
+function hmReorderTo(px){
+  var box=document.getElementById("homeModeList"), el=hmDragEl; if(!box||!el) return;
+  var rest=hmEls().filter(function(x){ return x!==el; });
+  var i=0;
+  for(;i<rest.length;i++){ var r=hmRect(rest[i]); if(px < r.left + r.width/2) break; }
+  var anchor=rest[i]||null;
+  if(el.nextSibling===anchor) return;
+  box.insertBefore(el, anchor);                     // anchor=null 时等价于 appendChild
+}
+function hmDragMove(x,y){
+  if(!hmDragEl) return;
+  if(hmGhost){ hmGhost.style.left=x+"px"; hmGhost.style.top=y+"px"; }
+  hmReorderTo(x);
+}
+function hmDragEnd(){
+  if(!hmDragEl) return "";
+  var el=hmDragEl;
+  el.classList.remove("dragging");
+  if(hmGhost){ try{ hmGhost.parentNode.removeChild(hmGhost); }catch(e){} hmGhost=null; }
+  hmDragEl=null;
+  hmSwallowUntil=Date.now()+400;
+  var cur=hmEls().map(function(x){ return (x.dataset&&x.dataset.mod)||""; }).filter(Boolean);
+  var c=hmCfg();
+  if(cur.join("|")===c.order.join("|")) return "same";   // 顺序没变 → 不落盘
+  hmSave(cur,c.on);
+  toastL6("已保存主页模块顺序");
+  return "drop";
+}
+function bindHmDrag(el){
+  function down(e){
+    if(hmDragEl) return;
+    var p=hmPt(e);
+    hmDownPt=p; hmLpEl=el; hmLpFired=false;
+    clearTimeout(hmLpTimer);
+    hmLpTimer=setTimeout(function(){
+      hmLpTimer=null;
+      if(hmLpEl!==el) return;
+      hmLpFired=true;
+      if(!hmDragBegin(el,p.x,p.y)) hmLpFired=false;
+    }, HM_LP_MS);
+  }
+  el.addEventListener("touchstart",down,{passive:true});
+  el.addEventListener("mousedown",down);
+  el.__hmDrag=true;                                  // 冒烟据此断言「拖动已绑定」
+  el.__hmFired=function(){ if(hmLpEl!==el) return false; var f=hmLpFired; hmLpFired=false; return f; };
+}
+function hmLpCancel(){ if(hmLpTimer){ clearTimeout(hmLpTimer); hmLpTimer=null; } }
+function hmDocMove(e){
+  if(!hmDragEl){
+    // 还没进拖动：指针移动 >10px 就取消长按 —— 否则设置列表在触摸下没法滑动
+    if(hmLpTimer&&hmDownPt){ var p=hmPt(e);
+      if(Math.abs(p.x-hmDownPt.x)>10||Math.abs(p.y-hmDownPt.y)>10) hmLpCancel(); }
+    return;
+  }
+  var q=hmPt(e); hmDragMove(q.x,q.y);
+  if(e.cancelable && e.preventDefault) e.preventDefault();   // 拖动中别让 WebView 抢去做滚动
+}
+function hmDocUp(){ hmLpCancel(); if(hmDragEl) hmDragEnd(); }
+document.addEventListener("mousemove",hmDocMove);
+document.addEventListener("mouseup",hmDocUp);
+document.addEventListener("touchmove",hmDocMove,{passive:false});
+document.addEventListener("touchend",hmDocUp);
+document.addEventListener("touchcancel",hmDocUp);
+window.addEventListener("blur",function(){ hmLpCancel(); if(hmDragEl) hmDragEnd(); });
+
+function homeNavAppName(){
+  try{ var it=(NAV_APPS||[]).filter(function(x){
+    return (x.key||x.pkg)===(settings.navApp||navApp); })[0]; return it?it.name:""; }
+  catch(e){ return ""; }
+}
+// 渲染导航窗口：数据源与顶部 #miniNav 同一份（REAL.nav），两者互斥显示
+function syncHomeNav(){
+  var box=document.getElementById("homeNav"); if(!box) return;
+  var n=(typeof REAL!=="undefined"&&REAL.nav)||{};
+  var app=homeNavAppName()||n.app||"";
+  var acts='<div class="hn-acts">'+
+    '<button class="hn-btn" data-act="open">▶ '+(n.active?"打开导航":"启动导航")+'</button>'+
+    '<button class="hn-btn ghost" data-act="float" title="跳转该导航 App 的「显示在其他应用上层」权限页">↗ 悬浮窗</button>'+
+    '<button class="hn-btn ghost" data-act="pip" title="把本应用缩成系统画中画小窗（需先在设置里开启）">⧉ 画中画</button>'+
+    '</div>';
+  if(n.active){
+    box.classList.add("live");
+    box.innerHTML='<div class="hn-head"><span class="hn-tag">导航中</span><span class="hn-app">'+(app||"")+'</span></div>'+
+      '<div class="hn-turn"><span class="hn-arr">'+(n.arr||"↑")+'</span><span class="hn-road">'+(n.turn||"导航中")+'</span></div>'+
+      '<div class="hn-meta">剩余 <b>'+(n.dist||"--")+'</b> · 约 <b>'+(n.eta||"--")+'</b> · 到 <b>'+(n.dest||"--")+'</b></div>'+acts;
+  }else{
+    box.classList.remove("live");
+    box.innerHTML='<div class="hn-head"><span class="hn-tag idle">未在导航</span><span class="hn-app">'+(app||"未选择导航 App")+'</span></div>'+
+      '<div class="hn-meta">点「启动导航」拉起导航 App；导航中的转向 / 剩余信息会自动显示在这里。</div>'+acts;
+  }
+}
+/* Android 只允许「应用自己变小窗」，没有任何 API 能把第三方导航 App 装进我们的窗口 ——
+   所以「导航浮在老六上面」只能靠导航 App 自己的悬浮窗能力，这里只负责把用户送到那个开关。 */
+function navFloatSettings(){
+  var pkg=(settings&&settings.navApp)||navApp||"";
+  if(!pkg){ toastL6("先在设置 → 导航源 里选好导航 App"); return; }
+  var ok=false;
+  try{ if(window.L6Native&&window.L6Native.openAppOverlaySettings)
+    ok=!!window.L6Native.openAppOverlaySettings(pkg); }catch(e){ ok=false; }
+  if(!ok) toastL6("未能打开悬浮窗设置");
+}
+function navEnterPip(){
+  if(!(settings&&settings.pipEnabled)){ toastL6("画中画未开启：设置 → 画中画 里打开"); return; }
+  var ok=false;
+  try{ if(window.L6Native&&window.L6Native.enterPip) ok=!!window.L6Native.enterPip(); }catch(e){ ok=false; }
+  if(!ok) toastL6("本机不支持画中画（或被车机禁用）");
+}
+function syncPip(){
+  var b=document.getElementById("pipBtn"); if(!b) return;
+  var on=!!(settings&&settings.pipEnabled);
+  b.textContent=on?"● 开启":"○ 关闭";
+  b.classList.toggle("on",on);
+}
+function bindHomeNav(){
+  var box=document.getElementById("homeNav"); if(!box||box.__navBound) return;
+  box.__navBound=true;
+  box.addEventListener("click",function(e){
+    var act="open", t=e.target;
+    if(t&&t.closest){ var b=t.closest("[data-act]"); if(b) act=b.getAttribute("data-act"); }
+    if(act==="float") return navFloatSettings();
+    if(act==="pip") return navEnterPip();
+    startNav((settings&&settings.navApp)||navApp);     // 点空白处 = 打开导航
+  });
+}
+
 // 页面内轻提示（不依赖原生 Toast）
 function toastL6(msg){
   var el=document.getElementById("l6Toast");
@@ -1806,7 +2105,8 @@ function resetRealMedia(){
 
 /* ---- 导航：真实通知接管导航数据 ---- */
 function applyRealNav(d){
-  if(!d||!d.active){REAL.nav.active=false;syncMiniNav();
+  if(!d||!d.active){REAL.nav.active=false;REAL.nav.arr="\u2191";REAL.nav.turn="";REAL.nav.dist="--";REAL.nav.eta="";REAL.nav.dest="";
+    syncMiniNav();
     $("#mArr").textContent="↑";$("#mTurn").textContent="";$("#mDist").textContent="--";
     $("#mEta").textContent="";$("#mDest").textContent="";return;}
   REAL.nav.active=true;
@@ -1820,6 +2120,12 @@ function applyRealNav(d){
   if(d.eta)$("#mEta").textContent=d.eta;
   if(d.dest)$("#mDest").textContent=d.dest;
   if(d.app)REAL.nav.app=d.app;
+  // ★ 同一份数据也存进 REAL.nav —— 主页导航窗口 #homeNav 直接读它渲染（与 miniNav 互斥，不重复显示）
+  REAL.nav.arr=arr;
+  REAL.nav.turn=$("#mTurn").textContent;
+  REAL.nav.dist=$("#mDist").textContent;
+  REAL.nav.eta=$("#mEta").textContent;
+  REAL.nav.dest=$("#mDest").textContent;
   syncMiniNav();   // 有真实导航数据时显示顶部迷你卡片
 }
 
@@ -2116,6 +2422,21 @@ applyAutoPlayOnLaunch();
     if(st.media&&st.media.active)applyRealMedia(st.media);
   }catch(e){renderSysAcc(false,false);}
   try{if(n.refreshSys)n.refreshSys();}catch(e){}
+})();
+
+/* ---- 主页模式 / 导航窗口 / 画中画的初始化（v1.5.16）----
+   ★ 必须放在脚本最末尾：本模块的数据字面量是用 var 声明的，会被提升成 undefined，
+     若在它们赋值之前调用 renderHomeMode()，HM_NAMES["state"] 会抛 TypeError，
+     整段 <script> 静默中断 —— 表现是页面上所有 onclick 都没接上（黑屏级事故）。 */
+renderHomeMode();applyHomeMode();bindHomeNav();syncPip();
+(function initPipBtn(){
+  var b=document.getElementById("pipBtn"); if(!b) return;
+  b.onclick=function(){
+    settings.pipEnabled=!settings.pipEnabled;
+    if(typeof saveSettings==="function")saveSettings();
+    syncPip();
+    toastL6(settings.pipEnabled?"画中画已开启":"画中画已关闭");
+  };
 })();
 </script>
 </div>

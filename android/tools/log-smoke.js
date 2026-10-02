@@ -202,7 +202,17 @@ setTimeout(() => {
     !/setUploadListener|setProbeListener|setMatrixListener|L6LogUploadStatus|L6LogProbeResult|L6LogMatrixResult/.test(mainSrc));
 
   const shimCalls = (shim.match(/:\s*function/g) || []).length;
-  check('⑮ SHIM 桥数量 = 32（删 10 条 + 新增 cancelOtaUpdate）', shimCalls === 32, `实得 ${shimCalls}`);
+  check('⑮ SHIM 桥数量 = 35（删 10 条 + cancelOtaUpdate + 主页模式 3 条）', shimCalls === 35, `实得 ${shimCalls}`);
+  // v1.5.16 主页模式：导航 App 悬浮窗权限入口 + 本应用画中画（两者都用 !! 包成布尔回页面）
+  check('⑮ 主页模式 3 个桥已接线（openAppOverlaySettings / enterPip / isPipAvailable）',
+    /openAppOverlaySettings:function\(p\)\{try\{return !!R\.openAppOverlaySettings\(p\);\}catch\(e\)\{return false;\}\},/.test(shim) &&
+    /enterPip:function\(\)\{try\{return !!R\.enterPip\(\);\}catch\(e\)\{return false;\}\},/.test(shim) &&
+    /isPipAvailable:function\(\)\{try\{return !!R\.isPipAvailable\(\);\}catch\(e\)\{return false;\}\},/.test(shim) &&
+    /public boolean openAppOverlaySettings\(String pkg\)/.test(mainSrc) &&
+    /public boolean enterPip\(\)/.test(mainSrc) &&
+    /public boolean isPipAvailable\(\)/.test(mainSrc));
+  check('⑮ manifest 已开启画中画（resizeableActivity=true + supportsPictureInPicture）',
+    /android:resizeableActivity="true"/.test(manifest) && /android:supportsPictureInPicture="true"/.test(manifest));
 
   const deadUi = ['logApiBtn', 'logNowBtn', 'logTestBtn', 'logMatrixBtn', 'logUpState',
     'logUpMsg', 'matrixOut', 'matrixHint', 'dnsInput', 'dnsHint'];

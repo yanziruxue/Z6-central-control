@@ -48,7 +48,8 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density"
             android:exported="true"
             android:launchMode="singleTask"
-            android:resizeableActivity="false"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
             android:maxAspectRatio="2.8"
             android:screenOrientation="sensorLandscape"
             android:theme="@style/AppTheme">

@@ -240,13 +240,20 @@ setTimeout(async () => {
   // jsdom 没有布局引擎（getBoundingClientRect 全 0）→ 给 dock 项与垃圾桶打桩出「真实布局」的矩形，
   // 几何判定本身仍走生产代码里的 getBoundingClientRect。
   const htmlSrc = fs.readFileSync(HTML, 'utf8');
-  const trashSec = htmlSrc.slice(htmlSrc.indexOf('#dockTrash{'), htmlSrc.indexOf('#dockTrash{') + 620);
-  // 「热区 = 应用尺寸 3 倍」：应用 68u、垃圾桶 204u（68 × 3）；且垃圾桶必须屏幕水平居中、在 dock 正上方
+  const trashSec = htmlSrc.slice(htmlSrc.indexOf('#dockTrash{'), htmlSrc.indexOf('#dockTrash{') + 760);
+  // 「热区 = 应用尺寸 3 倍」：应用 68u、垃圾桶 204u（68 × 3）
+  // v1.5.16 起垃圾桶是 #dockApps 的**子元素** ⇒ left:50% / bottom:100% 量的是「应用栏」的盒子
+  //（应用栏宽度随应用数量变，靠 CSS 相对定位自动跟随，不能用 JS 算坐标）
   const trashCssOk = /left:50%/.test(trashSec) &&
                      /width:calc\(204 \* var\(--u\)\)/.test(trashSec) &&
                      /height:calc\(204 \* var\(--u\)\)/.test(trashSec) &&
                      /bottom:calc\(100% \+ 28 \* var\(--u\)\)/.test(trashSec) &&
                      /\.dock-app\{width:calc\(68 \* var\(--u\)\);height:calc\(68 \* var\(--u\)\)/.test(htmlSrc);
+  // ★ v1.5.16：buildDockApps() 不能再用 innerHTML="" 清空 —— 那会把常驻垃圾桶一起删掉，拖动就没有落点了
+  const dockBuildSec = htmlSrc.slice(htmlSrc.indexOf('function buildDockApps()'),
+                                     htmlSrc.indexOf('function buildDockApps()') + 700);
+  const dockBuildOk = !/box\.innerHTML\s*=/.test(dockBuildSec) &&
+                      /querySelectorAll\("\.dock-app"\)/.test(dockBuildSec);
 
   const dragApiOk = ['bindDockDrag', 'dockDragBegin', 'dockDragMove', 'dockDragEnd',
                      'dockTrashHit', 'dockCommitOrder', 'isDockDragging']
@@ -268,10 +275,13 @@ setTimeout(async () => {
   const stubRect = (el, l, t, w, h) => { el.getBoundingClientRect = () => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h }); };
   const restub = () => dockApps().forEach((b, i) => stubRect(b, 1400 + i * 100, 600, 68, 68));
   const trashEl = d.getElementById('dockTrash');
-  stubRect(trashEl, 410, 98, 204, 204);
+  // ★ v1.5.16：垃圾桶必须常驻在应用栏**内部**（外置成兄弟节点 = 退回「屏幕居中」，不跟应用数量走）
+  const trashInBoxOk = !!trashEl && trashEl.parentNode === dockAppsBox;
+  // 打桩按「垃圾桶在应用栏正上方 · 水平对应用栏中心」给：应用栏 x 1300..1700 → 中心 1500
+  stubRect(trashEl, 1398, 388, 204, 204);                    // 204×204 → 中心 (1500, 490)
   restub();
-  const hitIn = window.dockTrashHit(512, 200) === true;
-  const hitOut = window.dockTrashHit(1434, 634) === false;
+  const hitIn = window.dockTrashHit(1500, 490) === true;
+  const hitOut = window.dockTrashHit(1434, 634) === false;    // y 在垃圾桶下方（dock 行上）→ 不算命中
   const trashHitOk = hitIn && hitOut;
 
   const firstApp = dockApps()[0];
@@ -301,9 +311,9 @@ setTimeout(async () => {
   const beforeUnpin = dockApps().length;
   window.dockDragBegin(victim, 1434, 634);
   restub();
-  window.dockDragMove(512, 200);                        // 移进垃圾桶中心
+  window.dockDragMove(1500, 490);                       // 移进垃圾桶中心（应用栏正上方）
   const trashHot = trashEl.classList.contains('hot');
-  const dropTrash = window.dockDragEnd(512, 200);
+  const dropTrash = window.dockDragEnd(1500, 490);
   const afterUnpin = dockApps().length;
   const dragTrashOk = trashHot && dropTrash === 'trash' && beforeUnpin === 3 &&
                       afterUnpin === 2 && dockOrder().indexOf(victimPkg) < 0;
@@ -322,9 +332,92 @@ setTimeout(async () => {
   window.DOCK_LP_MS = 550;
   const dragLpOk = lpDragOn && lpFired && swallowOk && lpEnded;
 
-  const dragOk = dragApiOk && trashCssOk && fixedOk && boundOk && trashHitOk &&
-                 dragRunOk && dragTrashOk && dragLpOk;
+  const dragOk = dragApiOk && trashCssOk && trashInBoxOk && dockBuildOk && fixedOk && boundOk &&
+                 trashHitOk && dragRunOk && dragTrashOk && dragLpOk;
 
+
+  /* ---------- v1.5.16：设置页「主页模式」+ 主页三栏排序 + 导航悬浮窗口 ---------- */
+  // ⚠️ renderHomeMode() 会整排重画 ⇒ 每步都必须重新 querySelector，拿旧节点会断言到已脱离 DOM 的对象
+  const hmItems = () => [...d.querySelectorAll('#homeModeList .hm-item')];
+  const hmOrder = () => hmItems().map(x => x.dataset.mod).join(',');
+  const hmOn = () => hmItems().filter(x => x.classList.contains('on')).map(x => x.dataset.mod).join(',');
+  const modSel = () => [...d.querySelectorAll('#pageMusic > [data-mod]')];
+  // ⚠️ modSel() 是 **DOM 序**（三片永远不动），视觉顺序在 inline order 上 —— 两者必须分开断言，
+  //    否则「顺序变了但 DOM 没动」这种正确实现会被判失败。
+  const domMods = () => modSel().map(x => x.dataset.mod).join(',');
+  const modOrderMap = () => { const o = {}; modSel().forEach(x => { o[x.dataset.mod] = x.style.order; }); return o; };
+  const modShown = () => modSel().filter(x => x.style.display !== 'none').map(x => x.dataset.mod).join(',');
+  // ⚠️ 别用 JSON.stringify 比对象：那比的是**键的插入顺序**，顺序一变就假失败 → 逐键比
+  const hmOrderIs = (want) => { const g = modOrderMap();
+    return Object.keys(want).every(k => g[k] === want[k]) && Object.keys(g).length === Object.keys(want).length; };
+  // on / 显示集合都是「集合」，不是序列（hmToggle 只 push）→ 比较前先排序
+  const set = s2 => s2.split(',').filter(Boolean).sort().join(',');
+  const readHome = () => { try { return JSON.parse(window.localStorage.getItem('l6_settings_v1')).homeMode || null; } catch (e) { return null; } };
+
+  const hmDefaultOk = (() => { try { const c = window.hmCfg();
+    return c.order.join(',') === 'state,nav,music' && set(c.on.join(',')) === 'music,state'; } catch (e) { return false; } })();
+  const hmRenderOk = hmItems().length === 3 && hmOrder() === 'state,nav,music' && set(hmOn()) === 'music,state' &&
+                     hmItems().every(x => x.__hmDrag === true && typeof x.__hmFired === 'function');
+  // 主页三栏：DOM 里三片都在且**没被搬动**（顺序只写 inline order ⇒ 车辆状态/歌词绑定不会失效）
+  const homeThreeOk = domMods() === 'state,nav,music' &&
+                      hmOrderIs({ state: '0', nav: '1', music: '2' }) &&
+                      set(modShown()) === 'music,state';
+
+  // 勾选「导航」→ 三栏全显；#miniNav 与 #homeNav 互斥
+  window.hmToggle('nav');
+  const hmNavOnOk = set(hmOn()) === 'music,nav,state' && set(modShown()) === 'music,nav,state' &&
+                    set(readHome().on.join(',')) === 'music,nav,state';
+  const homeNavEl = d.getElementById('homeNav');
+  const homeNavIdleOk = !!homeNavEl && homeNavEl.innerHTML.indexOf('未在导航') >= 0 &&
+                        homeNavEl.innerHTML.indexOf('启动导航') >= 0 &&
+                        homeNavEl.innerHTML.indexOf('悬浮窗') >= 0 && homeNavEl.innerHTML.indexOf('画中画') >= 0;
+  // 真实导航数据进来 → #homeNav 显示导航中，同时顶部 #miniNav 必须让位（互斥，不重复显示）
+  window.applyRealNav({ active: true, arrow: '↱', turn: '前方 300m 右转', road: '滨江大道',
+                        remain: '8.6km', eta: '14min', dest: '公司', app: '高德地图' });
+  const homeNavLiveOk = homeNavEl.innerHTML.indexOf('导航中') >= 0 &&
+                        homeNavEl.innerHTML.indexOf('8.6km') >= 0 &&
+                        homeNavEl.innerHTML.indexOf('14min') >= 0 &&
+                        homeNavEl.innerHTML.indexOf('公司') >= 0;
+  const miniNavYieldOk = !d.getElementById('miniNav').classList.contains('show');
+  window.applyRealNav(null);
+
+  // 拖动排序：#pageMusic 顺序要跟着「设置页三项的顺序」变
+  const hmStub = (el, l, t, w, h) => { el.getBoundingClientRect = () => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h }); };
+  const hmRestub = () => hmItems().forEach((x, i) => hmStub(x, 200 + i * 200, 300, 180, 44));
+  hmRestub();
+  const hmFirst = hmItems()[0];
+  const hmBeginOk = window.hmDragBegin(hmFirst, 290, 322) === true;
+  const hmGhostOn = !!d.querySelector('.hm-ghost');
+  const hmDim = hmFirst.classList.contains('dragging');
+  hmRestub();
+  window.hmDragMove(810, 322);                       // 拖到最右 → 应排到末尾
+  const hmOrderMoved = hmOrder();
+  hmRestub();
+  const hmDrop = window.hmDragEnd();
+  const hmGhostGone = !d.querySelector('.hm-ghost');
+  const hmSaved = readHome();
+  const hmDragOk = hmBeginOk && hmGhostOn && hmDim && hmOrderMoved === 'nav,music,state' &&
+                   hmDrop === 'drop' && hmGhostGone && !!hmSaved &&
+                   hmSaved.order.join(',') === 'nav,music,state' &&
+                   domMods() === 'state,nav,music' &&        // DOM 仍没动（只改了 order）
+                   hmOrderIs({ nav: '0', music: '1', state: '2' });
+
+  // 三项全部取消 → 自动回默认「状态 + 音乐」
+  window.hmToggle('state'); window.hmToggle('music'); window.hmToggle('nav');
+  const hmAllOffOk = set(hmOn()) === 'music,state' && set(modShown()) === 'music,state' &&
+                     set(readHome().on.join(',')) === 'music,state';
+
+  // 画中画开关：默认关 → 点一下开（并落盘）
+  const pipBtn = d.getElementById('pipBtn');
+  const pipDefOk = !!pipBtn && pipBtn.textContent.indexOf('关闭') >= 0;
+  pipBtn.onclick();
+  const pipOnOk = pipBtn.textContent.indexOf('开启') >= 0 && readHome() !== null &&
+                  (() => { try { return JSON.parse(window.localStorage.getItem('l6_settings_v1')).pipEnabled === true; } catch (e) { return false; } })();
+  pipBtn.onclick();
+  const pipBackOk = pipBtn.textContent.indexOf('关闭') >= 0;
+  const homeModeOk = hmDefaultOk && hmRenderOk && homeThreeOk && hmNavOnOk && homeNavIdleOk &&
+                     homeNavLiveOk && miniNavYieldOk && hmDragOk && hmAllOffOk &&
+                     pipDefOk && pipOnOk && pipBackOk;
 
   // 空态自诊断：必须能把「桥读不到应用」与「车机真没装应用」区分开。
   // 历史教训（v1.4.6~v1.4.14）：原生 getAllAppsJson 漏了 @JavascriptInterface，
@@ -349,7 +442,7 @@ setTimeout(async () => {
     && iconBridgeOk && iconDataOk && iconSlotsOk && srcIconOk
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
     && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk && emptyDiagOk
-    && homeLeftOfMore && goHomeBridgeOk && goHomeCalled && dragOk
+    && homeLeftOfMore && goHomeBridgeOk && goHomeCalled && dragOk && homeModeOk
     && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk
     && themeBridgeOk && themeLightOk && themeDarkOk;
 
@@ -378,12 +471,17 @@ setTimeout(async () => {
   console.log('空态自诊断(读不到 vs 真没装) ->', emptyDiagOk);
   console.log('dock 点应用 → launchPkg ->', launchPkgOk, '(' + (launchedPkg ? launchedPkg[1] : '') + ')');
   console.log('返回原桌面按钮(在打开应用列表左侧) ->', homeLeftOfMore, '| 桥 goHome ->', goHomeBridgeOk, '| 点按触发 ->', goHomeCalled);
-  console.log('dock 拖动：长按已绑定/固定位/fixed ->', dragApiOk, '/', boundOk, '/', fixedOk, '| 垃圾桶 CSS(3倍·居中·正上方) ->', trashCssOk);
+  console.log('dock 拖动：长按已绑定/固定位/fixed ->', dragApiOk, '/', boundOk, '/', fixedOk, '| 垃圾桶 CSS(3倍·应用栏居中·正上方) ->', trashCssOk);
+  console.log('dock 垃圾桶：常驻应用栏内 ->', trashInBoxOk, '| buildDockApps 不清空 ->', dockBuildOk);
   console.log('dock 拖动：进拖动态/ghost/垃圾桶/原位淡影 ->', beginOk, '/', ghostOn, '/', trashOn, '/', srcDim);
   console.log('dock 拖动：换位 ' + orderBefore + '  →  ' + orderMoved, '| 已落盘 ->', orderMoved === savedOrder, '| home/more 仍在末尾 ->', homeStillLast);
   console.log('dock 垃圾桶命中判定(内/外) ->', hitIn, '/', hitOut, '| hot 高亮 ->', trashHot, '| 松手取消钉住 ->', dropTrash, '(' + beforeUnpin + '→' + afterUnpin + ')');
   console.log('dock 长按真实路径(阈值置0) ->', lpDragOn, '| 吃掉后续 click ->', lpFired && swallowOk, '| 松手收尾 ->', lpEnded);
   console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');
+  console.log('主页模式：默认(状态+音乐) ->', hmDefaultOk, '| 设置页三项渲染 ->', hmRenderOk, '| 主页三栏按 order ->', homeThreeOk);
+  console.log('主页模式：勾选导航后三栏全显 ->', hmNavOnOk, '| 导航窗口空态文案 ->', homeNavIdleOk, '| 有数据时填充 ->', homeNavLiveOk);
+  console.log('主页模式：顶部迷你卡让位(#miniNav 互斥) ->', miniNavYieldOk, '| 拖动排序落盘 ->', hmDragOk, '(' + hmOrderMoved + ')');
+  console.log('主页模式：三项全取消回默认 ->', hmAllOffOk, '| 画中画开关 默认关/开/关 ->', pipDefOk, '/', pipOnOk, '/', pipBackOk);
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));
   console.log(ok ? '✓ 桥接冒烟测试通过' : '✗ 桥接冒烟测试失败');
