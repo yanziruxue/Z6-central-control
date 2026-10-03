@@ -280,6 +280,12 @@
   /* v1.5.19：空态诊断行（最近收到的导航通知 / 权限提示）—— 装机排查用，导航中不可见 */
   .home-nav .hn-dbg{font-size:calc(11 * var(--u));color:var(--sub);opacity:.85;line-height:1.6;word-break:break-all}
   .home-nav .hn-dbg b{color:var(--red)}
+  /* v1.5.20：① 高德广播探针行（确认该车机 ROM 是否转发官方广播）；② 对齐引导 ——
+     点亮区域边框，让用户把第三方悬浮小窗拖进来（系统窗口我们既搬不动也嵌不进来）。 */
+  .home-nav .hn-bc{font-size:calc(11 * var(--u));color:var(--acc);opacity:.9;line-height:1.6;word-break:break-all}
+  .home-nav .hn-align-tip{display:none;font-size:calc(12 * var(--u));font-weight:700;color:var(--acc);line-height:1.5}
+  .home-nav.hn-align{outline:calc(3 * var(--u)) dashed var(--acc);outline-offset:calc(-4 * var(--u))}
+  .home-nav.hn-align .hn-align-tip{display:block}
   .home-nav .hn-acts{display:flex;gap:calc(8 * var(--u));flex-wrap:wrap}
   .home-nav .hn-btn{font-size:calc(12 * var(--u));padding:calc(8 * var(--u)) calc(12 * var(--u));
     border-radius:calc(10 * var(--u));border:1px solid var(--line);background:var(--panel2);
@@ -682,7 +688,7 @@ let playing=false, vol=62;
 /* 真实系统数据（媒体会话 / 导航通知）—— 由原生桥经 window.L6SysEvent 回填；
    没有桥接（浏览器直接打开原型）或未授权时 active=false，页面显示「未播放 / 暂无歌词」空状态。 */
 var REAL={media:{active:false,playing:false,dur:0,pos:0,title:"",artist:""},
-  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:""},acc:false,lrc:null,lrcKey:""};
+  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:"",bc:""},acc:false,lrc:null,lrcKey:""};
 // 歌词区（右侧 2/3）：整屏歌词 + 当前句高亮，由真实播放进度驱动
 let lyrIdx=0;
 function renderLyrics(){
@@ -1530,6 +1536,7 @@ function syncHomeNav(){
   var acts='<div class="hn-acts">'+
     '<button class="hn-btn" data-act="open">▶ '+(n.active?"打开导航":"启动导航")+'</button>'+
     '<button class="hn-btn ghost" data-act="float" title="跳转该导航 App 的「显示在其他应用上层」权限页">↗ 悬浮窗</button>'+
+    '<button class="hn-btn ghost" data-act="align" title="点亮区域边框，把导航 App 的悬浮小窗拖进来">⊞ 对齐区域</button>'+
     '</div>';
   if(n.active){
     box.classList.add("live");
@@ -1540,7 +1547,7 @@ function syncHomeNav(){
       : '<div class="hn-meta">导航进行中 · 该 App 未提供转向 / 剩余信息。</div>';
     box.innerHTML='<div class="hn-head"><span class="hn-tag">导航中</span><span class="hn-app">'+(app||"")+'</span></div>'+
       '<div class="hn-turn"><span class="hn-arr">'+(n.arr||"↑")+'</span><span class="hn-road">'+(n.turn||"导航进行中")+'</span></div>'+
-      meta+acts;
+      meta+'<div class="hn-align-tip">↑ 把导航 App 的悬浮小窗拖进这个亮框</div>'+acts;
   }else{
     box.classList.remove("live");
     // v1.5.19 诊断：把「通知来没来、长什么样」直接摆在空态里 —— 装机排查时用户截图即可定位
@@ -1550,6 +1557,8 @@ function syncHomeNav(){
     box.innerHTML='<div class="hn-head"><span class="hn-tag idle">未在导航</span><span class="hn-app">'+(app||"未选择导航 App")+'</span></div>'+
       '<div class="hn-hint"><b>想让导航画面显示在这里？</b>开启导航 App 自带的<b>「全局悬浮导航」</b>（高德：我的 → 设置 → 导航设置），画面就会浮在本页上方 —— 拖进这个区域即可（系统窗口，不会自动吸附）。</div>'+
       '<div class="hn-dbg">'+accLine+dbgLine+'</div>'+
+      '<div class="hn-bc">高德广播探针：'+hnEsc(n.bc||"未收到（探针未启动，或该车机 ROM 不转发）")+'</div>'+
+      '<div class="hn-align-tip">↑ 把导航 App 的悬浮小窗拖进这个亮框（位置由它自己记住）</div>'+
       '<div class="hn-meta">或点「启动导航」由它全屏接管；导航中的转向 / 剩余信息会自动显示在这里。</div>'+acts;
   }
 }
@@ -1563,6 +1572,19 @@ function navFloatSettings(){
     ok=!!window.L6Native.openAppOverlaySettings(pkg); }catch(e){ ok=false; }
   if(!ok) toastL6("未能打开悬浮窗设置");
 }
+/* v1.5.20 对齐引导：高德的悬浮小窗是**系统窗口**，我们既不能移动它、也不能把它嵌进区域
+   （被嵌入的 Activity 必须声明 android:allowEmbedded，高德官方包不会声明）⇒ 只能把区域
+   边框点亮，让用户自己把小窗拖过来；位置由高德 App 自己记住，不需要我们持久化。 */
+function toggleNavAlign(){
+  var box=document.getElementById("homeNav"); if(!box) return;
+  if(box.classList.contains("hn-align")){
+    box.classList.remove("hn-align"); clearTimeout(box.__alignT); return;
+  }
+  box.classList.add("hn-align");
+  toastL6("把导航 App 的悬浮小窗拖进亮框（高德会自己记住位置）");
+  clearTimeout(box.__alignT);
+  box.__alignT=setTimeout(function(){ box.classList.remove("hn-align"); },15000);
+}
 function bindHomeNav(){
   var box=document.getElementById("homeNav"); if(!box||box.__navBound) return;
   box.__navBound=true;
@@ -1570,6 +1592,7 @@ function bindHomeNav(){
     var act="open", t=e.target;
     if(t&&t.closest){ var b=t.closest("[data-act]"); if(b) act=b.getAttribute("data-act"); }
     if(act==="float") return navFloatSettings();
+    if(act==="align") return toggleNavAlign();
     startNav((settings&&settings.navApp)||navApp);     // 点空白处 = 打开导航
   });
 }
@@ -2172,6 +2195,8 @@ window.L6SysEvent=function(e){
   if(e.kind==="nav"){applyRealNav(e);return;}
   // v1.5.19 诊断：只更新「最近收到的导航通知」那一行，不动 active 状态
   if(e.kind==="navdbg"){REAL.nav.dbg=e.dbg||"";try{syncHomeNav();}catch(_e){}return;}
+  // v1.5.20 广播探测：只更新「最近一条高德广播」那一行，绝不碰 active 状态
+  if(e.kind==="navbc"){REAL.nav.bc=e.bc||"";try{syncHomeNav();}catch(_e){}return;}
   if(e.kind==="lyrics"){
     var k=(e.title||"")+"|"+(e.artist||"");
     if(k!==REAL.lrcKey)return;                        // 过期响应（已切歌）丢弃

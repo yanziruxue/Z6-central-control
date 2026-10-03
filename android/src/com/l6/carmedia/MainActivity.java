@@ -326,6 +326,10 @@ public class MainActivity extends Activity {
             });
         });
 
+        // v1.5.20：高德广播探针 —— 探测该车机 ROM 是否把 AUTONAVI_STANDARD_BROADCAST_SEND 转发给第三方。
+        // 隐式广播在 Android 8+ 不能静态注册，只能在这里动态注册（本应用是默认桌面，生命周期≈常驻）。
+        try { NavBcastProbe.start(this); } catch (Throwable ignored) {}
+
         // 启动 5s 后静默检查一次 OTA（不打扰首屏）
         web.postDelayed(() -> {
             try { new Bridge().checkOtaUpdate(); } catch (Throwable ignored) {}
@@ -589,6 +593,7 @@ public class MainActivity extends Activity {
             MediaHub.get(this).release();
         } catch (Throwable ignored) {
         }
+        try { NavBcastProbe.stop(this); } catch (Throwable ignored) {}
         SysHub.setEmitter(null);
         super.onDestroy();
     }

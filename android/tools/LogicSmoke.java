@@ -1,8 +1,11 @@
 import com.l6.carmedia.LrcParse;
+import com.l6.carmedia.NavBcastFmt;
 import com.l6.carmedia.NavParse;
 import com.l6.carmedia.SigDiff;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 纯逻辑回归：导航通知解析 + LRC 歌词解析 + 车机信号 diff。
@@ -13,6 +16,7 @@ import java.util.List;
  * 运行（见 android/build.sh 或 skill 里的说明）：
  *   javac -encoding UTF-8 -d <tmp> src/com/l6/carmedia/NavParse.java \
  *         src/com/l6/carmedia/LrcParse.java src/com/l6/carmedia/SigDiff.java \
+ *         src/com/l6/carmedia/NavBcastFmt.java \
  *         tools/LogicSmoke.java
  *   java -cp <tmp> LogicSmoke
  */
@@ -49,6 +53,39 @@ public class LogicSmoke {
         navStrong("进行时措辞·持续为您导航", "高德地图已进入后台运行，将持续为您导航", true);
         navStrong("进行时措辞·正在导航中", "正在导航中，请沿当前道路继续行驶", true);
         navStrong("进行时措辞·普通推送不算", "您有一张优惠券即将过期，快来领取", false);
+        // v1.5.20：高德官方广播协议（AmapAuto）—— 探测版只把 Bundle 摘要成一行可读文本
+        Map<String, Object> g = new LinkedHashMap<String, Object>();
+        g.put("TYPE", "0");
+        g.put("CUR_ROAD_NAME", "滨江大道");
+        g.put("NEXT_ROAD_NAME", "江南大道");
+        g.put("NEW_ICON", "4");
+        g.put("ROUTE_REMAIN_DIS_AUTO", "12.4公里");
+        g.put("ROUTE_REMAIN_TIME_AUTO", "26分钟");
+        g.put("SEG_REMAIN_DIS_AUTO", "300米");
+        g.put("CUR_SPEED", "38");
+        g.put("LIMITED_SPEED", "60");
+        g.put("TRAFFIC_LIGHT_NUM", "2");
+        bcOk("广播 10001·道路/剩余/车速/限速都出来", NavBcastFmt.KT_GUIDE, g,
+                new String[]{"KEY_TYPE=10001", "导航", "滨江大道 → 江南大道", "12.4公里",
+                        "38km/h", "限速 60", "红绿灯 2"});
+        bcOk("广播 10001·巡航类型", NavBcastFmt.KT_GUIDE, kvOf("TYPE", "2"),
+                new String[]{"TYPE", "巡航"});
+        bcOk("广播 10019·开始导航是权威信号", NavBcastFmt.KT_STATE, kvOf("EXTRA_STATE", "8"),
+                new String[]{"KEY_TYPE=10019", "8 开始导航"});
+        bcOk("广播 10019·到达目的地", NavBcastFmt.KT_STATE, kvOf("EXTRA_STATE", "39"),
+                new String[]{"39 到达目的地"});
+        bcOk("广播 10019·状态取不到时也不能抛", NavBcastFmt.KT_STATE, kvOf("FOO", "1"),
+                new String[]{"keys=FOO"});
+        bcOk("未收录 KEY_TYPE 也要可读（便于发现新接口）", 99999, kvOf("SOMETHING", "x"),
+                new String[]{"未收录", "keys=SOMETHING"});
+        bcOk("空 Bundle 既不抛也不返回空串", NavBcastFmt.KT_GUIDE,
+                new LinkedHashMap<String, Object>(), new String[]{"KEY_TYPE=10001"});
+        report("KEY_TYPE 收录判定", NavBcastFmt.isKnownKeyType(NavBcastFmt.KT_GUIDE)
+                && NavBcastFmt.isKnownKeyType(NavBcastFmt.KT_LANE)
+                && !NavBcastFmt.isKnownKeyType(99999));
+        report("10019 状态名映射", "开始导航".equals(NavBcastFmt.stateName(8))
+                && "结束导航".equals(NavBcastFmt.stateName(9))
+                && "到达目的地".equals(NavBcastFmt.stateName(39)));
 
         lrcOk("标准 LRC（含制作信息行，应剔除）",
                 "[00:00.00]作词：张三\n[00:12.50]夜空中最亮的星\n[00:17.20]能否听清\n[01:02.00]那仰望的人",
@@ -118,6 +155,36 @@ public class LogicSmoke {
         if (!ok) {
             System.out.println("    raw = " + raw + " 不应被识别为导航");
         }
+    }
+
+    /* ---------------- 高德广播协议（v1.5.20） ---------------- */
+
+    /** 摘要必须包含全部关键子串，且不抛、不为空。 */
+    private static void bcOk(String name, int keyType, Map<String, Object> kv, String[] must) {
+        String got;
+        try {
+            got = NavBcastFmt.summarize(keyType, kv);
+        } catch (Throwable t) {
+            got = "抛异常: " + t;
+        }
+        StringBuilder miss = new StringBuilder();
+        for (String m : must) {
+            if (got == null || !got.contains(m)) {
+                miss.append("[").append(m).append("]");
+            }
+        }
+        boolean ok = miss.length() == 0 && got != null && !got.isEmpty();
+        report(name, ok);
+        if (!ok) {
+            System.out.println("    实际 = " + got);
+            System.out.println("    缺少 = " + miss);
+        }
+    }
+
+    private static Map<String, Object> kvOf(String k, String v) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        m.put(k, v);
+        return m;
     }
 
     /* ---------------- 歌词 ---------------- */
