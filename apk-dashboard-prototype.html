@@ -274,6 +274,9 @@
   .home-nav .hn-road{font-size:calc(16 * var(--u));font-weight:700;line-height:1.35;min-width:0}
   .home-nav .hn-meta{font-size:calc(12 * var(--u));color:var(--sub);line-height:1.5}
   .home-nav .hn-meta b{color:var(--txt);font-variant-numeric:tabular-nums}
+  /* 「未在导航」态的操作引导：告诉用户画面从哪来（唯一可行路 = 导航 App 自己的悬浮窗） */
+  .home-nav .hn-hint{font-size:calc(12 * var(--u));color:var(--sub);line-height:1.65}
+  .home-nav .hn-hint b{color:var(--txt)}
   .home-nav .hn-acts{display:flex;gap:calc(8 * var(--u));flex-wrap:wrap}
   .home-nav .hn-btn{font-size:calc(12 * var(--u));padding:calc(8 * var(--u)) calc(12 * var(--u));
     border-radius:calc(10 * var(--u));border:1px solid var(--line);background:var(--panel2);
@@ -1107,6 +1110,14 @@ function renderMusicSrcCur(){
   el.title="当前音乐源："+it.name;   // 前缀移入 title：与 U盘/蓝牙/选择应用 同处一行，容不下长前缀
   el.innerHTML=iconHTML(it.pkg,it.icon,'src-ic')+'<b>'+it.name+'</b>';
 }
+// ★ 高德两个包的显示名必须分开：PackageManager 给车机版/手机版的 label 都叫「高德地图」，
+//   不区分的话「导航源」里会出现两个一模一样的高德，选错就拉错 App。
+function navLabelOf(pkg,name){
+  var n=name||"";
+  if(pkg==="com.autonavi.amapauto") return n.indexOf("车机版")<0 ? n+"（车机版）" : n;
+  if(pkg==="com.autonavi.minimap")  return n.indexOf("手机版")<0 ? n+"（手机版）" : n;
+  return n;
+}
 // 导航源：点「选择应用」从已装导航 App 中选取（安卓抽屉式），显示当前源
 function buildNavApp(){
   // 容器 #setNavApp 已移除，「选择应用」改为静态 DOM #navPickApp（在「当前源」右侧）
@@ -1118,6 +1129,7 @@ function buildNavApp(){
   });
   window.L6Native.getInstalledApps(apps=>{
     const navs=apps.filter(a=>a.type==="nav");
+    navs.forEach(a=>{ a.name=navLabelOf(a.pkg,a.name); });   // 高德车机版/手机版同名 → 加后缀
     NAV_APPS=navs;                              // 供 startNav 取显示名
     if(!navs.some(a=>(a.key||a.pkg)===settings.navApp) && navs.length) settings.navApp=navs[0].key;
     navApp=settings.navApp;
@@ -1512,13 +1524,19 @@ function syncHomeNav(){
     '</div>';
   if(n.active){
     box.classList.add("live");
+    // 车机版导航 App 的常驻通知往往只有「正在后台导航」，解析不出转向/剩余 ⇒ 别硬凑「-- · -- · --」
+    var hasMeta=(n.dist&&n.dist!=="--")||(n.eta&&n.eta!=="--")||(n.dest&&n.dest!=="--");
+    var meta=hasMeta
+      ? '<div class="hn-meta">剩余 <b>'+(n.dist||"--")+'</b> · 约 <b>'+(n.eta||"--")+'</b> · 到 <b>'+(n.dest||"--")+'</b></div>'
+      : '<div class="hn-meta">导航进行中 · 该 App 未提供转向 / 剩余信息。</div>';
     box.innerHTML='<div class="hn-head"><span class="hn-tag">导航中</span><span class="hn-app">'+(app||"")+'</span></div>'+
-      '<div class="hn-turn"><span class="hn-arr">'+(n.arr||"↑")+'</span><span class="hn-road">'+(n.turn||"导航中")+'</span></div>'+
-      '<div class="hn-meta">剩余 <b>'+(n.dist||"--")+'</b> · 约 <b>'+(n.eta||"--")+'</b> · 到 <b>'+(n.dest||"--")+'</b></div>'+acts;
+      '<div class="hn-turn"><span class="hn-arr">'+(n.arr||"↑")+'</span><span class="hn-road">'+(n.turn||"导航进行中")+'</span></div>'+
+      meta+acts;
   }else{
     box.classList.remove("live");
     box.innerHTML='<div class="hn-head"><span class="hn-tag idle">未在导航</span><span class="hn-app">'+(app||"未选择导航 App")+'</span></div>'+
-      '<div class="hn-meta">点「启动导航」拉起导航 App；导航中的转向 / 剩余信息会自动显示在这里。</div>'+acts;
+      '<div class="hn-hint"><b>想让导航画面显示在这里？</b>开启导航 App 自带的<b>「全局悬浮导航」</b>（高德：我的 → 设置 → 导航设置），画面就会浮在本页上方 —— 拖进这个区域即可（系统窗口，不会自动吸附）。</div>'+
+      '<div class="hn-meta">或点「启动导航」由它全屏接管；导航中的转向 / 剩余信息会自动显示在这里。</div>'+acts;
   }
 }
 /* Android 只允许「应用自己变小窗」，没有任何 API 能把第三方导航 App 装进我们的窗口 ——
@@ -1602,6 +1620,7 @@ function openAppPicker(type, onPick){
   var open=function(){ d.classList.add("open"); if(sc)sc.classList.add("open"); };
   var fill=function(apps){
     var list=type? apps.filter(function(a){return a.type===type;}) : apps;
+    if(type==="nav") list.forEach(function(a){ a.name=navLabelOf(a.pkg,a.name); });
     body.innerHTML="";
     if(!list.length){
       body.innerHTML='<div class="al-empty">'+(

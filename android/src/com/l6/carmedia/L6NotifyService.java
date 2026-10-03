@@ -119,14 +119,23 @@ public class L6NotifyService extends NotificationListenerService {
                 str(ex, Notification.EXTRA_SUB_TEXT),
                 str(ex, Notification.EXTRA_INFO_TEXT),
                 str(ex, Notification.EXTRA_SUMMARY_TEXT));
-        if (!NavParse.looksLikeNav(all)) {
-            return;   // 该 App 的其他普通通知（如「签到」）→ 忽略
+        boolean strict = NavParse.looksLikeNav(all);
+        if (!strict) {
+            // 宽松兜底：车机版导航 App 的常驻通知常常只有「已进入后台运行，将持续为您导航」这类文案，
+            // 没有距离数字 ⇒ 严格判定会整条丢掉 ⇒ 主页导航区域一直显示「未在导航」（v1.5.18 修）。
+            // ★ 只在「常驻通知（ongoing / 前台服务）」时才认，避免把该 App 的普通通知误判成导航。
+            boolean ongoing = (n.flags & Notification.FLAG_ONGOING_EVENT) != 0
+                    || (n.flags & Notification.FLAG_FOREGROUND_SERVICE) != 0;
+            if (!(ongoing && NavParse.looksLikeNavLoose(all))) {
+                return;   // 该 App 的其他普通通知（如「签到」）→ 忽略
+            }
         }
         try {
             String[] v = NavParse.parse(all);
             JSONObject o = new JSONObject();
             o.put("kind", "nav");
             o.put("active", true);
+            o.put("loose", !strict);      // true = 只认出「在导航」，转向/剩余解析不到（字段为空）
             o.put("pkg", pkg);
             o.put("app", navName(pkg));
             o.put("raw", all);

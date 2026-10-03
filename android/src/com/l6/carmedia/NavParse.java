@@ -76,6 +76,27 @@ public final class NavParse {
         return kw && PKM.matcher(s).find();
     }
 
+    /** 文案里是否提到导航（**不看距离**）—— 车机版导航 App 的常驻通知常常只有这类文字。 */
+    public static boolean mentionsNav(String s) {
+        if (s == null || s.isEmpty()) {
+            return false;
+        }
+        return s.contains("导航") || s.contains("行驶") || s.contains("路线") || s.contains("驾驶");
+    }
+
+    /**
+     * 宽松判定：只问「这条通知是不是在说导航」，不要求带距离数字。
+     *
+     * 为什么需要：{@link #looksLikeNav} 要求「关键词 + 距离」同时满足，而**车机版**导航 App 的
+     * 常驻通知往往只有「高德地图已进入后台运行，将持续为您导航」这类文案（没有距离），
+     * 严格判定会把整条通知丢掉 ⇒ 前端永远收不到 active=true ⇒ 主页导航区域一直显示「未在导航」。
+     *
+     * ★「是否常驻」由调用方按通知 flags 判断 —— 本类是零 Android 依赖的纯函数，不碰 Notification。
+     */
+    public static boolean looksLikeNavLoose(String s) {
+        return looksLikeNav(s) || mentionsNav(s);
+    }
+
     /** 解析成固定 8 元组（字典序见 ARROW..DEST 常量），任何字段都可能为空字符串。 */
     public static String[] parse(String s) {
         String[] out = new String[N];
