@@ -374,6 +374,7 @@ setTimeout(async () => {
                         homeNavEl.innerHTML.indexOf('全局悬浮导航') >= 0 &&   // v1.5.18：空态给了画面从哪来的引导
                         homeNavEl.innerHTML.indexOf('hn-dbg') >= 0 &&        // v1.5.19：空态带导航通知诊断行
                         homeNavEl.innerHTML.indexOf('hn-bc') >= 0 &&         // v1.5.20：空态带高德广播探针行
+                        homeNavEl.innerHTML.indexOf('通知监听服务') >= 0 &&      // v1.5.21：空态能看出通知服务连没连上
                         homeNavEl.innerHTML.indexOf('对齐区域') >= 0 &&       // v1.5.20：对齐引导入口
                         homeNavEl.innerHTML.indexOf('画中画') < 0;          // v1.5.17 起画中画按钮已移除
   // 真实导航数据进来 → #homeNav 显示导航中，同时顶部 #miniNav 必须让位（互斥，不重复显示）
@@ -384,6 +385,33 @@ setTimeout(async () => {
                         homeNavEl.innerHTML.indexOf('14min') >= 0 &&
                         homeNavEl.innerHTML.indexOf('公司') >= 0;
   const miniNavYieldOk = !d.getElementById('miniNav').classList.contains('show');
+
+  // v1.5.21：广播源（src=bcast）走另一套渲染 —— 转向词 + 下一道路名自己拼，另带来源标签与状态条
+  window.applyRealNav({ active: true, src: 'bcast', arrow: '\u21B0', turn: '左转', next: '兴物线',
+                        remain: '5.6公里', eta: '11分钟', seg: '1.1公里',
+                        chips: '0km/h · 电子眼 451m', app: '高德地图', cruise: false });
+  const hnLive = homeNavEl.innerHTML;
+  const homeNavBcastOk = hnLive.indexOf('hn-src') >= 0 && hnLive.indexOf('广播') >= 0 &&
+                         hnLive.indexOf('左转 · 进入 兴物线') >= 0 &&
+                         hnLive.indexOf('本段剩') >= 0 && hnLive.indexOf('1.1公里') >= 0 &&
+                         hnLive.indexOf('hn-chips') >= 0 && hnLive.indexOf('电子眼 451m') >= 0 &&
+                         hnLive.indexOf('5.6公里') >= 0;
+
+  // v1.5.21：两条源字段契约不同 —— 通知源的 turn 已是整句，绝不能把 n.next 再拼上去
+  //（通知源的 next 里装的是距离，拼上去会变成「进入 8.6km」这种鬼话）
+  window.applyRealNav({ active: true, arrow: '\u21B1', turn: '前方 300m 右转 · 进入 滨江大道',
+                        next: '8.6km', remain: '8.6km', eta: '14min', app: '高德地图' });
+  const navSrcSplitOk = homeNavEl.innerHTML.indexOf('前方 300m 右转 · 进入 滨江大道') >= 0 &&
+                        homeNavEl.innerHTML.indexOf('进入 8.6km') < 0 &&
+                        homeNavEl.innerHTML.indexOf('hn-src') < 0;
+
+  // v1.5.21：通知服务连接状态要显示；且「导航结束」复位时不得把它一起清掉（svc 与本次导航无关）
+  window.L6SysEvent({ kind: 'navbc', bc: '[3] KEY_TYPE=10001 · 导航', n: 3, svc: true });
+  window.applyRealNav(null);
+  const svcLineOk = homeNavEl.innerHTML.indexOf('通知监听服务：已连接') >= 0 &&
+                    !!window.REAL && window.REAL.nav.svc === true;
+  window.L6SysEvent({ kind: 'navbc', bc: '', n: 0, svc: false });   // 收尾，免得影响后面
+
   window.applyRealNav(null);
 
   // 拖动排序：#pageMusic 顺序要跟着「设置页三项的顺序」变
@@ -426,7 +454,8 @@ setTimeout(async () => {
                        !/#pageMusic > \[data-mod="nav"\]\{flex:1\}/.test(htmlSrc);
 
   const homeModeOk = hmDefaultOk && hmRenderOk && homeThreeOk && hmNavOnOk && homeNavIdleOk &&
-                     homeNavLiveOk && miniNavYieldOk && hmDragOk && hmAllOffOk &&
+                     homeNavLiveOk && homeNavBcastOk && navSrcSplitOk && svcLineOk &&
+                     miniNavYieldOk && hmDragOk && hmAllOffOk &&
                      pipGoneOk && equalThreeOk;
 
   // 空态自诊断：必须能把「桥读不到应用」与「车机真没装应用」区分开。
@@ -489,7 +518,9 @@ setTimeout(async () => {
   console.log('dock 长按真实路径(阈值置0) ->', lpDragOn, '| 吃掉后续 click ->', lpFired && swallowOk, '| 松手收尾 ->', lpEnded);
   console.log('dock 导航按钮直接启动 ->', launched ? launched[1] : '(未触发)');
   console.log('主页模式：默认(状态+音乐) ->', hmDefaultOk, '| 设置页三项渲染 ->', hmRenderOk, '| 主页三栏按 order ->', homeThreeOk);
-  console.log('主页模式：勾选导航后三栏全显 ->', hmNavOnOk, '| 导航窗口空态文案 ->', homeNavIdleOk, '| 有数据时填充 ->', homeNavLiveOk);
+  console.log('主页模式：勾选导航后三栏全显 ->', hmNavOnOk, '| 空态文案 ->', homeNavIdleOk,
+              '| 通知源填充 ->', homeNavLiveOk, '| 广播源填充 ->', homeNavBcastOk,
+              '| 两源字段不串 ->', navSrcSplitOk, '| 通知服务状态 ->', svcLineOk);
   console.log('主页模式：顶部迷你卡让位(#miniNav 互斥) ->', miniNavYieldOk, '| 拖动排序落盘 ->', hmDragOk, '(' + hmOrderMoved + ')');
   console.log('主页模式：三项全取消回默认 ->', hmAllOffOk, '| 画中画已移除 ->', pipGoneOk, '| 三栏等宽 ->', equalThreeOk);
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');

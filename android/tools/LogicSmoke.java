@@ -1,4 +1,5 @@
 import com.l6.carmedia.LrcParse;
+import com.l6.carmedia.NavBcastData;
 import com.l6.carmedia.NavBcastFmt;
 import com.l6.carmedia.NavParse;
 import com.l6.carmedia.SigDiff;
@@ -17,6 +18,7 @@ import java.util.Map;
  *   javac -encoding UTF-8 -d <tmp> src/com/l6/carmedia/NavParse.java \
  *         src/com/l6/carmedia/LrcParse.java src/com/l6/carmedia/SigDiff.java \
  *         src/com/l6/carmedia/NavBcastFmt.java \
+ *         src/com/l6/carmedia/NavBcastData.java \
  *         tools/LogicSmoke.java
  *   java -cp <tmp> LogicSmoke
  */
@@ -86,6 +88,79 @@ public class LogicSmoke {
         report("10019 状态名映射", "开始导航".equals(NavBcastFmt.stateName(8))
                 && "结束导航".equals(NavBcastFmt.stateName(9))
                 && "到达目的地".equals(NavBcastFmt.stateName(39)));
+
+        // ---- v1.5.21：广播结构化模型（NavBcastData）—— 真正的导航数据源 ----
+        // 数据取自 2026-10-03 车机实拍回显（含「无效值占位」的真实样本）
+        Map<String, Object> shot = new LinkedHashMap<String, Object>();
+        shot.put("TYPE", "0");
+        shot.put("CUR_ROAD_NAME", "无名道路");
+        shot.put("NEXT_ROAD_NAME", "兴物线");
+        shot.put("NEW_ICON", "2");
+        shot.put("ROUTE_REMAIN_DIS_AUTO", "5.6公里");
+        shot.put("ROUTE_REMAIN_TIME_AUTO", "11分钟");
+        shot.put("SEG_REMAIN_DIS_AUTO", "1.1公里");
+        shot.put("CUR_SPEED", "0");
+        shot.put("LIMITED_SPEED", "1");
+        shot.put("CAMERA_DIST", "451");
+        shot.put("TRAFFIC_LIGHT_NUM", "0");
+        NavBcastData bd = NavBcastData.of(shot);
+        report("v1.5.21 实拍回显：导航中 + 道路名成对",
+                bd.isNav() && !bd.isCruise() && "无名道路".equals(bd.curRoad)
+                        && "兴物线".equals(bd.nextRoad));
+        report("v1.5.21 转向图标 2 = 左转 ↰",
+                "\u21B0".equals(bd.arrow()) && "左转".equals(bd.turnName()));
+        report("v1.5.21 ★ 限速 1 = 无数据（不显示假的限速）", !bd.hasLimit());
+        report("v1.5.21 ★ 红绿灯 0 = 无数据", !bd.hasLight());
+        report("v1.5.21 电子眼 451m 有效", bd.hasCamera());
+        report("v1.5.21 ★ 车速 0 是真值（车停着），照显示",
+                bd.hasSpeed() && bd.speed == 0);
+        report("v1.5.21 chips 只列有效项：0km/h · 电子眼 451m",
+                "0km/h · 电子眼 451m".equals(bd.chips()));
+        report("v1.5.21 instruction 用下一道路名",
+                "左转 · 兴物线".equals(bd.instruction()));
+        report("v1.5.21 remainLine",
+                "剩余 5.6公里 · 11分钟".equals(bd.remainLine()));
+
+        // 图标映射全表（v1.5.21 实测 2 ⇒ 与高德悬浮窗一致；其余为社区通行值）
+        String[] arrows = {"\u2191", "\u2196", "\u21B0", "\u2199", "\u2197",
+                "\u21B1", "\u2198", "\u21BA", "\u21BB", "\u26F3"};
+        String[] names = {"直行", "左前方", "左转", "左后方", "右前方",
+                "右转", "右后方", "掉头", "环岛", "到达目的地"};
+        boolean iconOk = true;
+        for (int i = 0; i < arrows.length; i++) {
+            if (!arrows[i].equals(NavBcastFmt.iconArrow(i))
+                    || !names[i].equals(NavBcastFmt.iconName(i))) {
+                iconOk = false;
+                System.out.println("    图标 " + i + " 期望 " + names[i]
+                        + " / 实得 " + NavBcastFmt.iconName(i));
+            }
+        }
+        report("v1.5.21 转向图标全表 0..9", iconOk);
+        report("v1.5.21 未知图标不空白（↑ / 继续行驶）",
+                "\u2191".equals(NavBcastFmt.iconArrow(88))
+                        && "继续行驶".equals(NavBcastFmt.iconName(88)));
+
+        // 边界：空 Map / null / 全无效值 都不能抛，也不能编数据
+        NavBcastData empty = NavBcastData.of(new LinkedHashMap<String, Object>());
+        NavBcastData nul = NavBcastData.of(null);
+        report("v1.5.21 空/ null 输入不抛且不编数据",
+                !empty.hasLimit() && !empty.hasCamera() && !empty.hasLight()
+                        && !empty.hasSpeed() && "".equals(empty.chips())
+                        && !nul.hasLimit() && !nul.hasSpeed());
+        report("v1.5.21 空输入也能给出中性指令",
+                "继续行驶".equals(empty.instruction()) && "".equals(empty.remainLine()));
+
+        Map<String, Object> noRoad = new LinkedHashMap<String, Object>();
+        noRoad.put("NEW_ICON", "5");
+        noRoad.put("CUR_ROAD_NAME", "滨江大道");
+        NavBcastData nr = NavBcastData.of(noRoad);
+        report("v1.5.21 没有下一道路时退回当前道路名",
+                "右转 · 滨江大道".equals(nr.instruction()));
+
+        Map<String, Object> cruise = new LinkedHashMap<String, Object>();
+        cruise.put("TYPE", "2");
+        NavBcastData cr = NavBcastData.of(cruise);
+        report("v1.5.21 TYPE=2 判巡航（不是导航）", cr.isCruise() && !cr.isNav());
 
         lrcOk("标准 LRC（含制作信息行，应剔除）",
                 "[00:00.00]作词：张三\n[00:12.50]夜空中最亮的星\n[00:17.20]能否听清\n[01:02.00]那仰望的人",

@@ -71,6 +71,44 @@ public final class NavBcastFmt {
         }
     }
 
+    /* ---------------- 转向图标 ID 映射（NEW_ICON / ICON） ----------------
+       ★ ID → 语义用的是社区通行的高德车机版枚举；**v1.5.21 首次装车实测与高德自带悬浮窗
+         显示的箭头一致（NEW_ICON=2 ↔ 左转）**，但映射表本身仍属「按实测校准」的范畴：
+         诊断行里始终保留原始 `转向图标 N`，一旦发现错位，改这一张表即可，不用动其它代码。 */
+    private static final String[] ICON_ARROW = {
+            "\u2191",   // 0 直行     ↑
+            "\u2196",   // 1 左前方   ↖
+            "\u21B0",   // 2 左转     ↰
+            "\u2199",   // 3 左后方   ↙
+            "\u2197",   // 4 右前方   ↗
+            "\u21B1",   // 5 右转     ↱
+            "\u2198",   // 6 右后方   ↘
+            "\u21BA",   // 7 掉头     ↺
+            "\u21BB",   // 8 环岛     ↻
+            "\u26F3",   // 9 到达     ⛳
+    };
+    private static final String[] ICON_NAME = {
+            "直行", "左前方", "左转", "左后方", "右前方",
+            "右转", "右后方", "掉头", "环岛", "到达目的地",
+    };
+
+    /** 转向图标 ID → 箭头字符（未知 ID 给中性箭头，绝不返回空串）。 */
+    public static String iconArrow(int id) {
+        if (id >= 0 && id < ICON_ARROW.length) {
+            return ICON_ARROW[id];
+        }
+        return "\u2191";
+    }
+
+    /** 转向图标 ID → 中文指令（未知 ID 给「继续行驶」，页面不必再兜底）。 */
+    public static String iconName(int id) {
+        if (id >= 0 && id < ICON_NAME.length) {
+            return ICON_NAME[id];
+        }
+        return "继续行驶";
+    }
+
+
     /**
      * Bundle 摘要 → 一行可读文本。keyType 未知时也要能读（把收到的键名摆出来，
      * 方便发现未收录的接口），绝不返回 null / 空串。
@@ -222,7 +260,7 @@ public final class NavBcastFmt {
     }
 
     /** 宽容取整："8" / "8.0" / " 8 " 都能出 8；不认识的返回 def。 */
-    private static int intOf(String s, int def) {
+    public static int intOf(String s, int def) {
         if (s == null) {
             return def;
         }

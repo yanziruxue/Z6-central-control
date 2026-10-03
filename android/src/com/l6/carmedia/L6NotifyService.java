@@ -8,7 +8,11 @@ import android.service.notification.StatusBarNotification;
 import org.json.JSONObject;
 
 /**
- * 系统通知监听：导航真实数据的来源。
+ * 系统通知监听：导航真实数据的**兜底**来源。
+ *
+ * ★ v1.5.21 起导航数据以**高德广播**（{@link NavBcastProbe}）为优先源：2026-10-03 装车实测
+ *   这台车机的广播是通的（10001 带全字段），而**导航通知一条都没收到** ⇒ 通知路在本机是死的。
+ *   所以通知解析保留为「广播不可用时的兜底」，两条链路不会同时接管状态（见 handleNav 开头的让位判断）。
  *
  * 为什么走通知？车机上的导航 App（高德/百度/腾讯）在导航中会常驻一条「导航中」通知，
  * 里面就带着「前方 300米 右转」「剩余 5.6公里 · 12分钟」这类信息 —— 这是第三方 App
@@ -42,6 +46,8 @@ public class L6NotifyService extends NotificationListenerService {
     public void onListenerConnected() {
         super.onListenerConnected();
         try {
+            // v1.5.21：回报给广播探针一起显示 —— 能区分「服务没连上」与「连上了但没收到通知」
+            NavBcastProbe.noteService(true);
             SysHub.pushAccess(true);
             MediaHub.get(this).refresh();
             markSeen("服务已连接（通知使用权已授予），等待导航通知…");
@@ -55,6 +61,7 @@ public class L6NotifyService extends NotificationListenerService {
     public void onListenerDisconnected() {
         super.onListenerDisconnected();
         try {
+            NavBcastProbe.noteService(false);
             SysHub.pushAccess(false);
             MediaHub.get(this).pushInactive();
             markSeen("服务已断开（通知使用权被撤销）");
@@ -108,6 +115,12 @@ public class L6NotifyService extends NotificationListenerService {
     /* ==================== 导航解析 ==================== */
 
     private void handleNav(String pkg, Notification n, boolean active) {
+        if (NavBcastProbe.isLive()) {
+            // ★ v1.5.21：广播源数据新鲜时，通知源不再接管状态 —— 两条链路同时写 active 会互相打架
+            //   （实测这台车机广播通、导航通知根本没来，本来不会冲突；换台车就难说了）。
+            L6Log.i("L6Nav", "广播源优先，通知源本次不接管状态");
+            return;
+        }
         if (!active) {
             // 导航通知消失 = 本次导航结束
             if (pkg.equals(lastNavPkg)) {

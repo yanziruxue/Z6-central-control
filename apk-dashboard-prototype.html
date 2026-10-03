@@ -286,6 +286,13 @@
   .home-nav .hn-align-tip{display:none;font-size:calc(12 * var(--u));font-weight:700;color:var(--acc);line-height:1.5}
   .home-nav.hn-align{outline:calc(3 * var(--u)) dashed var(--acc);outline-offset:calc(-4 * var(--u))}
   .home-nav.hn-align .hn-align-tip{display:block}
+  /* v1.5.21：数据来源标签（广播 / 通知）+ 底部状态条（限速 / 车速 / 电子眼 / 红绿灯） */
+  .home-nav .hn-src{font-size:calc(10 * var(--u));padding:calc(2 * var(--u)) calc(7 * var(--u));
+    border-radius:calc(99 * var(--u));border:1px solid var(--line);color:var(--acc);white-space:nowrap}
+  .home-nav .hn-chips{display:flex;flex-wrap:wrap;gap:calc(6 * var(--u))}
+  .home-nav .hn-chips i{font-style:normal;font-size:calc(11 * var(--u));padding:calc(2 * var(--u)) calc(8 * var(--u));
+    border-radius:calc(99 * var(--u));background:rgba(255,255,255,.08);color:var(--sub);white-space:nowrap}
+  .home-nav .hn-chips i.on{color:var(--txt);border:1px solid rgba(61,169,252,.45)}
   .home-nav .hn-acts{display:flex;gap:calc(8 * var(--u));flex-wrap:wrap}
   .home-nav .hn-btn{font-size:calc(12 * var(--u));padding:calc(8 * var(--u)) calc(12 * var(--u));
     border-radius:calc(10 * var(--u));border:1px solid var(--line);background:var(--panel2);
@@ -688,7 +695,7 @@ let playing=false, vol=62;
 /* 真实系统数据（媒体会话 / 导航通知）—— 由原生桥经 window.L6SysEvent 回填；
    没有桥接（浏览器直接打开原型）或未授权时 active=false，页面显示「未播放 / 暂无歌词」空状态。 */
 var REAL={media:{active:false,playing:false,dur:0,pos:0,title:"",artist:""},
-  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:"",bc:""},acc:false,lrc:null,lrcKey:""};
+  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:"",bc:"",src:"",next:"",seg:"",chips:"",cruise:false,svc:null},acc:false,lrc:null,lrcKey:""};
 // 歌词区（右侧 2/3）：整屏歌词 + 当前句高亮，由真实播放进度驱动
 let lyrIdx=0;
 function renderLyrics(){
@@ -1529,6 +1536,13 @@ function hnEsc(s){
     return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
   });
 }
+/* v1.5.21：广播源把状态条拼成一整串（限速 60 · 38km/h · 电子眼 451m），这里拆成小胶囊更耐看 */
+function chipsHtml(txt){
+  return String(txt||"").split(" · ").filter(function(x){return x;}).map(function(x){
+    var on=/限速|电子眼/.test(x)?' class="on"':'';
+    return '<i'+on+'>'+hnEsc(x)+'</i>';
+  }).join("");
+}
 function syncHomeNav(){
   var box=document.getElementById("homeNav"); if(!box) return;
   var n=(typeof REAL!=="undefined"&&REAL.nav)||{};
@@ -1540,23 +1554,46 @@ function syncHomeNav(){
     '</div>';
   if(n.active){
     box.classList.add("live");
-    // 车机版导航 App 的常驻通知往往只有「正在后台导航」，解析不出转向/剩余 ⇒ 别硬凑「-- · -- · --」
-    var hasMeta=(n.dist&&n.dist!=="--")||(n.eta&&n.eta!=="--")||(n.dest&&n.dest!=="--");
-    var meta=hasMeta
-      ? '<div class="hn-meta">剩余 <b>'+(n.dist||"--")+'</b> · 约 <b>'+(n.eta||"--")+'</b> · 到 <b>'+(n.dest||"--")+'</b></div>'
-      : '<div class="hn-meta">导航进行中 · 该 App 未提供转向 / 剩余信息。</div>';
-    box.innerHTML='<div class="hn-head"><span class="hn-tag">导航中</span><span class="hn-app">'+(app||"")+'</span></div>'+
-      '<div class="hn-turn"><span class="hn-arr">'+(n.arr||"↑")+'</span><span class="hn-road">'+(n.turn||"导航进行中")+'</span></div>'+
-      meta+'<div class="hn-align-tip">↑ 把导航 App 的悬浮小窗拖进这个亮框</div>'+acts;
+    // v1.5.21：两条数据源的字段契约不同，渲染必须分开 ——
+    //   · 广播源（n.src==="bcast"）：turn 只是转向词（左转），道路名在 n.next 里，需自己拼；
+    //   · 通知源：turn 已经是「前方 300m 右转 · 进入 滨江大道」整句，再拼 n.next（那里是距离！）就重复了。
+    var bc=(n.src==="bcast");
+    var tag=bc?(n.cruise?"巡航":"导航中"):"导航中";
+    var head='<div class="hn-head"><span class="hn-tag">'+tag+'</span><span class="hn-app">'+(app||"")+'</span>'+
+      (bc?'<span class="hn-src">广播</span>':'')+'</div>';
+    var roadTxt=bc
+      ? (hnEsc(n.turn||"继续行驶")+(n.next?(' · 进入 '+hnEsc(n.next)):''))
+      : hnEsc(n.turn||"导航进行中");
+    var turn='<div class="hn-turn"><span class="hn-arr">'+(n.arr||"↑")+'</span>'+
+      '<span class="hn-road">'+roadTxt+'</span></div>';
+    // 别硬凑「-- · -- · --」：有什么显示什么（★ v1.5.20 原有的「到 X」不能丢）
+    var meta1='';
+    if(n.dist&&n.dist!=="--"){
+      meta1='<div class="hn-meta">剩余 <b>'+hnEsc(n.dist)+'</b>'+
+        (n.eta?(' · 约 <b>'+hnEsc(n.eta)+'</b>'):'')+
+        (n.dest&&n.dest!=="--"?(' · 到 <b>'+hnEsc(n.dest)+'</b>'):'')+'</div>';
+    }else if(n.dest&&n.dest!=="--"){
+      meta1='<div class="hn-meta">前往 <b>'+hnEsc(n.dest)+'</b></div>';
+    }
+    var meta2=n.seg?('<div class="hn-meta">本段剩 <b>'+hnEsc(n.seg)+'</b></div>'):'';
+    if(!meta1&&!meta2&&!bc){
+      meta1='<div class="hn-meta">导航进行中 · 该 App 未提供转向 / 剩余信息。</div>';
+    }
+    var chips=n.chips?('<div class="hn-chips">'+chipsHtml(n.chips)+'</div>'):'';
+    box.innerHTML=head+turn+meta1+meta2+chips+
+      '<div class="hn-align-tip">↑ 把导航 App 的悬浮小窗拖进这个亮框</div>'+acts;
   }else{
     box.classList.remove("live");
     // v1.5.19 诊断：把「通知来没来、长什么样」直接摆在空态里 —— 装机排查时用户截图即可定位
     var accLine=REAL.acc?"":'<b>⚠️ 通知使用权未授予</b>：先点「设置 → 去授权」，否则读不到任何导航状态。<br>';
     var dbgTxt=hnEsc(n.dbg||"");
     var dbgLine=dbgTxt?('最近一条导航 App 通知：'+dbgTxt):'最近没有收到导航 App 的任何通知。';
+    // v1.5.21：把「通知监听服务连没连上」也摆出来 —— 一行就能解释「为什么一条通知都没有」
+    var svcLine=(n.svc===true)?'通知监听服务：已连接'
+      :(n.svc===false?'通知监听服务：<b>未连接</b>（通知这条路不可用）':'通知监听服务：未知');
     box.innerHTML='<div class="hn-head"><span class="hn-tag idle">未在导航</span><span class="hn-app">'+(app||"未选择导航 App")+'</span></div>'+
       '<div class="hn-hint"><b>想让导航画面显示在这里？</b>开启导航 App 自带的<b>「全局悬浮导航」</b>（高德：我的 → 设置 → 导航设置），画面就会浮在本页上方 —— 拖进这个区域即可（系统窗口，不会自动吸附）。</div>'+
-      '<div class="hn-dbg">'+accLine+dbgLine+'</div>'+
+      '<div class="hn-dbg">'+accLine+dbgLine+'<br>'+svcLine+'</div>'+
       '<div class="hn-bc">高德广播探针：'+hnEsc(n.bc||"未收到（探针未启动，或该车机 ROM 不转发）")+'</div>'+
       '<div class="hn-align-tip">↑ 把导航 App 的悬浮小窗拖进这个亮框（位置由它自己记住）</div>'+
       '<div class="hn-meta">或点「启动导航」由它全屏接管；导航中的转向 / 剩余信息会自动显示在这里。</div>'+acts;
@@ -2144,6 +2181,8 @@ function resetRealMedia(){
 /* ---- 导航：真实通知接管导航数据 ---- */
 function applyRealNav(d){
   if(!d||!d.active){REAL.nav.active=false;REAL.nav.arr="\u2191";REAL.nav.turn="";REAL.nav.dist="--";REAL.nav.eta="";REAL.nav.dest="";
+    // v1.5.21：广播源的结构化字段一并复位（svc 是服务状态，与本次导航无关 ⇒ 保留）
+    REAL.nav.src="";REAL.nav.next="";REAL.nav.seg="";REAL.nav.chips="";REAL.nav.cruise=false;
     if(d&&d.dbg)REAL.nav.dbg=d.dbg;      // v1.5.19：导航结束也保留诊断行
     syncMiniNav();
     $("#mArr").textContent="↑";$("#mTurn").textContent="";$("#mDist").textContent="--";
@@ -2157,9 +2196,12 @@ function applyRealNav(d){
   $("#mTurn").textContent=d.road?(turn+" · "+d.road):turn;
   $("#mDist").textContent=d.remain||"--";
   if(d.eta)$("#mEta").textContent=d.eta;
-  if(d.dest)$("#mDest").textContent=d.dest;
+  $("#mDest").textContent=d.dest||"";      // ★ 无条件写：否则上一段的目的地会残留在这一段
   if(d.app)REAL.nav.app=d.app;
   if(d.dbg)REAL.nav.dbg=d.dbg;
+  // v1.5.21：广播源的结构化字段（src=来源标签 / seg=本段剩余 / chips=限速·车速·电子眼·红绿灯）
+  REAL.nav.src=d.src||"";REAL.nav.next=d.next||"";REAL.nav.seg=d.seg||"";
+  REAL.nav.chips=d.chips||"";REAL.nav.cruise=!!d.cruise;
   // ★ 同一份数据也存进 REAL.nav —— 主页导航窗口 #homeNav 直接读它渲染（与 miniNav 互斥，不重复显示）
   REAL.nav.arr=arr;
   REAL.nav.turn=$("#mTurn").textContent;
@@ -2196,7 +2238,9 @@ window.L6SysEvent=function(e){
   // v1.5.19 诊断：只更新「最近收到的导航通知」那一行，不动 active 状态
   if(e.kind==="navdbg"){REAL.nav.dbg=e.dbg||"";try{syncHomeNav();}catch(_e){}return;}
   // v1.5.20 广播探测：只更新「最近一条高德广播」那一行，绝不碰 active 状态
-  if(e.kind==="navbc"){REAL.nav.bc=e.bc||"";try{syncHomeNav();}catch(_e){}return;}
+  if(e.kind==="navbc"){REAL.nav.bc=e.bc||"";
+    if(e.svc!==undefined&&e.svc!==null)REAL.nav.svc=!!e.svc;
+    try{syncHomeNav();}catch(_e){}return;}
   if(e.kind==="lyrics"){
     var k=(e.title||"")+"|"+(e.artist||"");
     if(k!==REAL.lrcKey)return;                        // 过期响应（已切歌）丢弃
