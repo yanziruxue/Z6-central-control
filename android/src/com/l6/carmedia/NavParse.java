@@ -97,6 +97,31 @@ public final class NavParse {
         return looksLikeNav(s) || mentionsNav(s);
     }
 
+    /** 「正在进行时」措辞 —— 本身就是导航中的强信号（见 {@link #mentionsNavStrong} 的说明）。 */
+    private static final String[] STRONG = {"为您导航", "正在导航", "导航中", "持续",
+            "后台运行", "路线指引", "导航服务", "导航已开启"};
+
+    /**
+     * 「正在进行时」措辞判定：比 {@link #mentionsNav} 更窄、更确定，用来在**没有 ongoing flag** 时
+     * 也敢认定「正在导航中」。
+     *
+     * 为什么需要：车机 ROM 不一定给导航通知打 {@code FLAG_ONGOING_EVENT} / {@code FLAG_FOREGROUND_SERVICE}
+     * （实测高德车机版那条「已进入后台运行，将持续为您导航」就常常两者皆无）⇒ 只靠 flags 会把
+     * 真导航挡在门外，主页导航区域永远停在「未在导航」。
+     * 而「持续 / 正在导航 / 后台运行」这类词几乎只出现在导航进行中的文案里 ⇒ 用它做旁路足够安全。
+     */
+    public static boolean mentionsNavStrong(String s) {
+        if (s == null || s.isEmpty()) {
+            return false;
+        }
+        for (String k : STRONG) {
+            if (s.contains(k)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 解析成固定 8 元组（字典序见 ARROW..DEST 常量），任何字段都可能为空字符串。 */
     public static String[] parse(String s) {
         String[] out = new String[N];

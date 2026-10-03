@@ -45,6 +45,10 @@ public class LogicSmoke {
         navLoose("车机版·后台导航常驻通知（无距离）", "高德地图已进入后台运行，将持续为您导航", true);
         navLoose("宽松判定也认严格判定的播报", "前方 300米 右转 | 剩余 5.6公里", true);
         navLoose("优惠券这种普通通知仍不算导航", "您有一张优惠券即将过期", false);
+        // v1.5.19：车机 ROM 可能不给导航通知打 ongoing flag ⇒ 靠「进行时措辞」旁路
+        navStrong("进行时措辞·持续为您导航", "高德地图已进入后台运行，将持续为您导航", true);
+        navStrong("进行时措辞·正在导航中", "正在导航中，请沿当前道路继续行驶", true);
+        navStrong("进行时措辞·普通推送不算", "您有一张优惠券即将过期，快来领取", false);
 
         lrcOk("标准 LRC（含制作信息行，应剔除）",
                 "[00:00.00]作词：张三\n[00:12.50]夜空中最亮的星\n[00:17.20]能否听清\n[01:02.00]那仰望的人",
@@ -90,6 +94,13 @@ public class LogicSmoke {
                     + " next=" + v[NavParse.NEXT] + " eta=" + v[NavParse.ETA]
                     + " road=" + v[NavParse.ROAD] + " dest=" + v[NavParse.DEST] + " nav=" + nav);
         }
+    }
+
+    private static void navStrong(String name, String raw, boolean expect) {
+        boolean got = NavParse.mentionsNavStrong(raw);
+        boolean ok = got == expect;
+        report(name, ok);
+        if (!ok) System.out.println("    raw = " + raw + " 进行时措辞期望 " + expect + " 实得 " + got);
     }
 
     private static void navLoose(String name, String raw, boolean expect) {

@@ -33,6 +33,8 @@ public class L6NotifyService extends NotificationListenerService {
 
     private String lastNavPkg = "";
     private String lastNavJson = "";
+    /** 诊断：最近一条「导航类 App 的通知」摘要 —— 经 navdbg 事件推到页面空态里显示（装机排查用）。 */
+    private String lastSeen = "";
 
     /* ==================== 生命周期 ==================== */
 
@@ -42,6 +44,8 @@ public class L6NotifyService extends NotificationListenerService {
         try {
             SysHub.pushAccess(true);
             MediaHub.get(this).refresh();
+            markSeen("服务已连接（通知使用权已授予），等待导航通知…");
+            pushNavDbg();
             pushNavInactive();
         } catch (Throwable ignored) {
         }
@@ -53,6 +57,8 @@ public class L6NotifyService extends NotificationListenerService {
         try {
             SysHub.pushAccess(false);
             MediaHub.get(this).pushInactive();
+            markSeen("服务已断开（通知使用权被撤销）");
+            pushNavDbg();
             pushNavInactive();
         } catch (Throwable ignored) {
         }
@@ -90,7 +96,9 @@ public class L6NotifyService extends NotificationListenerService {
         }
         try {
             String pkg = sbn.getPackageName();
-            if (pkg != null && isNavPkg(pkg)) {
+            // ★ v1.5.19：通知「更新」在系统层常表现为先 remove 再 post ⇒ 一 remove 就判导航结束，
+            //   会把状态刷成「未在导航」。先问系统「这个包还有没有活跃通知」，真没有才算结束。
+            if (pkg != null && isNavPkg(pkg) && !hasActiveFrom(pkg)) {
                 handleNav(pkg, null, false);
             }
         } catch (Throwable ignored) {
@@ -112,23 +120,26 @@ public class L6NotifyService extends NotificationListenerService {
         if (ex == null) {
             return;
         }
-        String all = join(
-                str(ex, Notification.EXTRA_TITLE),
-                str(ex, Notification.EXTRA_TEXT),
-                str(ex, Notification.EXTRA_BIG_TEXT),
-                str(ex, Notification.EXTRA_SUB_TEXT),
-                str(ex, Notification.EXTRA_INFO_TEXT),
-                str(ex, Notification.EXTRA_SUMMARY_TEXT));
+        String all = allText(ex);
         boolean strict = NavParse.looksLikeNav(all);
         if (!strict) {
-            // 宽松兜底：车机版导航 App 的常驻通知常常只有「已进入后台运行，将持续为您导航」这类文案，
-            // 没有距离数字 ⇒ 严格判定会整条丢掉 ⇒ 主页导航区域一直显示「未在导航」（v1.5.18 修）。
-            // ★ 只在「常驻通知（ongoing / 前台服务）」时才认，避免把该 App 的普通通知误判成导航。
-            boolean ongoing = (n.flags & Notification.FLAG_ONGOING_EVENT) != 0
-                    || (n.flags & Notification.FLAG_FOREGROUND_SERVICE) != 0;
-            if (!(ongoing && NavParse.looksLikeNavLoose(all))) {
-                return;   // 该 App 的其他普通通知（如「签到」）→ 忽略
+            // 宽松兜底（v1.5.18）：车机版导航 App 的常驻通知常常只有「已进入后台运行，将持续为您导航」
+            // 这类文案（没有距离数字），严格判定会整条丢掉 ⇒ 主页导航区域一直显示「未在导航」。
+            // v1.5.19 再放宽两处：① flags 增加 FLAG_NO_CLEAR；
+            //   ② 命中「进行时措辞」（持续为您导航 / 正在导航 …）时不再要求 flags ——
+            //      车机 ROM 不一定给导航通知打 ongoing，只认 flags 会把真导航挡在门外。
+            boolean keep = (n.flags & (Notification.FLAG_ONGOING_EVENT
+                    | Notification.FLAG_FOREGROUND_SERVICE
+                    | Notification.FLAG_NO_CLEAR)) != 0;
+            boolean loose = NavParse.looksLikeNavLoose(all);
+            boolean strong = NavParse.mentionsNavStrong(all);
+            if (!(loose && (keep || strong))) {
+                markDrop("丢弃·" + diag(n) + " keep=" + keep + " loose=" + loose + " strong=" + strong);
+                return;   // 该 App 的其他普通通知（如「签到 / 优惠券」）→ 忽略
             }
+            markSeen("认作导航(宽松)·" + diag(n));
+        } else {
+            markSeen("认作导航(严格)·" + diag(n));
         }
         try {
             String[] v = NavParse.parse(all);
@@ -147,6 +158,7 @@ public class L6NotifyService extends NotificationListenerService {
             o.put("eta", v[NavParse.ETA]);
             o.put("clock", v[NavParse.CLOCK]);
             o.put("dest", v[NavParse.DEST]);
+            o.put("dbg", lastSeen);
 
             String json = o.toString();
             if (json.equals(lastNavJson)) {
@@ -159,11 +171,120 @@ public class L6NotifyService extends NotificationListenerService {
         }
     }
 
+    /* ==================== 诊断（v1.5.19） ==================== */
+
+    /** 通知里可能承载导航文案的所有槽位 —— ★ EXTRA_TEXT_LINES（InboxStyle）漏了会整条读不到。 */
+    private static String allText(Bundle ex) {
+        StringBuilder sb = new StringBuilder(join(
+                str(ex, Notification.EXTRA_TITLE),
+                str(ex, Notification.EXTRA_TEXT),
+                str(ex, Notification.EXTRA_BIG_TEXT),
+                str(ex, Notification.EXTRA_SUB_TEXT),
+                str(ex, Notification.EXTRA_INFO_TEXT),
+                str(ex, Notification.EXTRA_SUMMARY_TEXT)));
+        try {
+            Object v = ex.get(Notification.EXTRA_TEXT_LINES);
+            if (v instanceof CharSequence[]) {
+                for (CharSequence cs : (CharSequence[]) v) {
+                    if (cs == null) {
+                        continue;
+                    }
+                    String t = String.valueOf(cs).replace('\n', ' ').trim();
+                    if (t.isEmpty()) {
+                        continue;
+                    }
+                    if (sb.length() > 0) {
+                        sb.append(" | ");
+                    }
+                    sb.append(t);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return sb.toString();
+    }
+
+    /** 诊断一行：flags 十六进制（+可读名）+ 文案摘要 —— 装机时用户截图即可定位问题。 */
+    private static String diag(Notification n) {
+        if (n == null) {
+            return "flags=? \"\"";
+        }
+        int f = n.flags;
+        String names = "";
+        if ((f & Notification.FLAG_ONGOING_EVENT) != 0) {
+            names += "ongoing ";
+        }
+        if ((f & Notification.FLAG_FOREGROUND_SERVICE) != 0) {
+            names += "fg ";
+        }
+        if ((f & Notification.FLAG_NO_CLEAR) != 0) {
+            names += "noClear ";
+        }
+        if ((f & Notification.FLAG_AUTO_CANCEL) != 0) {
+            names += "auto ";
+        }
+        return "flags=0x" + Integer.toHexString(f)
+                + (names.isEmpty() ? "" : "(" + names.trim() + ")")
+                + " \"" + brief(allText(n.extras)) + "\"";
+    }
+
+    private static String brief(String s) {
+        if (s == null) {
+            return "";
+        }
+        String t = s.replace('\n', ' ').trim();
+        return t.length() > 56 ? (t.substring(0, 56) + "…") : t;
+    }
+
+    private void markSeen(String s) {
+        if (s == null || s.equals(lastSeen)) {
+            return;
+        }
+        lastSeen = s;
+        L6Log.i("L6Nav", "通知诊断 " + s);
+    }
+
+    /** 被丢弃最需要诊断 ⇒ 记一行并立刻推给页面（走 navdbg，不动 active 状态）。 */
+    private void markDrop(String s) {
+        markSeen(s);
+        pushNavDbg();
+    }
+
+    private void pushNavDbg() {
+        try {
+            JSONObject o = new JSONObject();
+            o.put("kind", "navdbg");
+            o.put("dbg", lastSeen);
+            SysHub.push(o);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** 该包当前是否仍有活跃通知（用于区分「通知被更新」与「导航结束」）。 */
+    private boolean hasActiveFrom(String pkg) {
+        try {
+            StatusBarNotification[] act = getActiveNotifications();
+            if (act == null) {
+                return false;
+            }
+            for (StatusBarNotification s : act) {
+                if (s != null && pkg.equals(s.getPackageName())) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
     private void pushNavInactive() {
         try {
             JSONObject o = new JSONObject();
             o.put("kind", "nav");
             o.put("active", false);
+            if (!lastSeen.isEmpty()) {
+                o.put("dbg", lastSeen);
+            }
             String json = o.toString();
             if (json.equals(lastNavJson)) {
                 return;

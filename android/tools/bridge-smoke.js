@@ -372,6 +372,7 @@ setTimeout(async () => {
                         homeNavEl.innerHTML.indexOf('启动导航') >= 0 &&
                         homeNavEl.innerHTML.indexOf('悬浮窗') >= 0 &&
                         homeNavEl.innerHTML.indexOf('全局悬浮导航') >= 0 &&   // v1.5.18：空态给了画面从哪来的引导
+                        homeNavEl.innerHTML.indexOf('hn-dbg') >= 0 &&        // v1.5.19：空态带导航通知诊断行
                         homeNavEl.innerHTML.indexOf('画中画') < 0;          // v1.5.17 起画中画按钮已移除
   // 真实导航数据进来 → #homeNav 显示导航中，同时顶部 #miniNav 必须让位（互斥，不重复显示）
   window.applyRealNav({ active: true, arrow: '↱', turn: '前方 300m 右转', road: '滨江大道',
