@@ -330,6 +330,13 @@ public class MainActivity extends Activity {
         // 隐式广播在 Android 8+ 不能静态注册，只能在这里动态注册（本应用是默认桌面，生命周期≈常驻）。
         try { NavBcastProbe.start(this); } catch (Throwable ignored) {}
 
+        // v1.5.22：小部件探测 —— 「把导航 / 音乐的原生卡片嵌进主页区域」这条路通不通？
+        // ★ 只读（见 WidgetProbe），跑一次把结论摆到主页导航区域的空态诊断行。
+        //   3s 是为了等页面加载完 + SHIM 注入完，此时 SysHub 的 emitter 才收得到事件。
+        web.postDelayed(() -> {
+            try { WidgetProbe.run(this); } catch (Throwable ignored) {}
+        }, 3000);
+
         // 启动 5s 后静默检查一次 OTA（不打扰首屏）
         web.postDelayed(() -> {
             try { new Bridge().checkOtaUpdate(); } catch (Throwable ignored) {}

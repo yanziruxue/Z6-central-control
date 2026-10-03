@@ -283,6 +283,8 @@
   /* v1.5.20：① 高德广播探针行（确认该车机 ROM 是否转发官方广播）；② 对齐引导 ——
      点亮区域边框，让用户把第三方悬浮小窗拖进来（系统窗口我们既搬不动也嵌不进来）。 */
   .home-nav .hn-bc{font-size:calc(11 * var(--u));color:var(--acc);opacity:.9;line-height:1.6;word-break:break-all}
+  /* v1.5.22：小部件探测行 —— 判定「能否把第三方原生卡片嵌进导航区域」 */
+  .home-nav .hn-wg{font-size:calc(11 * var(--u));color:var(--acc2);opacity:.9;line-height:1.6;word-break:break-all}
   .home-nav .hn-align-tip{display:none;font-size:calc(12 * var(--u));font-weight:700;color:var(--acc);line-height:1.5}
   .home-nav.hn-align{outline:calc(3 * var(--u)) dashed var(--acc);outline-offset:calc(-4 * var(--u))}
   .home-nav.hn-align .hn-align-tip{display:block}
@@ -695,7 +697,7 @@ let playing=false, vol=62;
 /* 真实系统数据（媒体会话 / 导航通知）—— 由原生桥经 window.L6SysEvent 回填；
    没有桥接（浏览器直接打开原型）或未授权时 active=false，页面显示「未播放 / 暂无歌词」空状态。 */
 var REAL={media:{active:false,playing:false,dur:0,pos:0,title:"",artist:""},
-  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:"",bc:"",src:"",next:"",seg:"",chips:"",cruise:false,svc:null},acc:false,lrc:null,lrcKey:""};
+  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:"",bc:"",src:"",next:"",seg:"",chips:"",cruise:false,svc:null},wg:"",acc:false,lrc:null,lrcKey:""};
 // 歌词区（右侧 2/3）：整屏歌词 + 当前句高亮，由真实播放进度驱动
 let lyrIdx=0;
 function renderLyrics(){
@@ -1543,6 +1545,19 @@ function chipsHtml(txt){
     return '<i'+on+'>'+hnEsc(x)+'</i>';
   }).join("");
 }
+/* v1.5.22：小部件探测结果压成一行 —— 一眼判「能不能把第三方原生卡片嵌进导航区域」。
+   ★ 结论（verdict）由 Java 侧给出，避免前端再推一遍判定规则。 */
+function wgLine(e){
+  if(e.err) return '小部件探针：探测失败（'+hnEsc(e.err)+'）';
+  var p=[];
+  p.push('系统 '+((e.n|0)||0)+' 个'+(e.list?('（'+hnEsc(e.list)+'）'):''));
+  p.push('host '+(e.host?'OK':'✗'));
+  p.push('直接绑定 '+(e.bind?'成功':'被拒'));
+  p.push('授权界面 '+(e.bindAct?'有':'无'));
+  p.push('选择器 '+(e.pickAct?'有':'无'));
+  p.push('BIND_APPWIDGET '+(e.perm?'已授予':'未授予'));
+  return '小部件探针：'+p.join(' · ')+(e.verdict?('　⇒ '+hnEsc(e.verdict)):'');
+}
 function syncHomeNav(){
   var box=document.getElementById("homeNav"); if(!box) return;
   var n=(typeof REAL!=="undefined"&&REAL.nav)||{};
@@ -1595,6 +1610,7 @@ function syncHomeNav(){
       '<div class="hn-hint"><b>想让导航画面显示在这里？</b>开启导航 App 自带的<b>「全局悬浮导航」</b>（高德：我的 → 设置 → 导航设置），画面就会浮在本页上方 —— 拖进这个区域即可（系统窗口，不会自动吸附）。</div>'+
       '<div class="hn-dbg">'+accLine+dbgLine+'<br>'+svcLine+'</div>'+
       '<div class="hn-bc">高德广播探针：'+hnEsc(n.bc||"未收到（探针未启动，或该车机 ROM 不转发）")+'</div>'+
+      '<div class="hn-wg">'+(REAL.wg||"小部件探针：等待探测（应用启动约 3 秒后出结果）")+'</div>'+
       '<div class="hn-align-tip">↑ 把导航 App 的悬浮小窗拖进这个亮框（位置由它自己记住）</div>'+
       '<div class="hn-meta">或点「启动导航」由它全屏接管；导航中的转向 / 剩余信息会自动显示在这里。</div>'+acts;
   }
@@ -2240,6 +2256,9 @@ window.L6SysEvent=function(e){
   // v1.5.20 广播探测：只更新「最近一条高德广播」那一行，绝不碰 active 状态
   if(e.kind==="navbc"){REAL.nav.bc=e.bc||"";
     if(e.svc!==undefined&&e.svc!==null)REAL.nav.svc=!!e.svc;
+    try{syncHomeNav();}catch(_e){}return;}
+  // v1.5.22 小部件探测：只更新那一行，同样不碰 active
+  if(e.kind==="wprobe"){try{REAL.wg=wgLine(e);}catch(_e){REAL.wg="";}
     try{syncHomeNav();}catch(_e){}return;}
   if(e.kind==="lyrics"){
     var k=(e.title||"")+"|"+(e.artist||"");

@@ -375,6 +375,7 @@ setTimeout(async () => {
                         homeNavEl.innerHTML.indexOf('hn-dbg') >= 0 &&        // v1.5.19：空态带导航通知诊断行
                         homeNavEl.innerHTML.indexOf('hn-bc') >= 0 &&         // v1.5.20：空态带高德广播探针行
                         homeNavEl.innerHTML.indexOf('通知监听服务') >= 0 &&      // v1.5.21：空态能看出通知服务连没连上
+                        homeNavEl.innerHTML.indexOf('hn-wg') >= 0 &&           // v1.5.22：空态带小部件探测行
                         homeNavEl.innerHTML.indexOf('对齐区域') >= 0 &&       // v1.5.20：对齐引导入口
                         homeNavEl.innerHTML.indexOf('画中画') < 0;          // v1.5.17 起画中画按钮已移除
   // 真实导航数据进来 → #homeNav 显示导航中，同时顶部 #miniNav 必须让位（互斥，不重复显示）
