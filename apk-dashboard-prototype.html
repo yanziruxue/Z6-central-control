@@ -285,6 +285,15 @@
   .home-nav .hn-bc{font-size:calc(11 * var(--u));color:var(--acc);opacity:.9;line-height:1.6;word-break:break-all}
   /* v1.5.22：小部件探测行 —— 判定「能否把第三方原生卡片嵌进导航区域」 */
   .home-nav .hn-wg{font-size:calc(11 * var(--u));color:var(--acc2);opacity:.9;line-height:1.6;word-break:break-all}
+  /* v1.5.23 小部件：这块虚线框本身是「占位」，真正的画面是原生 View 盖在 WebView 上的 overlay ——
+     位置由 reportWidgetRect() 按百分比上报给原生，所以这里的尺寸只决定 overlay 有多大。 */
+  .home-nav .hn-wgbox{display:flex;align-items:center;justify-content:center;
+    height:calc(300 * var(--u));margin:calc(4 * var(--u)) 0;padding:calc(8 * var(--u));
+    border-radius:calc(14 * var(--u));border:1px dashed var(--line);
+    color:var(--sub);font-size:calc(11 * var(--u));text-align:center;line-height:1.5}
+  .home-nav .hn-wgrow{display:flex;align-items:center;flex-wrap:wrap;gap:calc(8 * var(--u));
+    font-size:calc(12 * var(--u));color:var(--sub)}
+  .home-nav .hn-wgrow b{color:var(--txt)}
   .home-nav .hn-align-tip{display:none;font-size:calc(12 * var(--u));font-weight:700;color:var(--acc);line-height:1.5}
   .home-nav.hn-align{outline:calc(3 * var(--u)) dashed var(--acc);outline-offset:calc(-4 * var(--u))}
   .home-nav.hn-align .hn-align-tip{display:block}
@@ -350,6 +359,19 @@
   /* 空态自诊断（桥没注入 / 方法没暴露 / 桥抛错）—— 便于现场一眼看出是读数失败而非真的没装应用 */
   .al-diag{margin-top:calc(10 * var(--u));font-size:calc(11 * var(--u));line-height:1.6;opacity:.7;word-break:break-all;
     padding:calc(8 * var(--u)) calc(10 * var(--u));border-radius:calc(8 * var(--u));background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3)}
+  /* 小部件选择面板（v1.5.23，复用应用抽屉的浮层骨架） */
+  .wg-search{padding:calc(10 * var(--u)) calc(16 * var(--u)) calc(2 * var(--u))}
+  .wg-search input{width:100%;box-sizing:border-box;padding:calc(9 * var(--u)) calc(12 * var(--u));
+    border-radius:calc(12 * var(--u));border:1px solid var(--line);background:rgba(255,255,255,.06);
+    color:var(--txt);font-size:calc(13 * var(--u));outline:none}
+  .wg-rows{overflow:auto;display:flex;flex-direction:column;gap:calc(6 * var(--u));
+    padding:calc(8 * var(--u)) calc(14 * var(--u)) calc(18 * var(--u))}
+  .wg-row{display:flex;align-items:center;justify-content:space-between;gap:calc(10 * var(--u));
+    padding:calc(10 * var(--u)) calc(12 * var(--u));border-radius:calc(12 * var(--u));
+    border:1px solid transparent;background:rgba(255,255,255,.04);cursor:pointer}
+  .wg-row:active{transform:scale(.99);border-color:var(--acc)}
+  .wg-row .wg-nm{font-size:calc(13 * var(--u));color:var(--txt)}
+  .wg-row .wg-sz{font-size:calc(11 * var(--u));color:var(--sub);white-space:nowrap}
   /* 页面内轻提示（长按钉入 / 移出 dock 快捷方式） */
   .l6-toast{position:fixed;left:50%;bottom:calc(96 * var(--u));transform:translate(-50%,calc(8 * var(--u)));z-index:60;
     max-width:calc(1344 * var(--u));padding:calc(9 * var(--u)) calc(16 * var(--u));border-radius:calc(20 * var(--u));font-size:calc(13 * var(--u));
@@ -683,6 +705,14 @@
     <div class="al-head"><span id="appListTitle">📋 应用列表</span><button class="al-close" id="appListClose">✕</button></div>
     <div class="al-grid" id="appListBody"></div>
   </div>
+  <!-- v1.5.23：小部件选择面板（provider 由我们自己列 —— 系统 PICK 返回的 id 和我们的 host 对不上） -->
+  <div class="app-scrim" id="wgScrim"></div>
+  <div class="app-list" id="wgSheet">
+    <div class="al-grip"></div>
+    <div class="al-head"><span id="wgTitle">🧩 选择小部件</span><button class="al-close" id="wgClose">✕</button></div>
+    <div class="wg-search"><input id="wgSearch" type="search" placeholder="正在读取小部件列表…"></div>
+    <div class="wg-rows" id="wgRows"></div>
+  </div>
 </div>
 
 
@@ -697,7 +727,7 @@ let playing=false, vol=62;
 /* 真实系统数据（媒体会话 / 导航通知）—— 由原生桥经 window.L6SysEvent 回填；
    没有桥接（浏览器直接打开原型）或未授权时 active=false，页面显示「未播放 / 暂无歌词」空状态。 */
 var REAL={media:{active:false,playing:false,dur:0,pos:0,title:"",artist:""},
-  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:"",bc:"",src:"",next:"",seg:"",chips:"",cruise:false,svc:null},wg:"",acc:false,lrc:null,lrcKey:""};
+  nav:{active:false,app:"",arr:"\u2191",turn:"",dist:"--",eta:"",dest:"",dbg:"",bc:"",src:"",next:"",seg:"",chips:"",cruise:false,svc:null},wg:"",widget:{on:false,label:""},wgKey:"",wgList:[],wgPend:null,acc:false,lrc:null,lrcKey:""};
 // 歌词区（右侧 2/3）：整屏歌词 + 当前句高亮，由真实播放进度驱动
 let lyrIdx=0;
 function renderLyrics(){
@@ -1558,6 +1588,95 @@ function wgLine(e){
   p.push('BIND_APPWIDGET '+(e.perm?'已授予':'未授予'));
   return '小部件探针：'+p.join(' · ')+(e.verdict?('　⇒ '+hnEsc(e.verdict)):'');
 }
+/* ==================== v1.5.23 小部件（App Widget）承载 ====================
+   背景：v1.5.22 只读探测在真机上确认这条路可走 ——
+        host OK · 系统 244 个 provider · 直接绑定被拒 · 授权界面有 · 选择器有
+   ⇒ 走官方给「bindAppWidgetIdIfAllowed 返回 false」准备的补救入口
+     ACTION_APPWIDGET_BIND，让用户点一次系统授权框。
+
+   ★★ 本页只做三件事：选 provider / 拉授权 / 把区域矩形报给原生。
+      真正的画面是**原生 View**（AppWidgetHostView），它永远进不了 HTML 的 DOM ——
+      原生侧把它当 overlay 盖在 WebView 上，位置就用这里报的百分比算。
+   ★ 必须用**百分比**而不是像素：页面是 --u 等比缩放的，窗口一变像素就漂。 */
+function wgOn(){ return !!(REAL.widget&&REAL.widget.on); }
+function wgOpen(){
+  var d=$("#wgSheet"), sc=$("#wgScrim"), rows=$("#wgRows");
+  if(!d||!rows) return;
+  d.classList.add("open"); if(sc)sc.classList.add("open");
+  rows.innerHTML='<div class="al-empty">正在读取小部件列表…</div>';
+  var n=l6n();
+  if(!n||typeof n.widgetList!=="function"){
+    rows.innerHTML='<div class="al-empty">无原生桥接，无法读取小部件'+appsDiag()+'</div>'; return;
+  }
+  n.widgetList(function(list){
+    REAL.wgList=list||[];
+    var q=document.getElementById("wgSearch");
+    if(q){ q.value=""; q.placeholder="搜索小部件 / 应用名（共 "+REAL.wgList.length+" 个）"; }
+    wgRender("");
+  });
+}
+function wgClose(){
+  var d=$("#wgSheet"), sc=$("#wgScrim");
+  if(d)d.classList.remove("open"); if(sc)sc.classList.remove("open");
+}
+function wgRender(kw){
+  var rows=$("#wgRows"); if(!rows) return;
+  var k=String(kw||"").trim().toLowerCase();
+  var list=(REAL.wgList||[]).filter(function(it){
+    if(!k) return true;
+    return (String(it.label||"")+" "+String(it.pkg||"")).toLowerCase().indexOf(k)>=0;
+  });
+  if(!list.length){
+    rows.innerHTML='<div class="al-empty">'+(REAL.wgList||[]).length
+      ?'没有匹配「'+hnEsc(kw)+'」的小部件' :'这台车机上没有读取到任何小部件'+'</div>';
+    return;
+  }
+  rows.innerHTML=list.map(function(it,i){
+    var sz=((it.w|0)||0)+"×"+((it.h|0)||0);
+    return '<div class="wg-row" data-i="'+i+'">'+
+      '<div><div class="wg-nm">'+hnEsc(it.label||"小部件")+'</div>'+
+      '<div class="wg-sub">'+hnEsc(it.pkg||"")+'</div></div>'+
+      '<div class="wg-sz">'+hnEsc(sz)+'</div></div>';
+  }).join("");
+  // ★ 用闭包存住筛选后的这一份，避免再按 data-i 反查原数组时下标错位
+  REAL.wgView=list;
+  [].slice.call(rows.querySelectorAll(".wg-row")).forEach(function(el){
+    el.onclick=function(){
+      var it=REAL.wgView&&REAL.wgView[(el.getAttribute("data-i")|0)];
+      if(!it) return;
+      wgPick(it);
+    };
+  });
+}
+function wgPick(it){
+  REAL.wgPend=it;
+  var n=l6n();
+  if(!n||typeof n.widgetBind!=="function"){ toastL6("无原生桥接，无法嵌入"); return; }
+  toastL6("正在嵌入「"+(it.label||"小部件")+"」…");
+  try{ n.widgetBind(it.pkg, it.cls); }catch(e){ toastL6("嵌入请求失败"); }
+}
+function wgClear(){
+  var n=l6n();
+  if(!n||typeof n.widgetClear!=="function"){ return; }
+  try{ n.widgetClear(); }catch(e){}
+}
+/* 把占位框的矩形按百分比报给原生；区域不可见（宽或高 < 1px）就报 0 ⇒ 原生收起 overlay。
+   ★ 加了一道去重：syncHomeNav 每次刷新都会调它，矩形成千次重报没有意义。 */
+function reportWidgetRect(){
+  var n=l6n(); if(!n||typeof n.widgetPlace!=="function") return;
+  var el=document.getElementById("hnWgBox"), l=0,t=0,w=0,h=0;
+  if(wgOn()&&el){
+    var r=el.getBoundingClientRect();
+    if(r.width>1&&r.height>1){
+      l=r.left/window.innerWidth; t=r.top/window.innerHeight;
+      w=r.width/window.innerWidth; h=r.height/window.innerHeight;
+    }
+  }
+  var key=[l,t,w,h].map(function(x){ return Math.round(x*1000)/1000; }).join(",");
+  if(key===REAL.wgKey) return;
+  REAL.wgKey=key;
+  try{ n.widgetPlace(l,t,w,h); }catch(e){}
+}
 function syncHomeNav(){
   var box=document.getElementById("homeNav"); if(!box) return;
   var n=(typeof REAL!=="undefined"&&REAL.nav)||{};
@@ -1606,14 +1725,20 @@ function syncHomeNav(){
     // v1.5.21：把「通知监听服务连没连上」也摆出来 —— 一行就能解释「为什么一条通知都没有」
     var svcLine=(n.svc===true)?'通知监听服务：已连接'
       :(n.svc===false?'通知监听服务：<b>未连接</b>（通知这条路不可用）':'通知监听服务：未知');
-    box.innerHTML='<div class="hn-head"><span class="hn-tag idle">未在导航</span><span class="hn-app">'+(app||"未选择导航 App")+'</span></div>'+
-      '<div class="hn-hint"><b>想让导航画面显示在这里？</b>开启导航 App 自带的<b>「全局悬浮导航」</b>（高德：我的 → 设置 → 导航设置），画面就会浮在本页上方 —— 拖进这个区域即可（系统窗口，不会自动吸附）。</div>'+
+    // v1.5.23：已嵌入小部件时，区域里放一块占位框（原生 overlay 就盖在它上面）
+    var wgBox=wgOn()?('<div class="hn-wgbox" id="hnWgBox"><span>原生小部件渲染中…（一直空白 = 该 provider 在车机上加载失败，换一个试试）</span></div>'):'';
+    var wgRow=wgOn()
+      ?('<div class="hn-wgrow">已嵌入 <b>'+hnEsc(REAL.widget.label||"小部件")+'</b>　<button class="hn-btn ghost" data-act="wgpick">更换</button><button class="hn-btn ghost" data-act="wgclear">✕ 移除</button></div>')
+      :('<div class="hn-wgrow"><button class="hn-btn ghost" data-act="wgpick">🧩 选择小部件（把原生卡片嵌进这块区域）</button></div>');
+    var wgHint=wgOn()?'':'<div class="hn-hint"><b>想让导航画面显示在这里？</b>开启导航 App 自带的<b>「全局悬浮导航」</b>（高德：我的 → 设置 → 导航设置），画面就会浮在本页上方 —— 拖进这个区域即可（系统窗口，不会自动吸附）。</div>';
+    box.innerHTML='<div class="hn-head"><span class="hn-tag idle">未在导航</span><span class="hn-app">'+(app||"未选择导航 App")+'</span></div>'+wgHint+wgBox+wgRow+
       '<div class="hn-dbg">'+accLine+dbgLine+'<br>'+svcLine+'</div>'+
       '<div class="hn-bc">高德广播探针：'+hnEsc(n.bc||"未收到（探针未启动，或该车机 ROM 不转发）")+'</div>'+
       '<div class="hn-wg">'+(REAL.wg||"小部件探针：等待探测（应用启动约 3 秒后出结果）")+'</div>'+
       '<div class="hn-align-tip">↑ 把导航 App 的悬浮小窗拖进这个亮框（位置由它自己记住）</div>'+
       '<div class="hn-meta">或点「启动导航」由它全屏接管；导航中的转向 / 剩余信息会自动显示在这里。</div>'+acts;
   }
+  try{ reportWidgetRect(); }catch(_e){}     // 区域矩形变了就重报（去重在函数里做）
 }
 /* Android 只允许「应用自己变小窗」，没有任何 API 能把第三方导航 App 装进我们的窗口 ——
    所以「导航浮在老六上面」只能靠导航 App 自己的悬浮窗能力，这里只负责把用户送到那个开关。 */
@@ -1646,6 +1771,8 @@ function bindHomeNav(){
     if(t&&t.closest){ var b=t.closest("[data-act]"); if(b) act=b.getAttribute("data-act"); }
     if(act==="float") return navFloatSettings();
     if(act==="align") return toggleNavAlign();
+    if(act==="wgpick") return wgOpen();
+    if(act==="wgclear") return wgClear();
     startNav((settings&&settings.navApp)||navApp);     // 点空白处 = 打开导航
   });
 }
@@ -2260,6 +2387,25 @@ window.L6SysEvent=function(e){
   // v1.5.22 小部件探测：只更新那一行，同样不碰 active
   if(e.kind==="wprobe"){try{REAL.wg=wgLine(e);}catch(_e){REAL.wg="";}
     try{syncHomeNav();}catch(_e){}return;}
+  // v1.5.23 小部件承载：绑定 / 授权结果
+  if(e.kind==="widget"){
+    if(e.on){
+      REAL.widget={on:true,label:e.label||"小部件"};REAL.wgKey="";
+      wgClose();toastL6("已嵌入："+REAL.widget.label);
+    }else if(e.needAuth){
+      // 直接绑定被拒 ⇒ 拉系统授权框（官方给这种情形的补救入口）
+      var pd=REAL.wgPend||{};
+      toastL6("请在系统弹框里点「允许」");
+      try{ l6n().widgetAuth(e.id,pd.pkg||"",pd.cls||""); }catch(_e){}
+    }else{
+      REAL.widget={on:false,label:""};REAL.wgKey="";
+      if(e.cancelled)toastL6("已取消授权");
+      if(e.err)toastL6("嵌入失败："+e.err);
+    }
+    try{syncHomeNav();}catch(_e){}
+    setTimeout(reportWidgetRect,0);
+    return;
+  }
   if(e.kind==="lyrics"){
     var k=(e.title||"")+"|"+(e.artist||"");
     if(k!==REAL.lrcKey)return;                        // 过期响应（已切歌）丢弃
@@ -2536,6 +2682,26 @@ applyAutoPlayOnLaunch();
      若在它们赋值之前调用 renderHomeMode()，HM_NAMES["state"] 会抛 TypeError，
      整段 <script> 静默中断 —— 表现是页面上所有 onclick 都没接上（黑屏级事故）。 */
 renderHomeMode();applyHomeMode();bindHomeNav();
+
+/* ---- 小部件（v1.5.23）初始化 ----
+   ★ 同样必须放脚本最末尾：与上面同一个理由（var 字面量提升），也保证 REAL / wgOpen 都已就绪。 */
+function initWidget(){
+  try{
+    var c=document.getElementById("wgClose"); if(c)c.onclick=wgClose;
+    var sc=document.getElementById("wgScrim"); if(sc)sc.onclick=wgClose;
+    var q=document.getElementById("wgSearch");
+    if(q)q.oninput=function(){ try{wgRender(q.value);}catch(e){} };
+    window.addEventListener("resize",reportWidgetRect);
+    window.addEventListener("orientationchange",reportWidgetRect);
+    // 页面重载后对齐一次（A 方案重启不恢复绑定，所以这里通常拿到 on=false）
+    var n=l6n();
+    if(n&&typeof n.widgetState==="function"){
+      var st=n.widgetState()||{};
+      if(st.on){ REAL.widget={on:true,label:st.label||"小部件"};REAL.wgKey=""; }
+    }
+  }catch(e){}
+}
+initWidget();
 </script>
 </div>
 <script>

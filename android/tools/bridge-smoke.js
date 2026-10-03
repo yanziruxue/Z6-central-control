@@ -58,6 +58,17 @@ const NativeRaw = {
   getAppIcon(pkg) { this.calls.push(['getAppIcon', pkg]); return pkg ? 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==' : ''; },
   nightMode: true,
   isNightMode() { return this.nightMode === true; },
+  // v1.5.23：小部件（App Widget）桩 —— 真机实测 244 个 provider，这里取 3 个代表
+  widgetListJson: () => JSON.stringify([
+    { label: '万象小组件', pkg: 'com.wanxiang.widget', cls: 'com.wanxiang.widget.Main', w: 250, h: 250 },
+    { label: '桌面萌宠', pkg: 'com.pet.widget', cls: 'com.pet.widget.Pet', w: 500, h: 220 },
+    { label: '高德地图', pkg: 'com.autonavi.amapauto', cls: 'com.autonavi.amapauto.NavWidget', w: 400, h: 300 },
+  ]),
+  widgetBind(p2, c2) { this.calls.push(['widgetBind', p2, c2]); },
+  widgetAuth(i, p2, c2) { this.calls.push(['widgetAuth', i, p2, c2]); },
+  widgetPlace(l, t, w, h) { this.calls.push(['widgetPlace', l, t, w, h]); },
+  widgetClear() { this.calls.push(['widgetClear']); },
+  widgetStateJson: () => JSON.stringify({ on: false, label: '', id: -1 }),
 };
 
 const errs = [];
@@ -415,6 +426,70 @@ setTimeout(async () => {
 
   window.applyRealNav(null);
 
+  /* ---------- v1.5.23：小部件（App Widget）承载 ----------
+     只读探测已确认这条路可走（host OK / 244 provider / 直接绑定被拒 / 授权界面有），
+     本组断言守的是「承载链路」本身：入口 → 列表 → 选中带对 pkg → 拉授权 → 占位框 → 矩形上报 → 移除。 */
+  const wgCalls = (f) => NativeRaw.calls.filter(c => c[0] === f);
+  // ① 空态入口
+  const wgBtnOk = homeNavEl.innerHTML.indexOf('data-act="wgpick"') >= 0 &&
+                  homeNavEl.innerHTML.indexOf('选择小部件') >= 0;
+  // ② 面板：provider 由我们自己的列表渲染（不用系统 PICK —— 它返回的 id 和我们的 host 对不上）
+  const wgSheetEl = d.getElementById('wgSheet'), wgScrimEl = d.getElementById('wgScrim');
+  window.wgOpen();
+  const wgRowsEl = d.getElementById('wgRows');
+  const wgOpenOk = !!wgSheetEl && !!wgScrimEl && !!d.getElementById('wgSearch') && !!wgRowsEl &&
+                   wgSheetEl.classList.contains('open') && wgScrimEl.classList.contains('open') &&
+                   wgRowsEl.querySelectorAll('.wg-row').length === 3;
+  // ③ 搜索过滤后点第一行，必须取到「筛出来的那一项」——★ 下标若按原数组算就会嵌错卡片
+  window.wgRender('高德');
+  const wgFilteredRows = d.getElementById('wgRows').querySelectorAll('.wg-row');
+  const wgFilterOk = wgFilteredRows.length === 1 &&
+                     d.getElementById('wgRows').innerHTML.indexOf('高德地图') >= 0;
+  wgFilteredRows[0].onclick();
+  const wgBindCall = wgCalls('widgetBind').pop();
+  const wgPickOk = !!wgBindCall && wgBindCall[1] === 'com.autonavi.amapauto' &&
+                   wgBindCall[2] === 'com.autonavi.amapauto.NavWidget' && window.wgOn() === false;
+  // ④ 直接绑定被拒 ⇒ 必须回拉系统授权框，且 id / provider 都要带上（少了 provider 系统框拉不起来）
+  window.L6SysEvent({ kind: 'widget', on: false, needAuth: true, id: 42, label: '高德地图' });
+  const wgAuthCall = wgCalls('widgetAuth').pop();
+  const wgAuthOk = !!wgAuthCall && wgAuthCall[1] === 42 &&
+                   wgAuthCall[2] === 'com.autonavi.amapauto' &&
+                   wgAuthCall[3] === 'com.autonavi.amapauto.NavWidget';
+  // ⑤ 授权通过 ⇒ 区域出现占位框（原生 overlay 就盖在它上面）+「已嵌入」行，面板自动收起
+  window.L6SysEvent({ kind: 'widget', on: true, label: '高德地图' });
+  const wgBoxEl = d.getElementById('hnWgBox');
+  const wgLiveOk = window.wgOn() === true && !!wgBoxEl &&
+                   homeNavEl.innerHTML.indexOf('hn-wgbox') >= 0 &&
+                   homeNavEl.innerHTML.indexOf('已嵌入') >= 0 &&
+                   !d.getElementById('wgSheet').classList.contains('open');
+  // ⑥ 矩形上报：按**百分比**（页面是 --u 等比缩放，报像素必漂），且同一矩形不重复跨桥
+  const iw = window.innerWidth, ih = window.innerHeight;
+  stubRect(wgBoxEl, iw * 0.25, ih * 0.2, iw * 0.5, ih * 0.4);
+  window.REAL.wgKey = '';
+  window.reportWidgetRect();
+  const placeCall = wgCalls('widgetPlace').pop();
+  const wgRectOk = !!placeCall && Math.abs(placeCall[1] - 0.25) < 0.005 &&
+                   Math.abs(placeCall[2] - 0.2) < 0.005 &&
+                   Math.abs(placeCall[3] - 0.5) < 0.005 && Math.abs(placeCall[4] - 0.4) < 0.005;
+  const beforeDup = wgCalls('widgetPlace').length;
+  window.reportWidgetRect();                                  // 同一矩形再来一次
+  const wgDedupeOk = wgCalls('widgetPlace').length === beforeDup;
+  // ⑦ 区域不可见（宽高 0）⇒ 必须上报 0，原生据此收起 overlay（否则小部件会飘在别的页面上）
+  stubRect(wgBoxEl, 0, 0, 0, 0);
+  window.REAL.wgKey = '';
+  window.reportWidgetRect();
+  const placeZero = wgCalls('widgetPlace').pop();
+  const wgHideOk = !!placeZero && placeZero[1] === 0 && placeZero[3] === 0;
+  // ⑧ 移除 ⇒ 走 widgetClear，并退回「选择小部件」入口
+  window.wgClear();
+  const wgClearCalled = wgCalls('widgetClear').length > 0;
+  window.L6SysEvent({ kind: 'widget', on: false });
+  const wgClearOk = wgClearCalled && window.wgOn() === false &&
+                    homeNavEl.innerHTML.indexOf('选择小部件') >= 0 &&
+                    homeNavEl.innerHTML.indexOf('hn-wgbox') < 0;
+  const wgOk = wgBtnOk && wgOpenOk && wgFilterOk && wgPickOk && wgAuthOk && wgLiveOk &&
+               wgRectOk && wgDedupeOk && wgHideOk && wgClearOk;
+
   // 拖动排序：#pageMusic 顺序要跟着「设置页三项的顺序」变
   const hmStub = (el, l, t, w, h) => { el.getBoundingClientRect = () => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h }); };
   const hmRestub = () => hmItems().forEach((x, i) => hmStub(x, 200 + i * 200, 300, 180, 44));
@@ -483,7 +558,7 @@ setTimeout(async () => {
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
     && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk && emptyDiagOk
     && homeLeftOfMore && goHomeBridgeOk && goHomeCalled && dragOk && homeModeOk
-    && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk
+    && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk && wgOk
     && themeBridgeOk && themeLightOk && themeDarkOk;
 
   console.log('音乐源卡片 ->', music.join(' / '));
@@ -524,6 +599,10 @@ setTimeout(async () => {
               '| 两源字段不串 ->', navSrcSplitOk, '| 通知服务状态 ->', svcLineOk);
   console.log('主页模式：顶部迷你卡让位(#miniNav 互斥) ->', miniNavYieldOk, '| 拖动排序落盘 ->', hmDragOk, '(' + hmOrderMoved + ')');
   console.log('主页模式：三项全取消回默认 ->', hmAllOffOk, '| 画中画已移除 ->', pipGoneOk, '| 三栏等宽 ->', equalThreeOk);
+  console.log('小部件承载：入口 ->', wgBtnOk, '| 面板/列表 ->', wgOpenOk, '| 搜索筛选 ->', wgFilterOk,
+              '| 选中带对 pkg ->', wgPickOk, '| 拉授权框 ->', wgAuthOk);
+  console.log('小部件承载：占位框 ->', wgLiveOk, '| 矩形按百分比上报 ->', wgRectOk,
+              '| 同矩形去重 ->', wgDedupeOk, '| 不可见上报 0 ->', wgHideOk, '| 移除 ->', wgClearOk);
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));
   console.log(ok ? '✓ 桥接冒烟测试通过' : '✗ 桥接冒烟测试失败');

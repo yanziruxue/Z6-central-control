@@ -203,7 +203,8 @@ setTimeout(() => {
 
   const protoSrc = fs.readFileSync(path.join(ROOT, '..', 'apk-dashboard-prototype.html'), 'utf8');
   const shimCalls = (shim.match(/:\s*function/g) || []).length;
-  check('⑮ SHIM 桥数量 = 33（删 10 条 + cancelOtaUpdate + 导航悬浮窗权限 1 条）', shimCalls === 33, `实得 ${shimCalls}`);
+  // v1.5.23：小部件承载新增 6 个桥（widgetList/Bind/Auth/Place/Clear/State）⇒ 33 -> 39
+  check('⑮ SHIM 桥数量 = 39（v1.5.17 基线 33 + v1.5.23 小部件 6）', shimCalls === 39, `实得 ${shimCalls}`);
   // v1.5.16 主页模式：只剩「跳导航 App 悬浮窗权限页」这一个桥
   check('⑮ 主页模式 1 个桥已接线（openAppOverlaySettings）',
     /openAppOverlaySettings:function\(p\)\{try\{return !!R\.openAppOverlaySettings\(p\);\}catch\(e\)\{return false;\}\},/.test(shim) &&

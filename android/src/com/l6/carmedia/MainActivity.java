@@ -52,6 +52,8 @@ public class MainActivity extends Activity {
     private static final int REQ_PERM = 1002;
 
     private WebView web;
+    /** v1.5.23：小部件是原生 View，进不了 WebView 的 DOM ⇒ 需要一个同层容器承载它的 overlay。 */
+    private android.widget.FrameLayout rootView;
     private ValueCallback<Uri[]> filePathCallback;
     private long lastBackAt = 0L;
     /** 即将调起导航 App：onPause 时若确实离开本界面，才挂「返回」悬浮按钮（导航未成功接管则不留按钮）。 */
@@ -181,7 +183,14 @@ public class MainActivity extends Activity {
             // ---- 车机信号采集（v1.5.15）：只有「开始/结束」两个动作，操作了什么由用户口头说明 ----
             "startSignalCapture:function(){try{R.startSignalCapture();}catch(e){}}," +
             "stopSignalCapture:function(){try{R.stopSignalCapture();}catch(e){}}," +
-            "isSignalCapturing:function(){try{return !!R.isSignalCapturing();}catch(e){return false;}}" +
+            "isSignalCapturing:function(){try{return !!R.isSignalCapturing();}catch(e){return false;}}," +
+            // ---- 小部件承载（v1.5.23）：列表 / 绑定 / 授权 / 上报矩形 / 移除 / 状态 ----
+            "widgetList:function(cb){try{cb(JSON.parse(R.widgetListJson()||'[]'));}catch(e){window.__l6Err=(window.__l6Err||[]).concat('widgetList: '+e);cb([]);}}," +
+            "widgetBind:function(p,c){try{R.widgetBind(p,c);}catch(e){}}," +
+            "widgetAuth:function(i,p,c){try{R.widgetAuth(i,p,c);}catch(e){}}," +
+            "widgetPlace:function(l,t,w,h){try{R.widgetPlace(l,t,w,h);}catch(e){}}," +
+            "widgetClear:function(){try{R.widgetClear();}catch(e){}}," +
+            "widgetState:function(){try{return JSON.parse(R.widgetStateJson()||'{}');}catch(e){return {};}}" +
             "};" +
             // shim 注入后把日志卡片状态同步一次（含新加的接口 DNS 输入框）
             "try{buildMusicSrc();buildNavApp();if(typeof syncLogCfg==='function')syncLogCfg();}catch(e){}" +
@@ -206,7 +215,16 @@ public class MainActivity extends Activity {
 
         web = new WebView(this);
         web.setBackgroundColor(Color.parseColor("#0B0E14"));
-        setContentView(web);
+        // v1.5.23：给 WebView 套一层 FrameLayout —— 小部件（AppWidgetHostView）是**原生 View**，
+        //   永远进不了 HTML 的 DOM，只能作为 overlay 挂在同一层容器上，
+        //   位置由页面按百分比上报（见 L6WidgetHost.place / applyPlace）。
+        rootView = new android.widget.FrameLayout(this);
+        rootView.addView(web, new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(rootView);
+        L6WidgetHost.get(this).attach(this, rootView);
+        L6WidgetHost.get(this).listen();     // 主线程：AppWidgetHost 要求「同一条线程创建 + 使用」
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -601,6 +619,7 @@ public class MainActivity extends Activity {
         } catch (Throwable ignored) {
         }
         try { NavBcastProbe.stop(this); } catch (Throwable ignored) {}
+        try { L6WidgetHost.get(this).stop(); } catch (Throwable ignored) {}
         SysHub.setEmitter(null);
         super.onDestroy();
     }
@@ -681,6 +700,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        // v1.5.23：小部件系统授权框的结果（RESULT_OK = 已绑定 / CANCELED = 自己把那个 id 删掉）
+        if (requestCode == L6WidgetHost.REQ_BIND) {
+            L6WidgetHost.get(this).onActivityResult(requestCode, resultCode, data);
+            return;
+        }
         if (requestCode == REQ_FILE) {
             if (filePathCallback != null) {
                 Uri[] result = null;
@@ -1654,6 +1678,50 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean isSignalCapturing() {
             return SignalCapture.isRunning();
+        }
+
+        /* ---------------- v1.5.23 小部件（App Widget）承载 --------------
+           页面是 WebView、AppWidgetHostView 是**原生 View** ⇒ 原生 View 进不了 DOM。
+           所以桥只负责「列 provider / 绑定 / 拉授权框 / 上报区域矩形 / 移除」，
+           真正的摆放由 L6WidgetHost 用 overlay（挂 WebView 的父容器）完成。 */
+
+        /** 这台车机上所有小部件 provider（页面自建选择列表用）。 */
+        @JavascriptInterface
+        public String widgetListJson() {
+            return L6WidgetHost.get(MainActivity.this).listJson();
+        }
+
+        /**
+         * 尝试绑定一个 provider。
+         * 直接成功 ⇒ 推 {on:true}；被系统拒绝 ⇒ 推 {needAuth:true,id}，页面接着调 widgetAuth。
+         */
+        @JavascriptInterface
+        public void widgetBind(String pkg, String cls) {
+            L6WidgetHost.get(MainActivity.this).bind(pkg, cls);
+        }
+
+        /** 拉起系统授权框「允许 X 添加小部件」（官方给 bindAppWidgetIdIfAllowed 返回 false 的补救入口）。 */
+        @JavascriptInterface
+        public void widgetAuth(int id, String pkg, String cls) {
+            L6WidgetHost.get(MainActivity.this).auth(id, pkg, cls);
+        }
+
+        /** 上报小部件应占的区域（屏幕百分比 0~1）。宽或高为 0 ⇒ 区域不可见，收起 overlay。 */
+        @JavascriptInterface
+        public void widgetPlace(double l, double t, double w, double h) {
+            L6WidgetHost.get(MainActivity.this).place(l, t, w, h);
+        }
+
+        /** 移除已嵌入的小部件（同时把系统里的 widgetId 删掉，不留悬空 id）。 */
+        @JavascriptInterface
+        public void widgetClear() {
+            L6WidgetHost.get(MainActivity.this).clear();
+        }
+
+        /** 当前嵌入状态（页面重载时对齐用）。 */
+        @JavascriptInterface
+        public String widgetStateJson() {
+            return L6WidgetHost.get(MainActivity.this).stateJson();
         }
     }
 }
