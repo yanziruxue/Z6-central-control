@@ -201,18 +201,18 @@ setTimeout(() => {
   check('⑮ 上报相关监听器接线已移除（upload/probe/matrix 三条）',
     !/setUploadListener|setProbeListener|setMatrixListener|L6LogUploadStatus|L6LogProbeResult|L6LogMatrixResult/.test(mainSrc));
 
+  const protoSrc = fs.readFileSync(path.join(ROOT, '..', 'apk-dashboard-prototype.html'), 'utf8');
   const shimCalls = (shim.match(/:\s*function/g) || []).length;
-  check('⑮ SHIM 桥数量 = 35（删 10 条 + cancelOtaUpdate + 主页模式 3 条）', shimCalls === 35, `实得 ${shimCalls}`);
-  // v1.5.16 主页模式：导航 App 悬浮窗权限入口 + 本应用画中画（两者都用 !! 包成布尔回页面）
-  check('⑮ 主页模式 3 个桥已接线（openAppOverlaySettings / enterPip / isPipAvailable）',
+  check('⑮ SHIM 桥数量 = 33（删 10 条 + cancelOtaUpdate + 导航悬浮窗权限 1 条）', shimCalls === 33, `实得 ${shimCalls}`);
+  // v1.5.16 主页模式：只剩「跳导航 App 悬浮窗权限页」这一个桥
+  check('⑮ 主页模式 1 个桥已接线（openAppOverlaySettings）',
     /openAppOverlaySettings:function\(p\)\{try\{return !!R\.openAppOverlaySettings\(p\);\}catch\(e\)\{return false;\}\},/.test(shim) &&
-    /enterPip:function\(\)\{try\{return !!R\.enterPip\(\);\}catch\(e\)\{return false;\}\},/.test(shim) &&
-    /isPipAvailable:function\(\)\{try\{return !!R\.isPipAvailable\(\);\}catch\(e\)\{return false;\}\},/.test(shim) &&
-    /public boolean openAppOverlaySettings\(String pkg\)/.test(mainSrc) &&
-    /public boolean enterPip\(\)/.test(mainSrc) &&
-    /public boolean isPipAvailable\(\)/.test(mainSrc));
-  check('⑮ manifest 已开启画中画（resizeableActivity=true + supportsPictureInPicture）',
-    /android:resizeableActivity="true"/.test(manifest) && /android:supportsPictureInPicture="true"/.test(manifest));
+    /public boolean openAppOverlaySettings\(String pkg\)/.test(mainSrc));
+  // v1.5.17 取消画中画：manifest 必须退回 resizeableActivity=false 且不再声明 PiP
+  check('⑮ 画中画已彻底移除（manifest resizeableActivity=false 且无 supportsPictureInPicture）',
+    /android:resizeableActivity="false"/.test(manifest) && !/supportsPictureInPicture/.test(manifest) &&
+    !/enterPip|isPipAvailable|enterPictureInPictureMode/.test(mainSrc) &&
+    !/pipEnabled|画中画/.test(protoSrc));
 
   const deadUi = ['logApiBtn', 'logNowBtn', 'logTestBtn', 'logMatrixBtn', 'logUpState',
     'logUpMsg', 'matrixOut', 'matrixHint', 'dnsInput', 'dnsHint'];

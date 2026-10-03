@@ -199,7 +199,7 @@
   .cst .u{font-size:calc(9 * var(--u));color:var(--sub)}
   .cst.warn{border-color:var(--warn)} .cst.warn .v{color:var(--warn)}
   .cst.ok .v{color:var(--acc2)}
-  .music{flex:2;display:flex;gap:calc(14 * var(--u));min-width:0}
+  .music{flex:1;display:flex;gap:calc(14 * var(--u));min-width:0}
 
   /* ===== 底部：左侧迷你音乐栏 + 居中 dock 栏 ===== */
   #bottomRow{flex:0 0 auto;position:relative;display:flex;align-items:center;
@@ -249,13 +249,16 @@
     opacity:0;visibility:hidden;transition:opacity .18s ease,transform .18s ease;pointer-events:none}
   #dockTrash.on{opacity:1;visibility:visible}
   #dockTrash.hot{background:rgba(255,70,70,.45);border-color:#ff7b7b;transform:scale(1.12)}
-  /* ---- 主页模块三栏（v1.5.16）：状态 / 导航 / 音乐 ----
+  /* ---- 主页模块三栏（v1.5.16 引入；v1.5.17 起等宽）：状态 / 导航 / 音乐 ----
      顺序由 settings.homeMode.order 决定（JS 只写 inline order，DOM 不动）；未勾选的 display:none。
-     宽度按 flex 比例分：状态 1 : 导航 1 : 音乐 2（只开状态+音乐时就是改造前的 1:2 观感）。 */
+     ★★ 用 **grid** 而不是 flex：flex 只均分「内容盒」，而三栏 padding 不同
+     （状态 14u / 导航 16u / 音乐 0）⇒ 外框宽度必然不等（实测 flex 1:1:1 得到 626 / 632 / 598 px）。
+     grid 的 minmax(0,1fr) 让**外框**严格等宽：全勾各占 1/3，只勾两个各占 1/2。
+     导航默认不勾选 ⇒ 主页默认只有「状态 + 音乐」，导航窗口要自己去设置里勾出来。 */
+  #pageMusic{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr)}
   #pageMusic > [data-mod]{min-width:0}
-  #pageMusic > [data-mod="nav"]{flex:1}
   /* 导航悬浮窗口：视觉上就是一张浮在壁纸上的窗口（半透明 + 边框 + 模糊 + 投影），整张可点 */
-  .home-nav{flex:1;min-width:0;display:flex;flex-direction:column;gap:calc(10 * var(--u));
+  .home-nav{min-width:0;display:flex;flex-direction:column;gap:calc(10 * var(--u));
     justify-content:center;padding:calc(16 * var(--u));border-radius:calc(20 * var(--u));
     border:1px solid rgba(61,169,252,.35);background:rgba(16,22,34,.55);
     backdrop-filter:blur(calc(10 * var(--u)));box-shadow:0 calc(10 * var(--u)) calc(30 * var(--u)) rgba(0,0,0,.45);
@@ -467,9 +470,9 @@
           </div>
           <div class="car-status" id="carStatus"></div>
         </div>
-        <!-- 中间：导航悬浮窗口（设置 → 主页模式 勾选「导航」后显示；v1.5.16） -->
+        <!-- 中间：导航悬浮窗口（★ 默认不显示；在 设置 → 主页模式 里勾选「导航」才出现；v1.5.16） -->
         <div class="home-nav" id="homeNav" data-mod="nav"></div>
-        <!-- 右 2/3：歌词显示（无卡片外框） -->
+        <!-- 右 1/3：歌词显示（无卡片外框） -->
         <div class="music" data-mod="music">
           <div class="lyrics">
             <div class="lyr" id="lyr"></div>
@@ -492,13 +495,7 @@
             <div class="set-sec">
               <div class="set-label">主页模式</div>
               <div class="hm-row" id="homeModeList"><!-- 由 renderHomeMode() 生成三项 --></div>
-              <div class="set-hint">勾选主页要显示的模块（默认<b>状态 + 音乐</b>）；按住右侧 <b>⠿</b> 左右拖动可调顺序。三个模块<b>全部取消</b>时自动恢复默认。</div>
-            </div>
-            <!-- 画中画（v1.5.16）：默认关闭 —— 系统只允许应用自己变小窗，不能把第三方导航 App 装进来 -->
-            <div class="set-sec">
-              <div class="set-label">画中画</div>
-              <div class="set-opts"><button class="set-opt" id="pipBtn">○ 关闭</button></div>
-              <div class="set-hint">开启后，主页「导航」窗口上的 <b>⧉ 画中画</b> 可把<b>本应用</b>缩成系统小窗，浮在导航 App 之上。Android 的画中画只支持应用自己变小窗，<b>无法把第三方导航 App 装进我们的窗口</b>；想让导航浮在上面，用 <b>↗ 悬浮窗</b> 去开导航 App 自己的悬浮窗权限。<b>默认关闭</b>。</div>
+              <div class="set-hint">勾选主页要显示的模块（默认<b>状态 + 音乐</b>，<b>导航默认不显示</b>，需要时勾上）；按住右侧 <b>⠿</b> 左右拖动可调顺序，三个模块<b>等宽</b>（全勾各占 1/3）。三个模块<b>全部取消</b>时自动恢复默认。</div>
             </div>
             <div class="set-sec">
               <div class="set-label">音乐源</div>
@@ -957,7 +954,6 @@ const settings={musicSrc:"usb",navApp:"",wall:"static",wallColor:"#0b0e14",autoP
   /* 主页模式（v1.5.16）：主页三栏「状态 / 导航 / 音乐」的显示（on）与顺序（order）。
      默认 on = 状态 + 音乐（= 改造前的观感）⇒ 不需要一次性迁移键：老存档本就没这个键，直接取这里。 */
   homeMode:{order:["state","nav","music"],on:["state","music"]},
-  pipEnabled:false,     // 画中画默认关：要真正生效 manifest 需 resizeableActivity=true（超宽屏表现待装车实测）
   wallList:{static:[{id:"preset",name:"预设壁纸",src:DEFAULT_WALL}],
             dynamic:[{id:"preset",name:"预设动态壁纸",src:"",vid:false}]},
   pick:{static:"preset",dynamic:"preset"},
@@ -978,7 +974,7 @@ function saveSettings(){
     wallColor:settings.wallColor, pick:settings.pick, autoPlay:settings.autoPlay,
     wallDim:settings.wallDim,
     dockApps:settings.dockApps, gestures:settings.gestures, wallList:uploadedWalls(),
-    homeMode:settings.homeMode, pipEnabled:settings.pipEnabled };
+    homeMode:settings.homeMode };
   try{ localStorage.setItem("l6_settings_v1", JSON.stringify(data)); }
   catch(e){
     // 配额超限：退为只存元信息（丢弃壁纸数据），至少保住「类型 / 选中项 / 音乐源」等设置
@@ -1513,7 +1509,6 @@ function syncHomeNav(){
   var acts='<div class="hn-acts">'+
     '<button class="hn-btn" data-act="open">▶ '+(n.active?"打开导航":"启动导航")+'</button>'+
     '<button class="hn-btn ghost" data-act="float" title="跳转该导航 App 的「显示在其他应用上层」权限页">↗ 悬浮窗</button>'+
-    '<button class="hn-btn ghost" data-act="pip" title="把本应用缩成系统画中画小窗（需先在设置里开启）">⧉ 画中画</button>'+
     '</div>';
   if(n.active){
     box.classList.add("live");
@@ -1536,18 +1531,6 @@ function navFloatSettings(){
     ok=!!window.L6Native.openAppOverlaySettings(pkg); }catch(e){ ok=false; }
   if(!ok) toastL6("未能打开悬浮窗设置");
 }
-function navEnterPip(){
-  if(!(settings&&settings.pipEnabled)){ toastL6("画中画未开启：设置 → 画中画 里打开"); return; }
-  var ok=false;
-  try{ if(window.L6Native&&window.L6Native.enterPip) ok=!!window.L6Native.enterPip(); }catch(e){ ok=false; }
-  if(!ok) toastL6("本机不支持画中画（或被车机禁用）");
-}
-function syncPip(){
-  var b=document.getElementById("pipBtn"); if(!b) return;
-  var on=!!(settings&&settings.pipEnabled);
-  b.textContent=on?"● 开启":"○ 关闭";
-  b.classList.toggle("on",on);
-}
 function bindHomeNav(){
   var box=document.getElementById("homeNav"); if(!box||box.__navBound) return;
   box.__navBound=true;
@@ -1555,7 +1538,6 @@ function bindHomeNav(){
     var act="open", t=e.target;
     if(t&&t.closest){ var b=t.closest("[data-act]"); if(b) act=b.getAttribute("data-act"); }
     if(act==="float") return navFloatSettings();
-    if(act==="pip") return navEnterPip();
     startNav((settings&&settings.navApp)||navApp);     // 点空白处 = 打开导航
   });
 }
@@ -2424,20 +2406,11 @@ applyAutoPlayOnLaunch();
   try{if(n.refreshSys)n.refreshSys();}catch(e){}
 })();
 
-/* ---- 主页模式 / 导航窗口 / 画中画的初始化（v1.5.16）----
+/* ---- 主页模式 / 导航窗口的初始化（v1.5.16）----
    ★ 必须放在脚本最末尾：本模块的数据字面量是用 var 声明的，会被提升成 undefined，
      若在它们赋值之前调用 renderHomeMode()，HM_NAMES["state"] 会抛 TypeError，
      整段 <script> 静默中断 —— 表现是页面上所有 onclick 都没接上（黑屏级事故）。 */
-renderHomeMode();applyHomeMode();bindHomeNav();syncPip();
-(function initPipBtn(){
-  var b=document.getElementById("pipBtn"); if(!b) return;
-  b.onclick=function(){
-    settings.pipEnabled=!settings.pipEnabled;
-    if(typeof saveSettings==="function")saveSettings();
-    syncPip();
-    toastL6(settings.pipEnabled?"画中画已开启":"画中画已关闭");
-  };
-})();
+renderHomeMode();applyHomeMode();bindHomeNav();
 </script>
 </div>
 <script>

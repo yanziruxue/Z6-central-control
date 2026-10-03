@@ -1,7 +1,6 @@
 package com.l6.carmedia;
 
 import android.app.Activity;
-import android.app.PictureInPictureParams;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -14,7 +13,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Base64;
-import android.util.Rational;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -156,10 +154,8 @@ public class MainActivity extends Activity {
             "checkOtaUpdate:function(){try{R.checkOtaUpdate();}catch(e){}}," +
             "installOtaUpdate:function(u,s){try{R.installOtaUpdate(u,s);}catch(e){}}," +
             "cancelOtaUpdate:function(){try{R.cancelOtaUpdate();}catch(e){}}," +
-            // ---- 主页模式（v1.5.16）：导航 App 悬浮窗权限入口 + 本应用画中画 ----
+            // ---- 主页模式（v1.5.16）：跳导航 App 自己的悬浮窗权限页 ----
             "openAppOverlaySettings:function(p){try{return !!R.openAppOverlaySettings(p);}catch(e){return false;}}," +
-            "enterPip:function(){try{return !!R.enterPip();}catch(e){return false;}}," +
-            "isPipAvailable:function(){try{return !!R.isPipAvailable();}catch(e){return false;}}," +
             "getOtaConfig:function(){try{return JSON.parse(R.getOtaConfig()||'{}');}catch(e){return{};}}," +
             // ---- 真实系统数据：媒体会话（音乐）+ 导航通知（导航）----
             "getSysState:function(){try{return JSON.parse(R.getSysState()||'{}');}catch(e){return{};}}," +
@@ -1336,7 +1332,7 @@ public class MainActivity extends Activity {
             Ota.cancelDownload();
         }
 
-        /* ==================== 主页模式：导航悬浮 / 本应用画中画（v1.5.16） ==================== */
+        /* ==================== 主页模式：跳导航 App 悬浮窗权限页（v1.5.16） ==================== */
 
         /**
          * 打开指定 App 的「显示在其他应用上层（悬浮窗）」权限入口。
@@ -1368,44 +1364,6 @@ public class MainActivity extends Activity {
             } catch (Throwable t) {
                 L6Log.w("L6Home", "打开悬浮窗设置失败: " + t);
                 toast("无法打开该应用的权限页");
-                return false;
-            }
-        }
-
-        /**
-         * 本机（车机）是否具备画中画能力。
-         * 车机 ROM 常把 PiP 直接关掉，所以必须探测而不是假定「Android 9 就一定有」。
-         */
-        @JavascriptInterface
-        public boolean isPipAvailable() {
-            try {
-                return getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE);
-            } catch (Throwable t) {
-                return false;
-            }
-        }
-
-        /**
-         * 把「本应用」缩成系统画中画小窗（浮在其他全屏应用之上）。
-         *
-         * ★ 只能反过来做：画中画 API 是 Activity 自己的方法，一个应用只能把自己变小窗；
-         *   要把第三方导航 App 装进我们的窗口，Android 没有这种能力。所以这里实现的是
-         *   「老六变小窗浮在导航上」，而不是「导航嵌在主页里」。
-         *   页面上的「↗ 悬浮窗」按钮才是「让导航浮在我们上面」的那条路（开导航 App 自己的悬浮窗权限）。
-         */
-        @JavascriptInterface
-        public boolean enterPip() {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
-            try {
-                if (!isPipAvailable()) { L6Log.w("L6Home", "车机不支持画中画"); return false; }
-                PictureInPictureParams.Builder b = new PictureInPictureParams.Builder();
-                // 车机屏 1920x720（2.667:1 超宽）；不设宽高比，小窗会被拉成细长一条
-                b.setAspectRatio(new Rational(16, 9));
-                boolean ok = enterPictureInPictureMode(b.build());
-                L6Log.i("L6Home", "进入画中画: " + ok);
-                return ok;
-            } catch (Throwable t) {
-                L6Log.w("L6Home", "进入画中画失败: " + t);
                 return false;
             }
         }

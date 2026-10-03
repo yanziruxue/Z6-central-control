@@ -370,7 +370,8 @@ setTimeout(async () => {
   const homeNavEl = d.getElementById('homeNav');
   const homeNavIdleOk = !!homeNavEl && homeNavEl.innerHTML.indexOf('未在导航') >= 0 &&
                         homeNavEl.innerHTML.indexOf('启动导航') >= 0 &&
-                        homeNavEl.innerHTML.indexOf('悬浮窗') >= 0 && homeNavEl.innerHTML.indexOf('画中画') >= 0;
+                        homeNavEl.innerHTML.indexOf('悬浮窗') >= 0 &&
+                        homeNavEl.innerHTML.indexOf('画中画') < 0;          // v1.5.17 起画中画按钮已移除
   // 真实导航数据进来 → #homeNav 显示导航中，同时顶部 #miniNav 必须让位（互斥，不重复显示）
   window.applyRealNav({ active: true, arrow: '↱', turn: '前方 300m 右转', road: '滨江大道',
                         remain: '8.6km', eta: '14min', dest: '公司', app: '高德地图' });
@@ -407,17 +408,22 @@ setTimeout(async () => {
   const hmAllOffOk = set(hmOn()) === 'music,state' && set(modShown()) === 'music,state' &&
                      set(readHome().on.join(',')) === 'music,state';
 
-  // 画中画开关：默认关 → 点一下开（并落盘）
-  const pipBtn = d.getElementById('pipBtn');
-  const pipDefOk = !!pipBtn && pipBtn.textContent.indexOf('关闭') >= 0;
-  pipBtn.onclick();
-  const pipOnOk = pipBtn.textContent.indexOf('开启') >= 0 && readHome() !== null &&
-                  (() => { try { return JSON.parse(window.localStorage.getItem('l6_settings_v1')).pipEnabled === true; } catch (e) { return false; } })();
-  pipBtn.onclick();
-  const pipBackOk = pipBtn.textContent.indexOf('关闭') >= 0;
+  // v1.5.17 取消画中画：源码级确认设置页开关已删、页面与 Java 都不再提 PiP
+  const pipGoneOk = !d.getElementById('pipBtn') &&
+                    !/pipEnabled|syncPip|navEnterPip/.test(htmlSrc) &&
+                    !/画中画|enterPip|isPipAvailable/.test(htmlSrc) &&
+                    !/enterPip|isPipAvailable|PictureInPicture/.test(java) &&
+                    [].slice.call(d.querySelectorAll('.set-label')).length > 0;
+
+  // 三栏等宽（v1.5.17 源码级 —— jsdom 不解析外部样式表，getComputedStyle 拿不到 flex/grid）
+  // ★ flex 只均分内容盒，三栏 padding 不同 ⇒ 外框不等宽；必须用 grid 的 minmax(0,1fr)
+  const equalThreeOk = /#pageMusic\{display:grid;grid-auto-flow:column;grid-auto-columns:minmax\(0,1fr\)\}/.test(htmlSrc) &&
+                       !/\.music\{flex:2;/.test(htmlSrc) &&
+                       !/#pageMusic > \[data-mod="nav"\]\{flex:1\}/.test(htmlSrc);
+
   const homeModeOk = hmDefaultOk && hmRenderOk && homeThreeOk && hmNavOnOk && homeNavIdleOk &&
                      homeNavLiveOk && miniNavYieldOk && hmDragOk && hmAllOffOk &&
-                     pipDefOk && pipOnOk && pipBackOk;
+                     pipGoneOk && equalThreeOk;
 
   // 空态自诊断：必须能把「桥读不到应用」与「车机真没装应用」区分开。
   // 历史教训（v1.4.6~v1.4.14）：原生 getAllAppsJson 漏了 @JavascriptInterface，
@@ -481,7 +487,7 @@ setTimeout(async () => {
   console.log('主页模式：默认(状态+音乐) ->', hmDefaultOk, '| 设置页三项渲染 ->', hmRenderOk, '| 主页三栏按 order ->', homeThreeOk);
   console.log('主页模式：勾选导航后三栏全显 ->', hmNavOnOk, '| 导航窗口空态文案 ->', homeNavIdleOk, '| 有数据时填充 ->', homeNavLiveOk);
   console.log('主页模式：顶部迷你卡让位(#miniNav 互斥) ->', miniNavYieldOk, '| 拖动排序落盘 ->', hmDragOk, '(' + hmOrderMoved + ')');
-  console.log('主页模式：三项全取消回默认 ->', hmAllOffOk, '| 画中画开关 默认关/开/关 ->', pipDefOk, '/', pipOnOk, '/', pipBackOk);
+  console.log('主页模式：三项全取消回默认 ->', hmAllOffOk, '| 画中画已移除 ->', pipGoneOk, '| 三栏等宽 ->', equalThreeOk);
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));
   console.log(ok ? '✓ 桥接冒烟测试通过' : '✗ 桥接冒烟测试失败');
