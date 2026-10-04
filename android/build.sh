@@ -39,13 +39,12 @@ if [ ! -x "$KEYTOOL" ] && command -v keytool >/dev/null 2>&1; then KEYTOOL="$(co
 
 ROOT="D:/AI/WorkBuddy/老六"                  # 项目根目录（原 car-linux-media/ 内容已上提到根）
 SRC="$ROOT/android"
-PROTO="$ROOT/apk-dashboard-prototype.html"
 DIST="$ROOT/dist"
 WORK="${WORK:-C:/Users/yanzi/l6apk-build-$(date +%s)}"
 
 APP_NAME="老六中控"              # 应用显示名（build 时写入 res/values/strings.xml 的 app_name）
 APK_NAME="Z6CC"                  # 产物文件名前缀（作为 GitHub Release 资产上传，必须 ASCII）
-VER_NAME="1.5.23"
+VER_NAME="2.0.0"
 
 # versionCode 编码约定：major*10000 + minor*100 + patch（例：1.2.1 -> 10201）
 # 必须与 Ota.normalizeGithubRelease() 从 tag 解析出的编码一致，否则 OTA 比较会误判。
@@ -59,7 +58,6 @@ OUT_APK="$DIST/$APK_NAME-$VER_NAME.apk"
 for f in "$BT/aapt2.exe" "$BT/d8.bat" "$BT/zipalign.exe" "$BT/apksigner.bat" "$PLATFORM"; do
   [ -e "$f" ] || { echo "✗ 缺少构建组件: $f"; exit 1; }
 done
-[ -f "$PROTO" ] || { echo "✗ 找不到原型页面: $PROTO"; exit 1; }
 
 echo "==> 1/7 准备构建目录 $WORK"
 rm -rf "$WORK"
@@ -76,8 +74,7 @@ sed -i "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$VER_CODE\"/; s/a
 sed -i "s|<string name=\"app_name\">[^<]*</string>|<string name=\"app_name\">$APP_NAME</string>|" "$WORK/res/values/strings.xml"
 echo "    版本: $VER_NAME (versionCode $VER_CODE)"
 cp -r "$SRC/assets" "$WORK/"            # 含 ota.properties / app.properties
-cp "$PROTO" "$WORK/assets/index.html"
-echo "    页面已内嵌: assets/index.html ($(wc -c < "$WORK/assets/index.html") bytes)"
+# ★ v2.0.0：界面全部原生，**不再把 HTML 原型打进 APK**（assets 只剩配置）
 echo "    配置已内嵌: assets/ota.properties ($(wc -c < "$WORK/assets/ota.properties") bytes)"
 echo "    配置已内嵌: assets/app.properties ($(wc -c < "$WORK/assets/app.properties") bytes)"
 

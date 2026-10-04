@@ -75,6 +75,13 @@ public final class L6WidgetHost {
     private String curCls = "";
     private String curLabel = "";
 
+    /**
+     * 原生直嵌模式（v2.0.0 起）：小部件被直接 addView 进主页的导航栏槽位，
+     * 不再需要前端按百分比上报位置。置位后 {@link #applyPlace()} 变成空操作 ——
+     * 否则页面里残留的 place() 调用会把它按百分比重新摆回 overlay 坐标，槽位里的布局被改坏。
+     */
+    private boolean nativeEmbed = false;
+
     /** 前端上报的区域矩形（屏幕百分比）。宽或高 ≤0 表示「区域当前不可见」⇒ 收起 overlay。 */
     private volatile double pl = -1, pt = -1, pw = -1, ph = -1;
 
@@ -93,6 +100,68 @@ public final class L6WidgetHost {
     public void attach(Activity a, ViewGroup r) {
         act = a;
         root = r;
+    }
+
+    /**
+     * 原生直嵌：把当前小部件（若有）直接填进给定容器。
+     *
+     * ★ 与 {@link #attach(Activity, ViewGroup)} 的区别：那个是把小部件当 overlay 挂在
+     *   WebView 的父容器上、靠百分比定位；这里是把它当成**普通子视图**交给原生布局管。
+     *   两条通道互斥 —— 进了直嵌就不再 applyPlace。
+     *
+     * ★ 必须在主线程调用（AppWidgetHost 要求「同一条线程创建 + 使用」。
+     */
+    public void attachInto(final ViewGroup slot) {
+        if (slot == null) {
+            return;
+        }
+        nativeEmbed = true;
+        post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    slot.removeAllViews();
+                    if (view == null) {
+                        return;
+                    }
+                    ViewGroup old = (ViewGroup) view.getParent();
+                    if (old != null) {
+                        old.removeView(view);
+                    }
+                    view.setVisibility(View.VISIBLE);
+                    view.setLayoutParams(new FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT));
+                    slot.addView(view);
+                    // 槽位尺寸要等一次布局才有 ⇒ 量到了再告诉 provider「你被放在多大一块地方」。
+                    // 不报的话 provider 按自己的 min 尺寸渲染，塞进槽里会错位。
+                    reportSizeWhenLaid(slot);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
+    }
+
+    private void reportSizeWhenLaid(final ViewGroup slot) {
+        slot.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+            private boolean done = false;
+
+            @Override
+            public void onLayoutChange(View v, int l, int t, int r, int b,
+                                       int ol, int ot, int or, int ob) {
+                if (done || view == null || r - l <= 0 || b - t <= 0) {
+                    return;
+                }
+                done = true;
+                try {
+                    float d = ctx.getResources().getDisplayMetrics().density;
+                    int wdp = Math.max(1, Math.round((r - l) / d));
+                    int hdp = Math.max(1, Math.round((b - t) / d));
+                    view.updateAppWidgetSize(new Bundle(), wdp, hdp, wdp, hdp);
+                } catch (Throwable ignored) {
+                }
+            }
+        });
     }
 
     /** 建 host 并开始监听（必须在主线程调用）。顺便清掉上次会话残留的绑定。 */
@@ -383,6 +452,9 @@ public final class L6WidgetHost {
     /** 按百分比把 overlay 摆到区域上；区域不可见（≤0）就收起。 */
     private void applyPlace() {
         try {
+            if (nativeEmbed) {
+                return;      // 直嵌模式下由原生布局管位置，百分比上报一律忽略
+            }
             if (view == null || root == null) {
                 return;
             }

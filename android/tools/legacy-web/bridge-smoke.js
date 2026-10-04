@@ -534,6 +534,58 @@ setTimeout(async () => {
                      miniNavYieldOk && hmDragOk && hmAllOffOk &&
                      pipGoneOk && equalThreeOk;
 
+  /* ---------- v1.5.24：设置页翻页错位 / 点按焦点框 / 小部件入口 ---------- */
+  // ① 翻页位移必须用**像素**。translateY(-N*100%) 的百分比相对「#track 自身高度」，
+  //    高度 ≠ 一屏时就**静默错位**（不报错）—— 主页 idx=0 位移为 0 看不出来，
+  //    设置页正好是 idx=1 ⇒ 一翻就呈现黑屏（车机实测就是这个现象）。
+  const goPixelSrcOk = htmlSrc.indexOf("track.style.transform='translateY(-'+trackOffset(idx)+'px)'") >= 0 &&
+                       htmlSrc.indexOf('translateY(-${idx*100}%)') < 0 &&
+                       typeof window.trackOffset === 'function' && typeof window.applyTrackOffset === 'function';
+  // jsdom 无布局引擎 ⇒ 自己给 offsetHeight / clientHeight 打桩，验行为而不是验数字来源
+  const pageEls = [...d.querySelectorAll('.page')];
+  const stubH = (el, h) => Object.defineProperty(el, 'offsetHeight', { configurable: true, get: () => h });
+  pageEls.forEach(p => stubH(p, 720));
+  window.go(1);
+  const goPixelOk = d.getElementById('track').style.transform === 'translateY(-720px)';
+  // ★ 零值兜底：布局还没量到（全 0）时必须退到 idx × 一屏高 —— 原地不动就等于黑屏
+  pageEls.forEach(p => stubH(p, 0));
+  Object.defineProperty(d.getElementById('viewport'), 'clientHeight', { configurable: true, get: () => 500 });
+  window.go(1);
+  const goFallbackOk = d.getElementById('track').style.transform === 'translateY(-500px)';
+  // ★ 回主页必须归零，否则「设置页 → 主页」会停在一片空白上
+  window.go(0);
+  const goHomeZeroOk = d.getElementById('track').style.transform === 'translateY(-0px)';
+  const goPixelBehaviorOk = goPixelOk && goFallbackOk && goHomeZeroOk;
+
+  // ② 车机那代 WebView 没有 :focus-visible 的「只在键盘操作时才画焦点环」语义 ⇒
+  //    手指点按也让 <button> 进 :focus 并画默认描边，圆按钮上就套出一个方形焦点框
+  const focusResetOk = /\*:focus\{outline:none\}/.test(htmlSrc);
+
+  // ③ 小部件入口必须在**设置页也有一份** —— 主页那份住在 #homeNav 内部，
+  //    而「导航」默认不显示 ⇒ 默认配置下主页根本看不到入口（v1.5.23 的可用性疏漏）
+  const setWg = d.getElementById('setWidget');
+  const setWgPick = d.getElementById('wgSetPick'), setWgState = d.getElementById('wgSetState');
+  const setWgClearRow = d.getElementById('wgSetClearRow');
+  const setWgEntryOk = !!setWg && !!setWgPick && !!setWgState && !!setWgClearRow &&
+                       setWg.parentNode === d.querySelector('#pageSet .set-scroll') &&
+                       setWg.innerHTML.indexOf('选择小部件') >= 0 &&
+                       setWg.innerHTML.indexOf('原生卡片') >= 0;      // 明确「不是网页内嵌」
+  // 按钮真的接上了（漏绑定 = 点了没反应，而且不报错 —— 必须点一次验）
+  const pickBound = typeof setWgPick.onclick === 'function';
+  if (pickBound) setWgPick.onclick();
+  const setPickBoundOk = pickBound && d.getElementById('wgSheet').classList.contains('open');
+  window.wgClose();
+  // 文案跟着状态走：未嵌入 → 已嵌入 → 未嵌入（移除行随状态显隐）
+  const setWgStateOffOk = setWgState.textContent === '未嵌入' && setWgClearRow.style.display === 'none';
+  window.L6SysEvent({ kind: 'widget', on: true, label: '高德地图' });
+  const setWgStateOnOk = setWgState.textContent.indexOf('已嵌入') >= 0 &&
+                         setWgClearRow.style.display === '';
+  window.L6SysEvent({ kind: 'widget', on: false });
+  const setWgStateBackOk = setWgState.textContent === '未嵌入' && setWgClearRow.style.display === 'none';
+  const setWgOk = setWgEntryOk && setPickBoundOk && setWgStateOffOk && setWgStateOnOk && setWgStateBackOk;
+
+  const widgetEntryOk = goPixelSrcOk && goPixelBehaviorOk && focusResetOk && setWgOk;
+
   // 空态自诊断：必须能把「桥读不到应用」与「车机真没装应用」区分开。
   // 历史教训（v1.4.6~v1.4.14）：原生 getAllAppsJson 漏了 @JavascriptInterface，
   // 桥调用在 JS 侧抛错、被 SHIM 的 catch 静默转成空数组，页面只显示「未读到已安装的应用」，
@@ -558,7 +610,7 @@ setTimeout(async () => {
     && dockSetGone && toggleOk && pinAddOk && pinRemoveOk && lpBound
     && dockRendered && appListOpened && appListItems >= 4 && launchPkgOk && emptyDiagOk
     && homeLeftOfMore && goHomeBridgeOk && goHomeCalled && dragOk && homeModeOk
-    && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk && wgOk
+    && homeStateBridgeOk && homeStateSet && homeStateUnset && homeCopyOk && wgOk && widgetEntryOk
     && themeBridgeOk && themeLightOk && themeDarkOk;
 
   console.log('音乐源卡片 ->', music.join(' / '));
@@ -603,6 +655,11 @@ setTimeout(async () => {
               '| 选中带对 pkg ->', wgPickOk, '| 拉授权框 ->', wgAuthOk);
   console.log('小部件承载：占位框 ->', wgLiveOk, '| 矩形按百分比上报 ->', wgRectOk,
               '| 同矩形去重 ->', wgDedupeOk, '| 不可见上报 0 ->', wgHideOk, '| 移除 ->', wgClearOk);
+  console.log('翻页位移改像素：源码 ->', goPixelSrcOk, '| 实测高度累加 ->', goPixelOk,
+              '| 零值兜底 ->', goFallbackOk, '| 回主页归零 ->', goHomeZeroOk);
+  console.log('点按焦点方框已消除(*:focus{outline:none}) ->', focusResetOk);
+  console.log('设置页小部件入口 ->', setWgEntryOk, '| 按钮已绑定 ->', setPickBoundOk,
+              '| 状态文案同步 ->', setWgStateOffOk, '/', setWgStateOnOk, '/', setWgStateBackOk);
   console.log('saveWallpaper 通道 ->', typeof window.L6Native.saveWallpaper === 'function' ? '可用' : '不可用');
   console.log('运行时错误 =', errs.length, errs.join(' | '));
   console.log(ok ? '✓ 桥接冒烟测试通过' : '✗ 桥接冒烟测试失败');

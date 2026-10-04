@@ -15,17 +15,18 @@ import android.os.Environment;
 import android.util.Base64;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
-import android.webkit.WebChromeClient;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+
+import com.l6.carmedia.nat.Def;
+import com.l6.carmedia.nat.NatShell;
+import com.l6.carmedia.nat.Prefs;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -45,13 +46,48 @@ import java.util.Set;
  *
  * 页面侧通过注入的 L6Native 适配层调用，原型 HTML 无需改动即可独立运行。
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
 
     private static final int REQ_FILE = 1001;
     /** 需要在 API 29 及以下申请的传统存储权限。 */
     private static final int REQ_PERM = 1002;
 
-    private WebView web;
+    /** 原生界面容器（v2.0.0 起常驻，为 null 只可能是 build() 抛异常） */
+    private NatShell natShell;
+
+    /**
+     * ★ 原生界面的「系统状态合成快照」，字段与 {@link com.l6.carmedia.nat.Host#sysState()} 契约一致：
+     * {@code {media:{...}, nav:{...}, lyrics:{...}, car:{...}, notifyAccess:bool}}。
+     *
+     * 由 {@link SysHub} 的原始事件出口按 kind 归位（见 #natIngest）。加锁是因为
+     * MediaHub / 通知服务 / 歌词线程都会推事件，JSONObject 本身不是线程安全的。
+     */
+    private final JSONObject natSys = new JSONObject();
+
+    /** 上一次请求歌词的「曲名|歌手」；换歌才重拉（对应原型 REAL.lrcKey）。 */
+    private String natLrcKey = "";
+
+    /** launchSrc 的 600ms 同键去重状态（对应原型 startNav 的 lastNavKey / lastNavStart）。 */
+    private String lastLaunchKey = "";
+    private long lastLaunchAt = 0L;
+
+    /** 车辆数据的标量字段（对应 JS VEH 的散字段）。 */
+    private static final String[] CAR_SCALARS = {"fuel", "batt", "odo", "load", "temp", "lat", "ip",
+            "lock", "lights", "hazard", "gear", "trunk"};
+
+    /** 车辆数据的分组字段（doors / windows / tire / ac）。 */
+    private static final String[] CAR_GROUPS = {"doors", "windows", "tire", "ac"};
+
+    /** JS 桥实例。抽成字段是为了让原生侧能**直接调用同一份业务逻辑**，不重复实现。 */
+    private Bridge api;
+
+    /** 原生版选壁纸用的请求码（WebView 版走 onShowFileChooser，原生版只能自己拉系统选择器） */
+    private static final int REQ_WALL = 1003;
+    /** 正在选壁纸的类型（static / dynamic），选完落盘时要按它归档 */
+    private String pickWallKind = Prefs.KIND_STATIC;
+
+    /** 主线程 Handler（v1.5.x 借 WebView.post 用，v2.0.0 删掉 WebView 后自己持一个） */
+    private android.os.Handler ui;
     /** v1.5.23：小部件是原生 View，进不了 WebView 的 DOM ⇒ 需要一个同层容器承载它的 overlay。 */
     private android.widget.FrameLayout rootView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -116,8 +152,8 @@ public class MainActivity extends Activity {
                 }
             } catch (Throwable ignored) {
             }
-            if (web != null) {
-                web.postDelayed(this, 1000);
+            if (ui != null) {
+                ui.postDelayed(this, 1000);
             }
         }
     };
@@ -138,63 +174,7 @@ public class MainActivity extends Activity {
             {"com.tencent.map",          "tencent",  "腾讯地图",      "\uD83D\uDEA9", "nav"},
     };
 
-    /** 注入到页面的适配层：把 addJavascriptInterface 对象包装成页面期望的 window.L6Native(cb 风格)。 */
-    private static final String SHIM =
-            "(function(){try{" +
-            "var R=window.L6NativeRaw;if(!R)return;" +
-            "window.L6Native={" +
-            // ⚠️ 这两个 catch 以前是静默的 `catch(e){cb([]);}` —— 桥调用失败与「车机真没装应用」
-            //    在页面上长得一模一样，导致「应用列表看不到已装应用」拖了 8 个版本才定位。
-            //    现在把错误记到 window.__l6Err，页面空态会把它显示出来（不用 adb 也能定论）。
-            "getInstalledApps:function(cb){try{cb(JSON.parse(R.getInstalledAppsJson()));}catch(e){window.__l6Err=(window.__l6Err||[]).concat('getInstalledApps: '+e);cb([]);}}," +
-            "getAllApps:function(cb){try{cb(JSON.parse(R.getAllAppsJson()));}catch(e){window.__l6Err=(window.__l6Err||[]).concat('getAllApps: '+e);cb([]);}}," +
-            "getAppIcon:function(v){try{return R.getAppIcon(v)||'';}catch(e){return '';}}," +
-            "saveWallpaper:function(t,b,n){try{R.saveWallpaper(t,b,n);}catch(e){}}," +
-            "launchApp:function(k){try{R.launchApp(k);}catch(e){}}," +
-            "launchMusic:function(k){try{R.launchMusic(k);}catch(e){}}," +
-            "launchPkg:function(p){try{R.launchPkg(p);}catch(e){}}," +
-            "checkOtaUpdate:function(){try{R.checkOtaUpdate();}catch(e){}}," +
-            "installOtaUpdate:function(u,s){try{R.installOtaUpdate(u,s);}catch(e){}}," +
-            "cancelOtaUpdate:function(){try{R.cancelOtaUpdate();}catch(e){}}," +
-            // ---- 主页模式（v1.5.16）：跳导航 App 自己的悬浮窗权限页 ----
-            "openAppOverlaySettings:function(p){try{return !!R.openAppOverlaySettings(p);}catch(e){return false;}}," +
-            "getOtaConfig:function(){try{return JSON.parse(R.getOtaConfig()||'{}');}catch(e){return{};}}," +
-            // ---- 真实系统数据：媒体会话（音乐）+ 导航通知（导航）----
-            "getSysState:function(){try{return JSON.parse(R.getSysState()||'{}');}catch(e){return{};}}," +
-            "hasNotifyAccess:function(){try{return !!R.hasNotifyAccess();}catch(e){return false;}}," +
-            "openNotifyAccess:function(){try{R.openNotifyAccess();}catch(e){}}," +
-            "refreshSys:function(){try{R.refreshSys();}catch(e){}}," +
-            "mediaControl:function(a){try{R.mediaControl(a);}catch(e){}}," +
-            "requestLyrics:function(t,a){try{R.requestLyrics(t,a);}catch(e){}}," +
-            // ---- 悬浮窗权限（已并入「系统权限」卡片，作返回主页备用通道）；默认桌面设置入口 ----
-            "hasOverlay:function(){try{return !!R.hasOverlayPermission();}catch(e){return false;}}," +
-            "openOverlay:function(){try{R.openOverlaySettings();}catch(e){}}," +
-            "openHomeSettings:function(){try{R.openHomeSettings();}catch(e){}}," +
-            "isDefaultHome:function(){try{return !!R.isDefaultHome();}catch(e){return false;}}," +
-            "isNightMode:function(){try{return !!R.isNightMode();}catch(e){return true;}}," +
-            "goHome:function(){try{R.goHome();}catch(e){}}," +
-            // ---- 运行日志（收集 + 推送 Tasker）----
-            "getLog:function(n){try{return JSON.parse(R.getLogJson(n||50));}catch(e){return [];}}," +
-            "clearLog:function(){try{R.clearLog();}catch(e){}}," +
-            "getLogPath:function(){try{return R.getLogPath()||'';}catch(e){return '';}}," +
-            "setLogBroadcast:function(b){try{R.setLogBroadcast(!!b);}catch(e){}}," +
-            "isLogBroadcast:function(){try{return !!R.isLogBroadcast();}catch(e){return true;}}," +
-            "exportLog:function(){try{R.exportLog();}catch(e){}}," +
-            // ---- 车机信号采集（v1.5.15）：只有「开始/结束」两个动作，操作了什么由用户口头说明 ----
-            "startSignalCapture:function(){try{R.startSignalCapture();}catch(e){}}," +
-            "stopSignalCapture:function(){try{R.stopSignalCapture();}catch(e){}}," +
-            "isSignalCapturing:function(){try{return !!R.isSignalCapturing();}catch(e){return false;}}," +
-            // ---- 小部件承载（v1.5.23）：列表 / 绑定 / 授权 / 上报矩形 / 移除 / 状态 ----
-            "widgetList:function(cb){try{cb(JSON.parse(R.widgetListJson()||'[]'));}catch(e){window.__l6Err=(window.__l6Err||[]).concat('widgetList: '+e);cb([]);}}," +
-            "widgetBind:function(p,c){try{R.widgetBind(p,c);}catch(e){}}," +
-            "widgetAuth:function(i,p,c){try{R.widgetAuth(i,p,c);}catch(e){}}," +
-            "widgetPlace:function(l,t,w,h){try{R.widgetPlace(l,t,w,h);}catch(e){}}," +
-            "widgetClear:function(){try{R.widgetClear();}catch(e){}}," +
-            "widgetState:function(){try{return JSON.parse(R.widgetStateJson()||'{}');}catch(e){return {};}}" +
-            "};" +
-            // shim 注入后把日志卡片状态同步一次（含新加的接口 DNS 输入框）
-            "try{buildMusicSrc();buildNavApp();if(typeof syncLogCfg==='function')syncLogCfg();}catch(e){}" +
-            "}catch(e){}})()";
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -206,113 +186,20 @@ public class MainActivity extends Activity {
         // 车机信号采集：能力清单 / 每条变化 / 心跳 / 结束，都走同一条回推。
         // 变化里的 from/to 是车机属性原文（可能含引号与中文），同样必须 Base64 包一层。
         SignalCapture.setListener(json -> {
-            if (web != null) {
-                final String js = L6Log.jsCall("L6SignalResult", json.toString());
-                web.post(() -> web.evaluateJavascript(js, null));
-            }
+            // v2.0.0：设置页「信号采集」卡片的状态在每次重建时**现读**，这里只负责触发重建
+            if (natShell != null) natShell.refreshSet();
         });
         L6Log.i("L6", "应用启动");
 
-        web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#0B0E14"));
-        // v1.5.23：给 WebView 套一层 FrameLayout —— 小部件（AppWidgetHostView）是**原生 View**，
-        //   永远进不了 HTML 的 DOM，只能作为 overlay 挂在同一层容器上，
-        //   位置由页面按百分比上报（见 L6WidgetHost.place / applyPlace）。
+        // ★ v2.0.0：界面全部原生（NatShell 手写 View），**不再有 WebView、也不再内置 HTML 页面**。
+        //   rootView 只作容器：原生 Shell 与 AppWidgetHostView（原生小部件）都挂在这一层。
         rootView = new android.widget.FrameLayout(this);
-        rootView.addView(web, new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(rootView);
+        ui = new android.os.Handler(android.os.Looper.getMainLooper());
         L6WidgetHost.get(this).attach(this, rootView);
         L6WidgetHost.get(this).listen();     // 主线程：AppWidgetHost 要求「同一条线程创建 + 使用」
 
-        WebSettings s = web.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
-        s.setMediaPlaybackRequiresUserGesture(false);   // 动态视频壁纸自动播放
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        try {
-            s.setAllowFileAccessFromFileURLs(true);
-            s.setAllowUniversalAccessFromFileURLs(true);
-        } catch (Throwable ignored) {
-        }
-
-        web.addJavascriptInterface(new Bridge(), "L6NativeRaw");
-
-        web.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                view.evaluateJavascript(SHIM, null);
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                view.evaluateJavascript(SHIM, null);
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                return false;
-            }
-        });
-
-        web.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb,
-                                             FileChooserParams params) {
-                if (filePathCallback != null) {
-                    filePathCallback.onReceiveValue(null);
-                }
-                filePathCallback = cb;
-                try {
-                    // ⚠️ 不能只取 accept[0]：动态壁纸的 input 是 accept="image/*,video/*"，
-                    //    只取第一个会退化成 image/*，选择器把 mp4 全部过滤掉
-                    //    —— 这正是「上传动态壁纸看不到 mp4 文件」的根因。
-                    String[] accept = params.getAcceptTypes();
-                    java.util.ArrayList<String> types = new java.util.ArrayList<>();
-                    boolean anyAll = false;
-                    if (accept != null) {
-                        for (String a : accept) {
-                            if (a == null) continue;
-                            String t = a.trim();
-                            if (t.isEmpty()) continue;
-                            if ("*/*".equals(t)) { anyAll = true; break; }
-                            if (!types.contains(t)) types.add(t);
-                        }
-                    }
-                    // 部分车机把 mp4 的 MIME 报成 application/octet-stream，一并附上才不会把视频藏掉
-                    boolean hasVideo = false;
-                    for (String t : types) {
-                        if (t.startsWith("video/")) { hasVideo = true; break; }
-                    }
-                    if (hasVideo && !types.contains("application/octet-stream")) {
-                        types.add("application/octet-stream");
-                    }
-                    Intent i = new Intent(Intent.ACTION_GET_CONTENT);
-                    i.addCategory(Intent.CATEGORY_OPENABLE);
-                    if (anyAll || types.isEmpty()) {
-                        i.setType("*/*");
-                    } else if (types.size() == 1) {
-                        i.setType(types.get(0));
-                    } else {
-                        i.setType("*/*");
-                        i.putExtra(Intent.EXTRA_MIME_TYPES, types.toArray(new String[0]));
-                    }
-                    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
-                    startActivityForResult(Intent.createChooser(i, "\u9009\u62e9\u6587\u4ef6"), REQ_FILE);
-                } catch (Exception e) {
-                    filePathCallback = null;
-                    toast("无法打开文件选择器：" + e.getMessage());
-                    return false;
-                }
-                return true;
-            }
-        });
+        api = new Bridge();
 
         if (Build.VERSION.SDK_INT <= 28) {
             try {
@@ -323,7 +210,8 @@ public class MainActivity extends Activity {
             }
         }
 
-        web.loadUrl("file:///android_asset/index.html");
+        // v2.0.0：只有原生界面一条路（没有 WebView、没有 HTML 兜底页）
+        startNativeUi();
 
         // 启动本 Activity 的那个 Intent 若是「系统 HOME 请求」，也按 HOME 请求处理。
         // 覆盖这条路径：车机 ROM 没走 onNewIntent，而是把本 Activity 重建后用 HOME Intent
@@ -331,18 +219,10 @@ public class MainActivity extends Activity {
         pendingHomeIntent = isHomeRequest(getIntent());
 
         // 系统实时数据（媒体会话 / 导航通知）统一走 window.L6SysEvent
-        SysHub.setEmitter(js -> {
-            final WebView w = web;
-            if (w == null) {
-                return;
-            }
-            w.post(() -> {
-                try {
-                    w.evaluateJavascript(js, null);
-                } catch (Throwable ignored) {
-                }
-            });
-        });
+        // ★ 同时喂一份「原始 JSON」给原生界面（v2.0.0 无 window，这条路必须并行走）
+        SysHub.setRaw(json -> natIngest(json));
+        // v2.0.0：没有页面了 —— SysHub 的「JS 片段」出口整体不再需要，
+        //   原生数据只走 setRaw(json) → natIngest(json) 这一条（见上面那行）。
 
         // v1.5.20：高德广播探针 —— 探测该车机 ROM 是否把 AUTONAVI_STANDARD_BROADCAST_SEND 转发给第三方。
         // 隐式广播在 Android 8+ 不能静态注册，只能在这里动态注册（本应用是默认桌面，生命周期≈常驻）。
@@ -351,22 +231,26 @@ public class MainActivity extends Activity {
         // v1.5.22：小部件探测 —— 「把导航 / 音乐的原生卡片嵌进主页区域」这条路通不通？
         // ★ 只读（见 WidgetProbe），跑一次把结论摆到主页导航区域的空态诊断行。
         //   3s 是为了等页面加载完 + SHIM 注入完，此时 SysHub 的 emitter 才收得到事件。
-        web.postDelayed(() -> {
+        ui.postDelayed(() -> {
             try { WidgetProbe.run(this); } catch (Throwable ignored) {}
+            if (natShell != null) natShell.refreshWidget();
         }, 3000);
 
         // 启动 5s 后静默检查一次 OTA（不打扰首屏）
-        web.postDelayed(() -> {
-            try { new Bridge().checkOtaUpdate(); } catch (Throwable ignored) {}
+        ui.postDelayed(() -> {
+            try { checkOta(); } catch (Throwable ignored) {}
         }, 5000);
 
         // 媒体进度每秒推进（含 10s 兜底重建会话）
-        web.postDelayed(mediaTick, 1200);
+        ui.postDelayed(mediaTick, 1200);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        if (natShell != null) {
+            natShell.start();      // 原生界面：每秒拉一次系统数据
+        }
         // 系统 HOME 请求落到本界面（导航 App 回桌面导致）→ 在这里把导航弹回前台。
         // 判据用 pendingHomeIntent（而非直接看 onNewIntent）：onNewIntent 与
         // 「onCreate 读 getIntent()」两条路径都会置它，后者覆盖 ROM 重建实例的情况。
@@ -391,49 +275,35 @@ public class MainActivity extends Activity {
         }
         // 用户可能刚从「允许安装未知应用」里授权，回来把没装完的 OTA 包续上
         try {
-            if (Ota.hasPendingInstall() && web != null) {
-                Ota.resumeInstallIfPending(this, json -> {
-                    final String js = Ota.safeJs(json);
-                    web.post(() -> web.evaluateJavascript(js, null));
-                });
+            if (Ota.hasPendingInstall()) {
+                Ota.resumeInstallIfPending(this, this::forwardOta);
             }
         } catch (Throwable ignored) {
         }
         // 回到本界面（系统 HOME 键 / 从授权页返回）→ 通知页面复位迷你导航卡片，
         // 并把最新悬浮窗授权状态刷到设置页（悬浮窗权限已并入「系统权限」卡片）。
         // 被 HOME 请求顶回并已回弹导航时跳过：用户并不在主页，推了只会让状态闪一下。
+        // 回到本界面 → 重建主页三栏（复位迷你导航卡片 / 重算栏可见性）
         if (!bounced) {
             try {
-                if (web != null) {
-                    web.evaluateJavascript(
-                            "(function(){try{if(window.L6NavReturn)window.L6NavReturn();}catch(e){}})()", null);
-                }
+                if (natShell != null) natShell.refreshHome();
             } catch (Throwable ignored) {
             }
         }
+        // 悬浮窗授权 / 默认桌面 可能刚在系统「应用管理 / 默认应用」页改过
+        // → 重建设置页（卡片状态在 build 时现读，重建即刷新）
         try {
-            boolean ov = FloatNav.canDrawOverlay(this);
-            web.evaluateJavascript(
-                    "(function(){try{if(window.L6OverlayEvent)window.L6OverlayEvent(" + ov
-                            + ");}catch(e){}})()", null);
+            if (natShell != null) natShell.refreshSet();
         } catch (Throwable ignored) {
         }
-        // 用户可能刚从系统「默认应用」设置页把本应用设为默认桌面 → 回推状态，
-        // 否则设置页「默认桌面」会一直停在「未设置」。
-        try {
-            boolean home = isDefaultHomeOf(this);
-            web.evaluateJavascript(
-                    "(function(){try{if(window.L6HomeEvent)window.L6HomeEvent(" + home
-                            + ");}catch(e){}})()", null);
-        } catch (Throwable ignored) {
-        }
-        // 回到本界面时同步一次日夜模式（用户可能刚在系统设置里改过显示模式）
-        pushTheme();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        if (natShell != null) {
+            natShell.stop();       // 界面不可见就别再轮询（车机上省电）
+        }
         // 仅当确系「调起导航 App 后本界面被盖住」才挂返回按钮；
         // 导航 App 没完全启动 / 失败导致本界面仍在前台时，onPause 不会触发，按钮也就不出现。
         // 确已离开本界面 → 通知回弹逻辑「已经成功退到后台」，700ms 兜底不必再抢前台
@@ -584,17 +454,6 @@ public class MainActivity extends Activity {
         return super.dispatchTouchEvent(ev);
     }
 
-    /** 把当前日夜模式回推页面：window.L6ThemeEvent(isDark)。 */
-    private void pushTheme() {
-        try {
-            if (web == null) return;
-            boolean dark = isNightModeOf(this);
-            web.evaluateJavascript(
-                    "(function(){try{if(window.L6ThemeEvent)window.L6ThemeEvent(" + dark
-                            + ");}catch(e){}})()", null);
-        } catch (Throwable ignored) {
-        }
-    }
 
     /**
      * 车机日夜模式切换（系统 UI_MODE_NIGHT）→ 立即回推页面切主题。
@@ -603,14 +462,16 @@ public class MainActivity extends Activity {
     @Override
     public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-        pushTheme();
+        if (natShell != null) {
+            natShell.onScreenChanged();   // u 缩放基准 / 壁纸解码档位 / 页高都要重算
+        }
     }
 
     @Override
     protected void onDestroy() {
         try {
-            if (web != null) {
-                web.removeCallbacks(mediaTick);
+            if (ui != null) {
+                ui.removeCallbacks(mediaTick);
             }
         } catch (Throwable ignored) {
         }
@@ -620,7 +481,11 @@ public class MainActivity extends Activity {
         }
         try { NavBcastProbe.stop(this); } catch (Throwable ignored) {}
         try { L6WidgetHost.get(this).stop(); } catch (Throwable ignored) {}
+        if (natShell != null) {
+            natShell.stop();
+        }
         SysHub.setEmitter(null);
+        SysHub.setRaw(null);
         super.onDestroy();
     }
 
@@ -649,19 +514,12 @@ public class MainActivity extends Activity {
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (web == null) {
-                leaveOrStay();
+            // 设置页按返回回主页；主页按返回走「回车机主页 / 压后台」策略（见 leaveOrStay）
+            if (natShell != null && natShell.page() != NatShell.PAGE_HOME) {
+                natShell.gotoPage(NatShell.PAGE_HOME);
                 return true;
             }
-            web.evaluateJavascript(
-                    "(function(){try{var p=(typeof idx!=='undefined')?idx:0;" +
-                    "if(p!==0){go(0);if(typeof setNav==='function')setNav(false);return 'back';}" +
-                    "return 'exit';}catch(e){return 'exit';}})()",
-                    value -> {
-                        if (value != null && value.contains("exit")) {
-                            leaveOrStay();
-                        }
-                    });
+            leaveOrStay();
             return true;
         }
         return super.onKeyDown(keyCode, event);
@@ -705,6 +563,13 @@ public class MainActivity extends Activity {
             L6WidgetHost.get(this).onActivityResult(requestCode, resultCode, data);
             return;
         }
+        if (requestCode == REQ_WALL) {
+            // 原生版选壁纸：系统选择器返回的 Uri → 读字节 → 按类型落盘 → 进壁纸列表并选中
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                importWallUri(data.getData(), pickWallKind);
+            }
+            return;
+        }
         if (requestCode == REQ_FILE) {
             if (filePathCallback != null) {
                 Uri[] result = null;
@@ -723,7 +588,9 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
     }
 
-    private void toast(final String msg) {
+    /** 轻提示。★ 必须 public：它同时实现 nat.Host#toast —— 接口方法不许比实现更宽 */
+    @Override
+    public void toast(final String msg) {
         runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
     }
 
@@ -1341,24 +1208,16 @@ public class MainActivity extends Activity {
             }
         }
 
-        /** 检查更新；进度/结果通过 window.L6OtaEvent 推送到页面（事件由主线程 evaluateJavascript 派发）。 */
+        /** 检查更新（v2.0.0 起界面全原生：直接走原生入口，事件由 forwardOta 转发）。 */
         @JavascriptInterface
         public void checkOtaUpdate() {
-            L6Log.i("L6Ota", "检查更新");
-            Ota.checkUpdate(MainActivity.this, json -> {
-                final String js = Ota.safeJs(json);
-                web.post(() -> web.evaluateJavascript(js, null));
-            });
+            checkOta();
         }
 
-        /** 下载并安装；进度通过 window.L6OtaEvent 推送。 */
+        /** 下载并安装（同上：走原生入口）。 */
         @JavascriptInterface
         public void installOtaUpdate(String url, String sha256) {
-            L6Log.i("L6Ota", "下载并安装: " + (url == null ? "" : url));
-            Ota.downloadAndInstall(MainActivity.this, url, sha256, json -> {
-                final String js = Ota.safeJs(json);
-                web.post(() -> web.evaluateJavascript(js, null));
-            });
+            installOta(url, sha256);
         }
 
         /** 取消正在进行的下载（页面「取消下载」按钮）；结果以 kind=cancelled 事件回推。 */
@@ -1724,4 +1583,823 @@ public class MainActivity extends Activity {
             return L6WidgetHost.get(MainActivity.this).stateJson();
         }
     }
+    /* ==================================================================
+     *  原生界面宿主实现（nat.Host）
+     *
+     *  原生 UI 只依赖 nat.Host 这个接口，不直接碰 Activity —— 于是 WebView 版与原生版
+     *  能在同一台设备上共存、同机对比。这里的实现绝大多数是**转发给同一个 Bridge 实例**，
+     *  保证「原生版」与「网页版」的底层行为逐字节一致（同一份 OTA / 日志 / 信号采集 / 应用枚举）。
+     *
+     *  ★ 只有三类是原生新增的：
+     *    ① 应用列表 / 图标改成「原生对象」而不是 JSON 字符串（视图层不用自己解析）；
+     *    ② 小部件改成直嵌进主页的 ViewGroup 槽位；
+     *    ③ 壁纸选择走系统文件选择器 + 直接落盘（不再经过 dataURL → localStorage）。
+     * ================================================================== */
+
+    /** 应用列表缓存：PackageManager 枚举 + 图标解码都不便宜，抽屉/dock/设置页来回切会反复要 */
+    private java.util.List<Def.App> appCache;
+    private long appCacheAt = 0L;
+    private static final long APP_CACHE_MS = 30000L;
+
+    @Override
+    public android.content.Context ctx() {
+        return this;
+    }
+
+    @Override
+    public java.util.List<Def.App> allApps() {
+        long now = System.currentTimeMillis();
+        if (appCache != null && now - appCacheAt < APP_CACHE_MS) {
+            return appCache;
+        }
+        java.util.List<Def.App> out = new java.util.ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(api.getAllAppsJson());
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                Def.App a = new Def.App();
+                a.pkg = o.optString("pkg", "");
+                a.key = o.optString("key", a.pkg);
+                a.name = o.optString("name", a.pkg);
+                a.emoji = o.optString("icon", "\uD83D\uDCE6");
+                a.type = o.optString("type", "other");
+                if (!a.pkg.isEmpty()) out.add(a);
+            }
+            appCache = out;
+            appCacheAt = now;
+        } catch (Throwable t) {
+            android.util.Log.w("L6Apps", "原生侧解析应用列表失败: " + t);
+            if (appCache == null) appCache = out;
+        }
+        return appCache;
+    }
+
+    @Override
+    public java.util.List<Def.App> appsOfType(String type) {
+        java.util.List<Def.App> out = new java.util.ArrayList<>();
+        for (Def.App a : allApps()) {
+            if (type == null || type.equals(a.type)) out.add(a);
+        }
+        return out;
+    }
+
+    /** 图标缓存：getAppIcon 返回 base64 data URL，解一次记住 */
+    private final java.util.HashMap<String, android.graphics.Bitmap> iconCache2 = new java.util.HashMap<>();
+    private final java.util.HashSet<String> iconMiss = new java.util.HashSet<>();
+
+    @Override
+    public android.graphics.Bitmap icon(String pkgOrKey) {
+        if (pkgOrKey == null || pkgOrKey.isEmpty()) return null;
+        if (iconCache2.containsKey(pkgOrKey)) return iconCache2.get(pkgOrKey);
+        if (iconMiss.contains(pkgOrKey)) return null;
+        try {
+            String url = api.getAppIcon(pkgOrKey);
+            if (url == null || !url.startsWith("data:image")) {
+                iconMiss.add(pkgOrKey);
+                return null;
+            }
+            int comma = url.indexOf(',');
+            byte[] raw = android.util.Base64.decode(url.substring(comma + 1), android.util.Base64.DEFAULT);
+            android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeByteArray(raw, 0, raw.length);
+            if (b == null) {
+                iconMiss.add(pkgOrKey);
+                return null;
+            }
+            iconCache2.put(pkgOrKey, b);
+            return b;
+        } catch (Throwable t) {
+            iconMiss.add(pkgOrKey);
+            return null;
+        }
+    }
+
+    @Override
+    public String appName(String pkg) {
+        for (Def.App a : allApps()) {
+            if (a.pkg.equals(pkg)) return a.name;
+        }
+        return pkg == null ? "" : pkg;
+    }
+
+    /**
+     * 调起「音 / 导航源」。
+     * ★ 必须先判类型再分发：launchApp 是导航专用（带保活 + 悬浮返回按钮），launchMusic 是音乐专用
+     *   （后台唤醒、不挂按钮）。用错会把音乐 App 当导航起，多出一个不该有的悬浮按钮。
+     */
+    @Override
+    public void launchSrc(String v) {
+        if (v == null || v.isEmpty()) {
+            toast("未设置导航源，请到「设置 → 导航源」选择");
+            return;
+        }
+        // ★ 与原型 startNav 的「600ms 同键去重」保持一致：一次下滑手势会**连续触发多次**
+        //   （observe 里每超过一次阈值就再派发一次），按钮层与手势层也可能各调一次。
+        //   没有这道闸门，同一个 App 会被连拉好几次。
+        long nowMs = System.currentTimeMillis();
+        if (v.equals(lastLaunchKey) && nowMs - lastLaunchAt < 600) return;
+        lastLaunchKey = v;
+        lastLaunchAt = nowMs;
+        if (Def.isLocalMusic(v)) {
+            api.launchMusic(v);       // 本地源（U盘/蓝牙）无需启动，桥内部会直接返回
+            return;
+        }
+        String type = null;
+        for (Def.App a : allApps()) {
+            if (a.pkg.equals(v) || a.srcKey().equals(v)) {
+                type = a.type;
+                break;
+            }
+        }
+        if ("music".equals(type)) {
+            api.launchMusic(v);
+        } else {
+            // 导航（含白名单外、认不出类型的包名）：交给 launchApp，它有「兜底取第一个导航 App」逻辑
+            api.launchApp(v);
+        }
+    }
+
+    @Override
+    public void launchPkg(String pkg) {
+        api.launchPkg(pkg);
+    }
+
+    @Override
+    public void goHome() {
+        api.goHome();
+    }
+
+    @Override
+    public void ui(Runnable r) {
+        runOnUiThread(r);
+    }
+
+    /**
+     * 原生界面的系统状态快照。
+     *
+     * ★ 不能再用 {@code api.getSysState()} —— 那个桥方法只回 {@code {notifyAccess, media}}，
+     * 是当初给「页面初始化一次性取值」用的；导航 / 歌词只以 SysHub 事件形式存在，
+     * 原生界面必须读我们自己的合成快照。
+     */
+    @Override
+    public JSONObject sysState() {
+        JSONObject out = new JSONObject();
+        synchronized (natSys) {
+            copyNat(out, "media");
+            copyNat(out, "nav");
+            copyNat(out, "lyrics");
+            copyNat(out, "car");
+        }
+        try {
+            out.put("notifyAccess", MediaHub.hasAccess(this));
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    private void copyNat(JSONObject out, String k) {
+        Object v = natSys.opt(k);
+        if (v == null) {
+            return;
+        }
+        try {
+            out.put(k, v);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 原生界面接管时的「合成快照」种子：媒体状态先取一次全量（含封面）。
+     * 之后每秒的 tick 推不带封面的事件，靠 {@link #natIngestMedia} 沿用上一张。
+     */
+    private void seedNatSys() {
+        try {
+            JSONObject m = MediaHub.get(this).snapshot();
+            if (m != null) {
+                synchronized (natSys) {
+                    natSys.put("media", m);
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            synchronized (natSys) {
+                natSys.put("notifyAccess", MediaHub.hasAccess(this));
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 自检 / 演示入口（{@code am start ... --ez l6demo true}）。
+     *
+     * 数据走的是与生产完全同一条路：SysHub.pushJson → natIngest → 每秒刷新。
+     * 分两批下发：媒体（会触发真实歌词请求）先来，歌词晚 4s 覆盖上去，
+     * 免得假歌名拿不到歌词、刚铺好的示例歌词被「暂无歌词 · 请求失败」顶掉。
+     */
+    private void startNatDemo() {
+        rootView.postDelayed(() -> {
+            try {
+                SysHub.pushJson("{\"kind\":\"veh\",\"fuel\":62,\"batt\":12.6,\"odo\":38521,"
+                        + "\"load\":37,\"temp\":41,\"lat\":28,\"ip\":\"192.168.1.9\","
+                        + "\"lock\":true,\"lights\":true,\"hazard\":false,\"trunk\":false,"
+                        + "\"ac\":{\"on\":true,\"mode\":\"AUTO\",\"temp\":23,\"fan\":2,\"circulate\":\"内\"},"
+                        + "\"tire\":{\"fl\":2.4,\"fr\":2.3,\"rl\":2.2,\"rr\":1.8},"
+                        + "\"doors\":{\"fl\":false,\"fr\":true,\"rl\":false,\"rr\":false},"
+                        + "\"windows\":{\"fl\":true,\"fr\":false,\"rl\":false,\"rr\":false}}");
+                SysHub.pushJson("{\"kind\":\"nav\",\"active\":true,\"app\":\"高德地图车机版\","
+                        + "\"arrow\":\"⬈\",\"turn\":\"右转\",\"road\":\"中山大道\",\"remain\":\"3.2 km\","
+                        + "\"eta\":\"14:35\",\"dest\":\"广州塔\",\"src\":\"bcast\",\"cruise\":false}");
+                SysHub.pushJson("{\"kind\":\"media\",\"active\":true,\"title\":\"示例歌曲\","
+                        + "\"artist\":\"示例歌手\",\"app\":\"USB\",\"playing\":true,"
+                        + "\"pos\":42000,\"dur\":213000}");
+                L6Log.i("L6Demo", "已下发车辆 / 导航 / 媒体示例数据");
+            } catch (Throwable t) {
+                L6Log.w("L6Demo", "示例数据下发失败: " + t);
+            }
+        }, 1200);
+        rootView.postDelayed(() -> {
+            try {
+                SysHub.pushJson("{\"kind\":\"lyrics\",\"title\":\"示例歌曲\",\"artist\":\"示例歌手\","
+                        + "\"lines\":[{\"t\":0,\"s\":\"第一行示例歌词\"},{\"t\":40000,\"s\":\"第二行示例歌词\"},"
+                        + "{\"t\":44000,\"s\":\"第三行示例歌词\"},{\"t\":48000,\"s\":\"第四行示例歌词\"},"
+                        + "{\"t\":52000,\"s\":\"第五行示例歌词\"},{\"t\":56000,\"s\":\"第六行示例歌词\"}]}");
+            } catch (Throwable t) {
+                L6Log.w("L6Demo", "示例歌词下发失败: " + t);
+            }
+        }, 5200);
+    }
+
+    /**
+     * SysHub 原始事件 → 原生合成快照。
+     *
+     * 事件形态见 {@link SysHub} 类注释；只认原生界面需要的 kind，其余（widget 探针等）原样忽略。
+     * 线程任意 ⇒ natSys 全程加锁。
+     */
+    private void natIngest(String json) {
+        if (json == null || json.isEmpty() || natShell == null) {
+            return;      // 没起原生界面就别费这个劲（网页版由 JS 侧自己接）
+        }
+        JSONObject o;
+        try {
+            o = new JSONObject(json);
+        } catch (Throwable t) {
+            return;
+        }
+        String kind = o.optString("kind", "");
+        if (kind.isEmpty()) {
+            return;
+        }
+        boolean wake = true;
+        if ("media".equals(kind)) {
+            natIngestMedia(o);
+        } else if ("access".equals(kind)) {
+            synchronized (natSys) {
+                try {
+                    natSys.put("notifyAccess", o.optBoolean("granted", false));
+                } catch (Throwable ignored) {
+                }
+            }
+        } else if ("nav".equals(kind)) {
+            synchronized (natSys) {
+                try {
+                    natSys.put("nav", o);
+                } catch (Throwable ignored) {
+                }
+            }
+        } else if ("lyrics".equals(kind)) {
+            synchronized (natSys) {
+                try {
+                    natSys.put("lyrics", o);
+                } catch (Throwable ignored) {
+                }
+            }
+        } else if ("veh".equals(kind) || "car".equals(kind)) {
+            natMergeVeh(o);
+        } else {
+            wake = false;
+        }
+        if (wake && natShell != null) {
+            natShell.sysWake();
+        }
+    }
+
+    /**
+     * 媒体事件：归位 + 换歌拉歌词。
+     *
+     * ★ 封面沿用：MediaHub 每秒的 tick 推的是 build(false)（不带 art），只在下发那一刻带一次，
+     * 直接覆盖会让封面在 1 秒后消失 ⇒ 新事件没带 art 时沿用上一张（与 JS 的
+     * applyRealMedia「只在 d.art 存在时才改封面」等价）。
+     */
+    private void natIngestMedia(JSONObject o) {
+        boolean active = o.optBoolean("active", false);
+        String title = o.optString("title", "");
+        String artist = o.optString("artist", "");
+        synchronized (natSys) {
+            JSONObject prev = natSys.optJSONObject("media");
+            if (prev != null && !o.has("art")) {
+                Object art = prev.opt("art");
+                if (art != null) {
+                    try {
+                        o.put("art", art);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            try {
+                natSys.put("media", o);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        // 换歌才重新拉歌词；无会话 / 会话结束 ⇒ 清掉上一首的，别让旧歌词挂在新歌上
+        String key = active ? (title + "|" + artist) : "";
+        if (key.equals(natLrcKey)) {
+            return;
+        }
+        natLrcKey = key;
+        synchronized (natSys) {
+            natSys.remove("lyrics");
+        }
+        if (key.isEmpty()) {
+            return;
+        }
+        try {
+            api.requestLyrics(title, artist);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 车辆数据的增量合并 —— 原生版的 {@code window.L6VehicleData(obj)}。
+     *
+     * 协议（与原型完全一致，只传有数据的字段即可，其余继续显示占位符「—」）：
+     * <pre>
+     * {"kind":"veh", fuel,batt,odo, load,temp,lat,ip, lock,lights,hazard,gear,trunk,
+     *  "ac":{on,mode,temp,fan,circulate}, "tire":{fl,fr,rl,rr},
+     *  "doors":{fl,fr,rl,rr}, "windows":{fl,fr,rl,rr}}
+     * </pre>
+     * ★ 谁下发？将来对接 Linux 服务端 / 广播接收器时，在任意线程调
+     * {@code SysHub.pushJson(json)} 即可，不必再关心界面。
+     */
+    private void natMergeVeh(JSONObject d) {
+        synchronized (natSys) {
+            JSONObject cur = natSys.optJSONObject("car");
+            JSONObject next;
+            try {
+                next = cur == null ? new JSONObject() : new JSONObject(cur.toString());
+            } catch (Throwable t) {
+                next = new JSONObject();
+            }
+            for (String k : CAR_SCALARS) {
+                if (d.has(k)) {
+                    try {
+                        next.put(k, d.get(k));
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            for (String g : CAR_GROUPS) {
+                JSONObject src = d.optJSONObject(g);
+                if (src == null) {
+                    continue;
+                }
+                JSONObject dst = next.optJSONObject(g);
+                if (dst == null) {
+                    dst = new JSONObject();
+                    try {
+                        next.put(g, dst);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                java.util.Iterator<String> it = src.keys();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    try {
+                        dst.put(k, src.get(k));
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }
+            try {
+                natSys.put("car", next);
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    @Override
+    public void mediaControl(String action) {
+        api.mediaControl(action);
+    }
+
+    @Override
+    public void requestLyrics(String title, String artist) {
+        api.requestLyrics(title, artist);
+    }
+
+    @Override
+    public void refreshSys() {
+        api.refreshSys();
+    }
+
+    @Override
+    public boolean hasNotifyAccess() {
+        return api.hasNotifyAccess();
+    }
+
+    @Override
+    public void openNotifyAccess() {
+        api.openNotifyAccess();
+    }
+
+    @Override
+    public boolean isDefaultHome() {
+        return isDefaultHomeOf(this);
+    }
+
+    @Override
+    public void openHomeSettings() {
+        api.openHomeSettings();
+    }
+
+    @Override
+    public boolean hasOverlay() {
+        return api.hasOverlayPermission();
+    }
+
+    @Override
+    public void openOverlay() {
+        api.openOverlaySettings();
+    }
+
+    @Override
+    public boolean openAppOverlaySettings(String pkg) {
+        return api.openAppOverlaySettings(pkg);
+    }
+
+    @Override
+    public JSONArray log(int n) {
+        try {
+            return new JSONArray(api.getLogJson(n));
+        } catch (Throwable t) {
+            return new JSONArray();
+        }
+    }
+
+    @Override
+    public void clearLog() {
+        api.clearLog();
+    }
+
+    @Override
+    public String logPath() {
+        return api.getLogPath();
+    }
+
+    @Override
+    public boolean logBroadcast() {
+        return api.isLogBroadcast();
+    }
+
+    @Override
+    public void setLogBroadcast(boolean b) {
+        api.setLogBroadcast(b);
+    }
+
+    @Override
+    public void exportLog() {
+        api.exportLog();
+    }
+
+    @Override
+    public void startSignal() {
+        api.startSignalCapture();
+    }
+
+    @Override
+    public void stopSignal() {
+        api.stopSignalCapture();
+    }
+
+    @Override
+    public boolean isSignalCapturing() {
+        return api.isSignalCapturing();
+    }
+
+    @Override
+    public JSONObject otaConfig() {
+        try {
+            JSONObject o = new JSONObject(api.getOtaConfig());
+            // ★ 原型 #otaCur 依赖 window.__l6Version，而它从未被赋值 ⇒ 网页版「当前版本」恒为 "--"。
+            //   Ota.Config.toJson() 本身也不含 version 字段；原生能直接取到真实版本，这里补上。
+            if (o.optString("version", "").isEmpty()) {
+                o.put("version", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
+            }
+            return o;
+        } catch (Throwable t) {
+            return new JSONObject();
+        }
+    }
+
+    @Override
+    public void checkOta() {
+        L6Log.i("L6Ota", "检查更新");
+        Ota.checkUpdate(this, this::forwardOta);
+    }
+
+    @Override
+    public void installOta(String url, String sha256) {
+        L6Log.i("L6Ota", "下载并安装: " + (url == null ? "" : url));
+        Ota.downloadAndInstall(this, url, sha256, this::forwardOta);
+    }
+
+    @Override
+    public void cancelOta() {
+        L6Log.i("L6Ota", "取消下载");
+        Ota.cancelDownload();
+    }
+
+    @Override
+    public void otaEvent(String kind, JSONObject data) {
+        if (natShell != null) natShell.onOtaEvent(kind, data);
+    }
+
+    /**
+     * Ota 的事件回调（后台线程）→ 归一化成原生 UI 认得的 kind → 主线程转发。
+     *
+     * ★ 必须做这层映射：Ota 侧用的是「实现语义」的 kind（check / download / retry …），
+     *   而界面关心的是「状态语义」（available / latest / progress …）。直接在视图层判 Ota 的 kind
+     *   会把协议细节漏进 UI。
+     */
+    private void forwardOta(String json) {
+        try {
+            final JSONObject o = new JSONObject(json);
+            String raw = o.optString("kind", "check");
+            String kind;
+            switch (raw) {
+                case "check":
+                    if (!o.optString("error", "").isEmpty()) {
+                        kind = "error";
+                    } else {
+                        kind = o.optBoolean("hasUpdate", false) ? "available" : "latest";
+                    }
+                    // 字段别名：界面读的是通用名，Ota 给的是发布信息名
+                    o.put("version", o.optString("versionName", o.optString("currentVersion", "")));
+                    o.put("url", o.optString("apkUrl", ""));
+                    break;
+                case "download":
+                    kind = "progress";
+                    break;
+                case "retry":
+                    kind = "downloading";
+                    break;
+                default:
+                    kind = raw;
+                    break;
+            }
+            final String fk = kind;
+            final boolean force = o.optBoolean("force", false) && "available".equals(kind);
+            runOnUiThread(() -> {
+                if (natShell == null) return;
+                natShell.onOtaEvent(fk, o);
+                if (force) {
+                    // 强制更新：遮住整个界面，只能更新或取消
+                    natShell.forceUpdate(o.optString("changelog", ""),
+                            () -> installOta(o.optString("apkUrl", ""), o.optString("sha256", "")),
+                            this::cancelOta);
+                }
+            });
+        } catch (Throwable t) {
+            android.util.Log.w("L6Ota", "原生侧解析 OTA 事件失败: " + t);
+        }
+    }
+
+    // ---------------------------------------------------------------- 壁纸
+
+    @Override
+    public void pickWallpaperFile(String kind) {
+        pickWallKind = Prefs.KIND_DYNAMIC.equals(kind) ? Prefs.KIND_DYNAMIC : Prefs.KIND_STATIC;
+        try {
+            Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            // ★ 同 WebView 版的老坑：mp4 在部分车机上被报成 application/octet-stream，
+            //   不把它一起放进 MIME 列表，动态壁纸就选不到视频。
+            i.setType("*/*");
+            i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                    "image/*", "video/*", "application/octet-stream"});
+            i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
+            startActivityForResult(Intent.createChooser(i, "\u9009\u62e9\u58c1\u7eb8"), REQ_WALL);
+        } catch (Throwable e) {
+            toast("无法打开文件选择器：" + e.getMessage());
+        }
+    }
+
+    /** Uri → 字节 → 落盘 → 进列表并选中 */
+    private void importWallUri(Uri uri, String kind) {
+        try {
+            String name = wallDisplayName(uri);
+            java.io.InputStream in = getContentResolver().openInputStream(uri);
+            if (in == null) {
+                toast("读取壁纸失败：无法打开文件");
+                return;
+            }
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            in.close();
+            byte[] data = bo.toByteArray();
+            if (data.length == 0) {
+                toast("读取壁纸失败：文件为空");
+                return;
+            }
+            // 按文件自身类型归档（与原型「上传后自动归档」同义）：扩展名/命名都认不出来时按视频魔数兜底
+            boolean vid = name.toLowerCase(java.util.Locale.ROOT).matches(".*\\.(mp4|webm|mkv|mov|3gp)$")
+                    || isVideoBytes(data);
+            String realKind = vid ? Prefs.KIND_DYNAMIC : Prefs.KIND_STATIC;
+            File f = Prefs.writeWallFile(realKind, data, name);
+            if (f == null) {
+                toast("壁纸保存失败");
+                return;
+            }
+            Prefs p = Prefs.get(this);
+            String id = (vid ? "d_" : "s_") + f.getName();
+            boolean dup = false;
+            for (Prefs.WallItem it : p.walls(realKind)) {
+                if (it.id.equals(id)) dup = true;
+            }
+            Prefs.WallItem item = new Prefs.WallItem(id, f.getName(), f.getAbsolutePath(), vid);
+            if (!dup) p.walls(realKind).add(item);
+            p.wall = realKind;
+            p.selectWall(realKind, id);      // selectWall 内部 save()
+            if (natShell != null) {
+                natShell.applyWall();
+                natShell.toast("已上传并切换到" + (vid ? "动态" : "静态") + "壁纸");
+            }
+            onWallSaved(realKind, item);
+        } catch (Throwable e) {
+            toast("壁纸导入失败：" + e.getMessage());
+            L6Log.e("L6Wall", "壁纸导入失败: " + e);
+        }
+    }
+
+    /** 视频文件的魔数判定（前 12 字节里找 ftyp） */
+    private static boolean isVideoBytes(byte[] d) {
+        int n = Math.min(d.length - 4, 16);
+        for (int i = 0; i < n; i++) {
+            if (d[i] == 'f' && d[i + 1] == 't' && d[i + 2] == 'y' && d[i + 3] == 'p') return true;
+        }
+        return false;
+    }
+
+    private String wallDisplayName(Uri uri) {
+        String name = null;
+        android.database.Cursor c = null;
+        try {
+            c = getContentResolver().query(uri, null, null, null, null);
+            if (c != null && c.moveToFirst()) {
+                int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) name = c.getString(idx);
+            }
+        } catch (Throwable ignored) {
+        } finally {
+            if (c != null) {
+                try { c.close(); } catch (Throwable ignored) {}
+            }
+        }
+        if (name == null || name.trim().isEmpty()) {
+            String p = uri.getLastPathSegment();
+            name = (p == null || p.trim().isEmpty()) ? ("wall_" + System.currentTimeMillis() + ".jpg") : p;
+        }
+        return name;
+    }
+
+    @Override
+    public void onWallSaved(String kind, Prefs.WallItem item) {
+        if (natShell != null) {
+            natShell.refreshHome();
+            natShell.refreshSet();   // ★ 没这一行：设置页的壁纸网格要下次进来才看得到新图
+        }
+    }
+
+    // ---------------------------------------------------------------- 小部件
+
+    @Override
+    public boolean attachWidget(ViewGroup slot) {
+        if (slot == null) {
+            return false;
+        }
+        if (!widgetEmbedded()) {
+            slot.removeAllViews();
+            return false;
+        }
+        L6WidgetHost.get(this).attachInto(slot);
+        return true;
+    }
+
+    @Override
+    public String widgetStateText() {
+        try {
+            JSONObject o = new JSONObject(api.widgetStateJson());
+            if (o.optBoolean("on", false)) {
+                String l = o.optString("label", "");
+                return l.isEmpty() ? "已嵌入" : l;
+            }
+        } catch (Throwable ignored) {
+        }
+        return "未嵌入";
+    }
+
+    @Override
+    public boolean widgetEmbedded() {
+        try {
+            return new JSONObject(api.widgetStateJson()).optBoolean("on", false);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    @Override
+    public java.util.List<String[]> widgetList() {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(api.widgetListJson());
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                out.add(new String[]{
+                        o.optString("pkg", ""),
+                        o.optString("cls", ""),
+                        o.optString("label", o.optString("pkg", ""))});
+            }
+        } catch (Throwable ignored) {
+        }
+        return out;
+    }
+
+    @Override
+    public void widgetBind(String pkg, String cls) {
+        api.widgetBind(pkg, cls);
+    }
+
+    @Override
+    public void widgetAuth(int appWidgetId, String pkg, String cls) {
+        api.widgetAuth(appWidgetId, pkg, cls);
+    }
+
+    @Override
+    public void widgetClear() {
+        api.widgetClear();
+    }
+
+    @Override
+    public boolean openSystemWidgetPicker() {
+        // ★ 特意不用系统的 APPWIDGET_PICK：它返回的 id 属于系统那个 host，与我们自己的
+        //   AppWidgetHost 对不上（v1.5.23 踩过）。列表由我们自己列、自己 bind。
+        return false;
+    }
+
+    // ---------------------------------------------------------------- 原生界面启动
+
+    /**
+     * 起原生界面：WebView 从视图树里摘掉（实例保留给桥用），换成 {@link NatShell} 的视图树。
+     */
+    private void startNativeUi() {
+        try {
+            natShell = new NatShell(this);
+            android.view.View v = natShell.build();
+            rootView.addView(v, new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+            L6Log.i("L6", "原生界面已启用 (v2.0.0)");
+            seedNatSys();
+            if (getIntent() != null && getIntent().getBooleanExtra("l6demo", false)) {
+                startNatDemo();
+            }
+        } catch (Throwable t) {
+            // v2.0.0 没有网页版可以回退了 —— 但**绝不能留一块白屏**：
+            // 把错误原文与完整堆栈直接铺到屏幕上（车机上用户能拍照反馈，比黑屏强太多）。
+            //   ★ 堆栈必须要有：只记 toString() 只能看到「某个 FrameLayout 是 null」，
+            //     而 build() 里 addView 有十几处，等于没线索（实测为此白绕一轮）。
+            L6Log.e("L6", "原生界面启动失败: " + t + "\n"
+                    + android.util.Log.getStackTraceString(t));
+            android.util.Log.e("L6Nat", "原生界面启动失败", t);
+            natShell = null;
+            try {
+                android.widget.TextView tv = new android.widget.TextView(this);
+                tv.setTextColor(0xFFFF8080);
+                tv.setTextSize(12);
+                tv.setPadding(24, 24, 24, 24);
+                tv.setText("老六中控启动失败\n\n" + t + "\n\n"
+                        + android.util.Log.getStackTraceString(t));
+                rootView.removeAllViews();
+                rootView.addView(tv, new android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
 }

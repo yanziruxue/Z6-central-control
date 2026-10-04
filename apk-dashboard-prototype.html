@@ -24,6 +24,10 @@
   /* 车机仪表盘恒为深色：不再支持浅色主题（applyTheme 恒置 data-theme="dark"）。
      原先整套 html[data-theme="light"] 变量与覆盖规则已随之移除，避免死代码。 */
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+  /* ★★ 车机那代 WebView 没有 :focus-visible 的「只在键盘操作时才画焦点环」语义 ⇒
+     手指点按也会让 <button> 进 :focus 并画出默认描边 —— 圆按钮（.dock-btn 这类
+     border-radius:50%）上就套出一个**方形焦点框**。全局兜底掉（输入框另有自己的规则）。 */
+  *:focus{outline:none}
   html,body{height:100%;background:var(--bg);color:var(--txt);
     font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;overflow:hidden}
   /* 竖屏兜底 */
@@ -540,6 +544,22 @@
               <div class="hm-row" id="homeModeList"><!-- 由 renderHomeMode() 生成三项 --></div>
               <div class="set-hint">勾选主页要显示的模块（默认<b>状态 + 音乐</b>，<b>导航默认不显示</b>，需要时勾上）；按住右侧 <b>⠿</b> 左右拖动可调顺序，三个模块<b>等宽</b>（全勾各占 1/3）。三个模块<b>全部取消</b>时自动恢复默认。</div>
             </div>
+            <!-- v1.5.24：小部件入口也放一份到设置页 —— 主页那份住在 #homeNav 内部，
+                 而「导航」在主页模式里默认是关的 ⇒ 默认配置下主页根本看不到入口。 -->
+            <div class="set-sec" id="setWidget">
+              <div class="set-label">桌面小部件</div>
+              <div class="ota-card">
+                <div class="ota-row">
+                  <span class="ota-cur">当前小部件：<b id="wgSetState">未嵌入</b></span>
+                  <button class="set-opt" id="wgSetPick">🧩 选择小部件</button>
+                </div>
+                <div class="ota-row" id="wgSetClearRow" style="display:none">
+                  <span class="ota-cur">移除后主页区域恢复空态</span>
+                  <button class="set-opt ghost" id="wgSetClear">✕ 移除小部件</button>
+                </div>
+                <div class="ota-status" id="wgSetMsg">小部件是<b>原生卡片</b>（不是网页内嵌），会覆盖在主页<b>「导航」区域</b>上；该区域需先在「主页模式」里勾选<b>导航</b>才会出现。</div>
+              </div>
+            </div>
             <div class="set-sec">
               <div class="set-label">音乐源</div>
               <!-- 一行排列：U盘 / 蓝牙（本地源）· 当前音乐源（图标+名称）· 选择应用 -->
@@ -912,13 +932,34 @@ const track=$("#track"),vp=$("#viewport");
 const pages=document.querySelectorAll(".page");
 let idx=0;
 function go(i){idx=Math.max(0,Math.min(pages.length-1,i));
-  track.style.transform=`translateY(-${idx*100}%)`;
+  applyTrackOffset();
   var last=pages.length-1;
   document.querySelectorAll(".dock-btn").forEach(b=>{
     b.classList.toggle("on",(b.dataset.go==="home"&&idx===0)||(b.dataset.go==="set"&&idx===last))});
   // 壁纸仅作用于主页（车辆状态+音乐）；其他页恢复深色底
   setWallForPage(idx===0);
 }
+/* ★★ 翻页位移必须用**像素**，不能用 translateY(-N*100%)：百分比位移相对的是
+   「#track 自身高度」，只要该高度不等于一屏（老 WebView 里百分比高度解不出来、
+   窗口缩放中途、地址栏伸缩…），翻页就会**静默错位且不报错**。
+   主页 idx=0 位移为 0 ⇒ 看不出问题；设置页正好是 idx=1 ⇒ 一翻就呈现黑屏。
+   位移量改成「前面各页实测 offsetHeight 之和」，与容器高度脱钩。 */
+function trackOffset(i){
+  var off=0,k,p;
+  for(k=0;k<i;k++){ p=pages[k]; off+=((p&&p.offsetHeight)||0); }
+  if(i>0&&off<=0&&pages[i]) off=pages[i].offsetTop||0;                    // 退一步：相对 #track 的偏移
+  if(i>0&&off<=0) off=i*((vp&&vp.clientHeight)||window.innerHeight||0);   // 最后兜底：按一屏高算
+  return off;
+}
+function applyTrackOffset(){
+  if(!track) return;
+  track.style.transform='translateY(-'+trackOffset(idx)+'px)';
+}
+/* 视口尺寸变了 ⇒ 一屏高也变了，必须重算（否则横竖屏切换/系统栏伸缩后又错位）。
+   延后 60ms 再量：resize 回调里布局可能还没落定，立刻读 offsetHeight 会拿到旧值。 */
+function onViewportResize(){ setTimeout(function(){ try{applyTrackOffset();}catch(e){} },60); }
+window.addEventListener("resize",onViewportResize);
+window.addEventListener("orientationchange",onViewportResize);
 // 按当前页决定是否显示壁纸（仅主页显示上传的静态/动态壁纸）
 function setWallForPage(onHome){
   const wm=document.getElementById("wallMedia"),wv=document.getElementById("wallVideo"),ws=document.getElementById("wallScrim");
@@ -1660,6 +1701,15 @@ function wgClear(){
   if(!n||typeof n.widgetClear!=="function"){ return; }
   try{ n.widgetClear(); }catch(e){}
 }
+/* v1.5.24：设置页那张小部件卡片必须跟着状态走。主页的入口住在 #homeNav 里，
+   而「导航」默认不显示 ⇒ 只在那儿放入口等于没入口。这里只做「绑定按钮 + 同步文案」。 */
+function syncWidgetSettings(){
+  var st=document.getElementById("wgSetState"), row=document.getElementById("wgSetClearRow");
+  if(!st) return;
+  var on=wgOn();
+  st.textContent=on?("已嵌入："+(REAL.widget.label||"小部件")):"未嵌入";
+  if(row) row.style.display=on?"":"none";
+}
 /* 把占位框的矩形按百分比报给原生；区域不可见（宽或高 < 1px）就报 0 ⇒ 原生收起 overlay。
    ★ 加了一道去重：syncHomeNav 每次刷新都会调它，矩形成千次重报没有意义。 */
 function reportWidgetRect(){
@@ -2391,14 +2441,14 @@ window.L6SysEvent=function(e){
   if(e.kind==="widget"){
     if(e.on){
       REAL.widget={on:true,label:e.label||"小部件"};REAL.wgKey="";
-      wgClose();toastL6("已嵌入："+REAL.widget.label);
+      wgClose();toastL6("已嵌入："+REAL.widget.label);try{syncWidgetSettings();}catch(_e){}
     }else if(e.needAuth){
       // 直接绑定被拒 ⇒ 拉系统授权框（官方给这种情形的补救入口）
       var pd=REAL.wgPend||{};
       toastL6("请在系统弹框里点「允许」");
       try{ l6n().widgetAuth(e.id,pd.pkg||"",pd.cls||""); }catch(_e){}
     }else{
-      REAL.widget={on:false,label:""};REAL.wgKey="";
+      REAL.widget={on:false,label:""};REAL.wgKey="";try{syncWidgetSettings();}catch(_e){}
       if(e.cancelled)toastL6("已取消授权");
       if(e.err)toastL6("嵌入失败："+e.err);
     }
@@ -2688,6 +2738,8 @@ renderHomeMode();applyHomeMode();bindHomeNav();
 function initWidget(){
   try{
     var c=document.getElementById("wgClose"); if(c)c.onclick=wgClose;
+    var sp=document.getElementById("wgSetPick"); if(sp)sp.onclick=function(){ wgOpen(); };
+    var scl=document.getElementById("wgSetClear"); if(scl)scl.onclick=function(){ wgClear(); };
     var sc=document.getElementById("wgScrim"); if(sc)sc.onclick=wgClose;
     var q=document.getElementById("wgSearch");
     if(q)q.oninput=function(){ try{wgRender(q.value);}catch(e){} };
@@ -2702,6 +2754,7 @@ function initWidget(){
   }catch(e){}
 }
 initWidget();
+try{ syncWidgetSettings(); }catch(_e){}
 </script>
 </div>
 <script>

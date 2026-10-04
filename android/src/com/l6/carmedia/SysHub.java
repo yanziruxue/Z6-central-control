@@ -31,6 +31,23 @@ public class SysHub {
         emitter = e;
     }
 
+    /**
+     * 原始 JSON 出口（<b>不</b>经过 JS 包装）。
+     *
+     * ★ 原生界面（v2.0.0）没有 window，evaluateJavascript 推出去的事件全进了黑洞 ——
+     * 所以原生侧必须走这条并行通道，否则导航 / 歌词在原生界面里永远是空的。
+     * 车载机上是单实例应用，用一个 volatile 引用足够。
+     */
+    public interface Raw {
+        void json(String json);
+    }
+
+    private static volatile Raw raw;
+
+    public static void setRaw(Raw r) {
+        raw = r;
+    }
+
     /** 推送一个 JSON 对象事件。 */
     public static void push(JSONObject o) {
         if (o == null) {
@@ -43,6 +60,13 @@ public class SysHub {
     public static void pushJson(String json) {
         if (json == null || json.isEmpty()) {
             return;
+        }
+        Raw r = raw;
+        if (r != null) {
+            try {
+                r.json(json);
+            } catch (Throwable ignored) {
+            }
         }
         Emit e = emitter;
         if (e == null) {
