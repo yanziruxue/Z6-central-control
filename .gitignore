@@ -4,6 +4,12 @@ android/keystore.properties
 # Gitea 访问令牌（发版到 git.ziruxue.top 用），等同 keystore.properties 保密
 android/gitea_token.properties
 
+# 交互式输入的凭证（发版/补发脚本从 push.env 读 GIT_ZX_TOKEN）
+# ★ 发版脚本会 git add -A ⇒ 这几条必须有，否则 token 会被直接提交进历史
+push.env
+.env
+*.env
+
 # 构建中间产物（build.sh 用带时间戳的 C:/Users/yanzi/l6apk-build-<ts>，这里只是兜底）
 android/build/
 android/out/
