@@ -71,7 +71,7 @@ public final class Prefs {
     public int dockMax = DOCK_MAX_DEFAULT;
     /** 四方向手势：up/down/left/right。"home"=回原桌面、"nav"=跟随导航源、""=未绑定、其它=应用key/包名 */
     public String gUp = "home", gDown = "nav", gLeft = "", gRight = "";
-    /** 主页三栏顺序与显示（值域 state/nav/music） */
+    /** 主页栏位顺序与显示（值域 state/music；v2.0.1 起「导航」栏已移除） */
     public ArrayList<String> homeOrder = new ArrayList<>();
     public ArrayList<String> homeOn = new ArrayList<>();
     /** 各类型当前选中的壁纸 id */
@@ -125,7 +125,7 @@ public final class Prefs {
         gDown = "nav";
         gLeft = "";
         gRight = "";
-        homeOrder = arr("state", "nav", "music");
+        homeOrder = arr("state", "music");
         homeOn = arr("state", "music");
         pickStatic = PRESET_ID;
         pickDynamic = PRESET_ID;

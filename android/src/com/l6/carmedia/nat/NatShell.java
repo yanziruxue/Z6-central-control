@@ -23,7 +23,7 @@ import org.json.JSONObject;
  *   │       ├─ statusbar 顶部状态栏（原型里是空 header，只有一层渐变底）
  *   │       ├─ viewport  翻页区（weight 1）→ track 里叠着「主页 / 设置」两页
  *   │       └─ bottomRow 底栏（音乐栏 + dock + 应用栏）
- *   └─ overlay          浮层（抽屉 / 小部件面板 / 强制更新蒙层 / 拖动 ghost / Toast）
+ *   └─ overlay          浮层（抽屉 / 强制更新蒙层 / 拖动 ghost / Toast）
  * </pre>
  *
  * ★★ 翻页**不用 ViewPager**，而是「两页叠放 + track 整体位移」—— 与原型
@@ -58,7 +58,6 @@ public class NatShell implements Shell {
     private NavMini miniNav;
 
     private AppDrawer drawer;
-    private WidgetPanel widgetPanel;
     private ForceUpdate forceUpdate;
 
     private View toastView;
@@ -110,7 +109,7 @@ public class NatShell implements Shell {
         content.setLayoutParams(new FrameLayout.LayoutParams(U.MP, U.MP));
         root.addView(content);
 
-        // ★★ 浮层（抽屉 / 小部件面板 / 强制更新蒙层 / 拖动 ghost / 垃圾桶 / Toast 都挂这里）
+        // ★★ 浮层（抽屉 / 强制更新蒙层 / 拖动 ghost / 垃圾桶 / Toast 都挂这里）
         //   必须在**所有子面板 build() 之前**建好，而且必须紧跟 content 加到 root
         //   （root 的子序 = wallpaper → content → overlay，这样 overlay 才画在最上）。
         //
@@ -172,7 +171,6 @@ public class NatShell implements Shell {
         wallpaper.reload();
         syncPageSize();
         syncActive();
-        refreshWidget();
         return root;
     }
 
@@ -331,7 +329,6 @@ public class NatShell implements Shell {
     @Override
     public void refreshHome() {
         if (home != null) home.refresh();
-        refreshWidget();
     }
 
     @Override
@@ -354,22 +351,6 @@ public class NatShell implements Shell {
         if (wallpaper != null) {
             wallpaper.setHomeVisible(idx == PAGE_HOME);
             wallpaper.reload();
-        }
-    }
-
-    @Override
-    public android.view.ViewGroup widgetSlot() {
-        return home == null ? null : home.navSlot();
-    }
-
-    @Override
-    public void refreshWidget() {
-        android.view.ViewGroup slot = widgetSlot();
-        if (slot == null) return;
-        try {
-            host.attachWidget(slot);
-        } catch (Throwable t) {
-            android.util.Log.w("L6Nat", "小部件嵌入失败: " + t);
         }
     }
 
@@ -401,12 +382,6 @@ public class NatShell implements Shell {
     public void openDrawer(String type, String title, DrawerPick pick) {
         if (drawer == null) drawer = new AppDrawer(this);
         drawer.open(type, title, pick);
-    }
-
-    @Override
-    public void openWidgetPanel() {
-        if (widgetPanel == null) widgetPanel = new WidgetPanel(this);
-        widgetPanel.open();
     }
 
     @Override

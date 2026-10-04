@@ -99,9 +99,9 @@ public class Dock {
             pill.setElevation(U.px(8));
         } catch (Throwable ignored) {
         }
-        btnHome = dockBtn("\uD83C\uDFE0", "主页");
-        btnNav = dockBtn("\uD83E\uDDED", "导航");
-        btnSet = dockBtn("\u2699\uFE0F", "设置");
+        btnHome = dockBtn("\uD83C\uDFE0");
+        btnNav = dockBtn("\uD83E\uDDED");
+        btnSet = dockBtn("\u2699\uFE0F");
         btnHome.setOnClickListener(v -> {
             sh.gotoPage(Shell.PAGE_HOME);
             syncActive();
@@ -129,11 +129,14 @@ public class Dock {
         return row;
     }
 
-    private TextView dockBtn(String emoji, String label) {
+    /**
+     * ★ v2.0.1：只画图标 —— 原型 .dock-btn 里的 <small>（主页 / 导航 / 设置）按需求去掉，
+     *   于是也不必再 setLineSpacing（那两行是为了让图标与文字之间留 3u）。
+     */
+    private TextView dockBtn(String emoji) {
         Context c = sh.ctx();
-        TextView t = U.text(c, emoji + "\n" + label, 32, U.SUB);
+        TextView t = U.text(c, emoji, 32, U.SUB);
         t.setGravity(Gravity.CENTER);
-        t.setLineSpacing(U.px(3), 1f);
         t.setLayoutParams(U.lp(80, 80));
         t.setClickable(true);
         U.rippleCircle(t);

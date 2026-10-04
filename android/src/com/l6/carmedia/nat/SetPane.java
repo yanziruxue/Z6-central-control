@@ -69,10 +69,6 @@ public class SetPane {
     private float hmOvX, hmOvY;
     private long hmSwallowUntil = 0L;
 
-    // ---- 桌面小部件 ----
-    private TextView wgState;
-    private LinearLayout wgClearRow;
-
     // ---- 音乐源 / 导航源 ----
     private LinearLayout musicOpts;
     private LinearLayout musicCur;
@@ -137,7 +133,6 @@ public class SetPane {
         panel.addView(sc, U.lp(U.MP, 0, 1f));
 
         box.addView(secHomeMode());
-        box.addView(secWidget());
         box.addView(secMusic());
         box.addView(secNav());
         box.addView(secGestures());
@@ -159,7 +154,6 @@ public class SetPane {
     /** 重算全部动态文案 / 勾选态 / 列表 */
     public void refresh() {
         refreshHomeMode();
-        refreshWidget();
         refreshMusicSrc();
         refreshNavSrc();
         refreshGestures();
@@ -177,8 +171,8 @@ public class SetPane {
         s.addView(U.label(c, "主页模式"));
         hmRow = U.row(c);
         s.addView(hmRow);
-        s.addView(U.hint(c, "勾选主页要显示的模块（默认状态 + 音乐，导航默认不显示，需要时勾上）；"
-                + "按住任何位置左右拖动即可调顺序。三个模块全部取消时自动恢复默认。"));
+        s.addView(U.hint(c, "勾选主页要显示的模块（默认状态 + 音乐）；"
+                + "按住任何位置左右拖动即可调顺序。全部取消时自动恢复默认。"));
         U.gapV(s, 8);
         return s;
     }
@@ -420,44 +414,6 @@ public class SetPane {
                 v.setAlpha(1f);
             }
         }
-    }
-
-    // ================================================================== 分区 2 桌面小部件
-
-    private LinearLayout secWidget() {
-        LinearLayout s = U.col(c);
-        s.addView(U.label(c, "桌面小部件"));
-        LinearLayout card = U.otaCard(c);
-
-        wgState = U.bold(U.text(c, "未嵌入", 12, U.TXT));
-        TextView pick = U.btn(c, "🧩 选择小部件");
-        pick.setOnClickListener(v -> sh.openWidgetPanel());
-        card.addView(otaRow(curSpan("当前小部件：", wgState), pick));
-
-        // 「移除」那一行只在已嵌入时出现，否则是个点不动的死按钮
-        TextView clear = U.ghostBtn(c, "✕ 移除小部件");
-        clear.setOnClickListener(v -> {
-            sh.host().widgetClear();
-            sh.refreshWidget();
-            refreshWidget();
-        });
-        wgClearRow = otaRow(U.text(c, "移除后主页区域恢复空态", 12, U.SUB), clear);
-        U.visible(wgClearRow, false);
-        card.addView(wgClearRow);
-
-        card.addView(U.text(c, "小部件是原生卡片（不是网页内嵌），会覆盖在主页「导航」区域上；"
-                + "该区域需先在「主页模式」里勾选导航才会出现。", 12, U.SUB));
-        U.gapV(card, 8);
-        s.addView(card);
-        U.gapV(s, 8);
-        return s;
-    }
-
-    private void refreshWidget() {
-        if (wgState == null) return;
-        String t = sh.host().widgetStateText();
-        wgState.setText(t == null ? "未嵌入" : t);
-        U.visible(wgClearRow, sh.host().widgetEmbedded());
     }
 
     // ================================================================== 分区 3 音乐源

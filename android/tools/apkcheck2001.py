@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.0 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.1 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 """
@@ -8,7 +8,7 @@ import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.0.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.1.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -25,12 +25,12 @@ POS = [
     # 原生界面骨架
     b"com/l6/carmedia/nat/NatShell", b"com/l6/carmedia/nat/HomePane",
     b"com/l6/carmedia/nat/SetPane", b"com/l6/carmedia/nat/Dock",
-    b"com/l6/carmedia/nat/AppDrawer", b"com/l6/carmedia/nat/WidgetPanel",
+    b"com/l6/carmedia/nat/AppDrawer",
     b"com/l6/carmedia/nat/ForceUpdate", b"com/l6/carmedia/nat/NavMini",
     b"com/l6/carmedia/nat/U;", b"com/l6/carmedia/nat/Prefs",
     # 原生启动与刷新入口
     b"\xe5\x8e\x9f\xe7\x94\x9f\xe7\x95\x8c\xe9\x9d\xa2\xe5\xb7\xb2\xe5\x90\xaf\xe7\x94\xa8",  # 原生界面已启用
-    b"refreshSet", b"refreshDock", b"refreshWidget", b"refreshHome",
+    b"refreshSet", b"refreshDock", b"refreshHome",
     b"onOtaEvent", b"forceUpdate", b"gotoPage", b"sysWake", b"pushSys",
     # 车机信号采集 + 纯逻辑类
     b"com/l6/carmedia/SigDiff", b"com/l6/carmedia/SysProbe",
@@ -49,6 +49,11 @@ NEG = [
     # 随上报功能删除的类（防回归）
     b"com/l6/carmedia/LogBatch", b"com/l6/carmedia/DnsQuery",
     b"com/l6/carmedia/LogDiag",
+    # v2.0.1 删掉的：桌面小部件整套 + 主页「导航」栏位
+    b"com/l6/carmedia/nat/WidgetPanel",
+    b"com/l6/carmedia/L6WidgetHost", b"com/l6/carmedia/WidgetProbe",
+    b"AppWidgetHost", b"bindAppWidgetIdIfAllowed", b"REQ_BIND",
+    b"refreshWidget", b"widgetBind", b"widgetList", b"navSlot",
 ]
 
 bad = 0

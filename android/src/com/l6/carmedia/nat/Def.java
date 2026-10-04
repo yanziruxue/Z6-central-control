@@ -12,13 +12,18 @@ import java.util.Locale;
 public final class Def {
     private Def() {}
 
-    /** 主页三栏的顺序/显示键（与 JS 版 settings.homeMode 的值域一致） */
-    public static final String[] PANES = {"state", "nav", "music"};
+    /**
+     * 主页栏位的顺序/显示键。
+     *
+     * ★ v2.0.1：「导航」栏位整体移除（连同它里面的小部件槽）。老存档里 homeMode 存的
+     *   "nav" **不需要写迁移代码** —— Prefs.normHome / normHomeOn 都用 paneIndex() 过滤，
+     *   而 paneIndex 只认这张表，表里没有的键会被自动丢弃、并补回缺失的合法键。
+     */
+    public static final String[] PANES = {"state", "music"};
 
     /** 主页栏位中文名（设置页「主页模式」与拖动排序的提示文案都用它） */
     public static final String[][] PANE_NAMES = {
             {"state", "状态"},
-            {"nav", "导航"},
             {"music", "音乐"},
     };
 

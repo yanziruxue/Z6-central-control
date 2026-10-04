@@ -2,7 +2,6 @@ package com.l6.carmedia.nat;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.view.ViewGroup;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -140,26 +139,4 @@ public interface Host {
 
     void onWallSaved(String kind, Prefs.WallItem item);
 
-    // ------------------------------------------------------------------ 小部件
-
-    /** 把小部件原生视图直接嵌进给定容器；未绑定 / 无小部件返回 false */
-    boolean attachWidget(ViewGroup slot);
-
-    /** 状态文案（"未嵌入" / 应用名 …）与是否已嵌入 */
-    String widgetStateText();
-
-    boolean widgetEmbedded();
-
-    /** [pkg, cls, 名称] 列表，供选择面板平铺 */
-    List<String[]> widgetList();
-
-    void widgetBind(String pkg, String cls);
-
-    /** 授权某个小部件的绑定（AppWidgetHost 要求先在系统侧确认） */
-    void widgetAuth(int appWidgetId, String pkg, String cls);
-
-    void widgetClear();
-
-    /** 跳到系统小部件选择器（部分 ROM 有；无则返回 false 由 UI 走自建面板） */
-    boolean openSystemWidgetPicker();
 }

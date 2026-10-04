@@ -12,13 +12,8 @@ import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
-import android.text.Spannable;
-import android.text.SpannableStringBuilder;
-import android.text.style.ForegroundColorSpan;
-import android.text.style.StyleSpan;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -56,7 +51,6 @@ public class HomePane {
     // ------------------------------------------------------------------ 三栏根视图（常驻，refresh 只调顺序/可见性）
 
     private LinearLayout stateCol;   // data-mod="state"  → .card.carpanel（透明、无边框）
-    private LinearLayout navCol;     // data-mod="nav"    → .home-nav
     private LinearLayout musicCol;   // data-mod="music"  → .music
 
     // ------------------------------------------------------------------ 栏 1：车辆状态
@@ -75,14 +69,6 @@ public class HomePane {
     private final TextView[] cardUnit = new TextView[10];
     private final LinearLayout[] cardBox = new LinearLayout[10];
     private Drawable cardBgN, cardBgW;
-
-    // ------------------------------------------------------------------ 栏 2：导航
-
-    private LinearLayout navLive, navIdle;       // 导航中 / 未导航 两套内容互斥
-    private TextView navTag, navApp, navArr, navRoad, navMeta;
-    private TextView navTagIdle, navAppIdle;
-    private FrameLayout navSlotBox;              // 外部挂原生小部件的内部容器
-    private String navLblKey = null, navLblVal = "";
 
     // ------------------------------------------------------------------ 栏 3：歌词
 
@@ -115,13 +101,11 @@ public class HomePane {
         root.setPadding(U.px(4), U.px(14), U.px(18), U.px(14));
 
         stateCol = buildStateCol();
-        navCol = buildNavCol();
         musicCol = buildMusicCol();
 
         refresh();          // 按 homeState() 摆位 + 可见性
         // 先铺一遍占位（真实数据由每秒 onSys 覆盖）
         updateCar(null);
-        updateNav(null);
         updateMedia(null, null);
 
         return root;
@@ -148,14 +132,8 @@ public class HomePane {
 
     private LinearLayout colFor(String key) {
         if ("state".equals(key)) return stateCol;
-        if ("nav".equals(key)) return navCol;
         if ("music".equals(key)) return musicCol;
         return null;
-    }
-
-    /** 供 NatShell 往导航栏里挂原生小部件；本栏常驻，故返回内部容器（不存在则为 null） */
-    public ViewGroup navSlot() {
-        return navSlotBox;
     }
 
     // ==================================================================== 栏 1：车辆状态
@@ -374,130 +352,6 @@ public class HomePane {
         }
     }
 
-    // ==================================================================== 栏 2：导航
-
-    private LinearLayout buildNavCol() {
-        LinearLayout col = U.col(ctx);
-        col.setGravity(Gravity.CENTER_VERTICAL); // justify-content:center
-        col.setBackground(U.bg(0x8C101622, 20, 0x593DA9FC, 1));   // rgba(16,22,34,.55) + 边框
-        U.pad(col, 16);                          // padding 16u / radius 20u
-        col.setClickable(true);
-        col.setOnClickListener(v -> launchNav());
-
-        // ---- 导航中 ----
-        navLive = U.col(ctx);
-        LinearLayout head = U.row(ctx);
-        navTag = U.text(ctx, "导航中", 11, 0xFF06121F);
-        U.bold(navTag);
-        navTag.setBackground(U.accGradient(99));  // .hn-tag 胶囊（强调整渐变）
-        U.pad(navTag, 9, 3, 9, 3);
-        head.addView(navTag, U.lp(U.WC, U.WC));
-        navApp = U.text(ctx, "", 12, U.SUB);
-        navApp.setSingleLine(true);
-        navApp.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        head.addView(navApp, new LinearLayout.LayoutParams(0, U.WC, 1f));
-        ((LinearLayout.LayoutParams) navApp.getLayoutParams()).leftMargin = U.px(8);  // .hn-head gap 8u
-        navLive.addView(head, U.lp(U.MP, U.WC));
-
-        LinearLayout turn = U.row(ctx);
-        navArr = U.text(ctx, "↑", 40, U.ACC);    // .hn-arr 40u
-        turn.addView(navArr, U.lp(U.WC, U.WC));
-        navRoad = U.text(ctx, "导航进行中", 16, U.TXT);   // .hn-road 16u 粗
-        U.bold(navRoad);
-        navRoad.setLineSpacing(0f, 1.35f);
-        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, U.WC, 1f);
-        rp.leftMargin = U.px(10);                // .hn-turn gap 10u
-        turn.addView(navRoad, rp);
-        LinearLayout.LayoutParams tp = U.lp(U.MP, U.WC);
-        tp.topMargin = U.px(10);
-        navLive.addView(turn, tp);
-
-        navMeta = U.text(ctx, "", 12, U.SUB);    // .hn-meta 12u
-        navMeta.setLineSpacing(0f, 1.5f);
-        LinearLayout.LayoutParams mp = U.lp(U.MP, U.WC);
-        mp.topMargin = U.px(10);
-        navLive.addView(navMeta, mp);
-
-        LinearLayout.LayoutParams lvp = U.lp(U.MP, U.WC);
-        col.addView(navLive, lvp);
-
-        // ---- 未导航 ----
-        navIdle = U.col(ctx);
-        LinearLayout headI = U.row(ctx);
-        navTagIdle = U.text(ctx, "未在导航", 11, U.SUB);
-        U.bold(navTagIdle);
-        navTagIdle.setBackground(U.bg(0x1FFFFFFF, 99));
-        U.pad(navTagIdle, 9, 3, 9, 3);
-        headI.addView(navTagIdle, U.lp(U.WC, U.WC));
-        navAppIdle = U.text(ctx, "未选择导航 App", 12, U.SUB);
-        navAppIdle.setSingleLine(true);
-        navAppIdle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams iap = new LinearLayout.LayoutParams(0, U.WC, 1f);
-        iap.leftMargin = U.px(8);
-        headI.addView(navAppIdle, iap);
-        navIdle.addView(headI, U.lp(U.MP, U.WC));
-
-        // .hn-hint：说明「内嵌第三方导航画面无公开 API，唯一可行路 = 导航 App 自带悬浮窗」
-        TextView hint = U.text(ctx, "区域内嵌第三方导航画面没有公开 API。唯一可行路 = 打开导航 App 自带的"
-                + "「全局悬浮导航」小窗（高德：我的 → 设置 → 导航设置），画面即浮在本页上方。", 12, U.SUB);
-        hint.setLineSpacing(0f, 1.65f);
-        LinearLayout.LayoutParams hintP = U.lp(U.MP, U.WC);
-        hintP.topMargin = U.px(10);
-        navIdle.addView(hint, hintP);
-
-        LinearLayout acts = U.row(ctx);           // .hn-acts gap 8u
-        TextView bOpen = navBtn("▶ 启动导航", false);
-        bOpen.setOnClickListener(v -> launchNav());
-        acts.addView(bOpen, U.lp(U.WC, U.WC));
-        TextView bFloat = navBtn("↗ 悬浮窗", true);
-        bFloat.setOnClickListener(v -> openFloatSettings());
-        acts.addView(bFloat, leftGap(U.WC, U.WC, 8));
-        LinearLayout.LayoutParams ap = U.lp(U.MP, U.WC);
-        ap.topMargin = U.px(10);
-        navIdle.addView(acts, ap);
-
-        LinearLayout.LayoutParams ivp = U.lp(U.MP, U.WC);
-        col.addView(navIdle, ivp);
-
-        // 小部件槽：外部（NatShell）往里挂原生小部件
-        navSlotBox = new FrameLayout(ctx);
-        LinearLayout.LayoutParams slp = U.lp(U.MP, U.WC);
-        slp.topMargin = U.px(10);
-        col.addView(navSlotBox, slp);
-
-        return col;
-    }
-
-    /** .hn-btn：12u、padding 8u 12u、圆角 10u、边框（ghost = 透明底 + 次级字） */
-    private TextView navBtn(String s, boolean ghost) {
-        TextView t = U.text(ctx, s, 12, ghost ? U.SUB : U.TXT);
-        t.setBackground(ghost ? U.bg(Color.TRANSPARENT, 10, U.LINE, 1) : U.bg(U.PANEL2, 10, U.LINE, 1));
-        U.pad(t, 12, 8, 12, 8);
-        t.setGravity(Gravity.CENTER);
-        t.setClickable(true);
-        U.ripple(t, 0x33FFFFFF, 10);
-        return t;
-    }
-
-    private void launchNav() {
-        try {
-            sh.host().launchSrc(sh.prefs().navApp);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void openFloatSettings() {
-        try {
-            String pkg = Def.keyToPkg(sh.prefs().navApp);
-            if (pkg == null || pkg.isEmpty()) {
-                sh.host().toast("先在 设置 → 导航源 里选好导航 App");
-                return;
-            }
-            if (!sh.host().openAppOverlaySettings(pkg)) sh.host().toast("未能打开悬浮窗设置");
-        } catch (Throwable ignored) {
-        }
-    }
-
     // ==================================================================== 栏 3：歌词
 
     private LinearLayout buildMusicCol() {
@@ -556,7 +410,6 @@ public class HomePane {
     public void onSys(JSONObject sys) {
         if (sys == null) sys = new JSONObject();
         try { updateCar(sys.optJSONObject("car")); } catch (Throwable ignored) { }
-        try { updateNav(sys.optJSONObject("nav")); } catch (Throwable ignored) { }
         try { updateMedia(sys.optJSONObject("media"), sys.optJSONObject("lyrics")); } catch (Throwable ignored) { }
     }
 
@@ -671,97 +524,6 @@ public class HomePane {
         String circ = s(ac, "circulate", "");
         if (!circ.isEmpty()) b.append(" · ").append(circ).append("循环");
         return b.toString();
-    }
-
-    // ------------------------------------------------------------------ 导航
-
-    private void updateNav(JSONObject n) {
-        boolean active = n != null && n.optBoolean("active", false);
-        setVis(navLive, active);
-        setVis(navIdle, !active);
-
-        if (active) {
-            String src = s(n, "src", "");
-            boolean bc = "bcast".equals(src);
-            navTag.setText(bc && n.optBoolean("cruise", false) ? "巡航" : "导航中");
-            navApp.setText(s(n, "app", ""));
-
-            String arr = s(n, "arrow", s(n, "arr", "↑"));
-            if (arr.isEmpty()) arr = "↑";
-            navArr.setText(arr);
-
-            String turn = s(n, "turn", "");
-            if (turn.isEmpty()) turn = s(n, "raw", "");
-            String roadName = s(n, "road", "");
-            String road;
-            if (bc) {
-                road = turn.isEmpty() ? "继续行驶" : turn;
-                String next = s(n, "next", "");
-                if (!next.isEmpty()) road = road + " · 进入 " + next;
-            } else {
-                road = turn.isEmpty() ? "导航进行中" : turn;
-            }
-            if (!roadName.isEmpty() && turn.indexOf(roadName) < 0) road = road + " · " + roadName;
-            navRoad.setText(road);
-
-            String dist = s(n, "remain", s(n, "dist", ""));
-            String eta = s(n, "eta", "");
-            String dest = s(n, "dest", "");
-            String seg = s(n, "seg", "");
-            SpannableStringBuilder sb = new SpannableStringBuilder();
-            if (!dist.isEmpty() && !"--".equals(dist)) {
-                metaSeg(sb, "剩余 ", false);
-                metaSeg(sb, dist, true);
-                if (!eta.isEmpty()) { metaSeg(sb, " · 约 ", false); metaSeg(sb, eta, true); }
-                if (!dest.isEmpty() && !"--".equals(dest)) { metaSeg(sb, " · 到 ", false); metaSeg(sb, dest, true); }
-            } else if (!dest.isEmpty() && !"--".equals(dest)) {
-                metaSeg(sb, "前往 ", false);
-                metaSeg(sb, dest, true);
-            }
-            if (!seg.isEmpty()) {
-                if (sb.length() > 0) sb.append("\n");
-                metaSeg(sb, "本段剩 ", false);
-                metaSeg(sb, seg, true);
-            }
-            if (sb.length() == 0 && !bc) sb.append("导航进行中 · 该 App 未提供转向 / 剩余信息。");
-            navMeta.setText(sb);
-            setVis(navMeta, sb.length() > 0);
-        } else {
-            navAppIdle.setText(navAppLabel());
-        }
-    }
-
-    /** b 段加粗 + 用 txt 色（对应 .hn-meta b） */
-    private static void metaSeg(SpannableStringBuilder sb, String text, boolean bold) {
-        if (text == null || text.isEmpty()) return;
-        int st = sb.length();
-        sb.append(text);
-        if (bold) {
-            sb.setSpan(new StyleSpan(Typeface.BOLD), st, sb.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-            sb.setSpan(new ForegroundColorSpan(U.TXT), st, sb.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
-        }
-    }
-
-    /** 「未导航」态显示当前导航源名；prefs 变了才重算（避免每秒查 PackageManager） */
-    private String navAppLabel() {
-        String key = sh.prefs().navApp;
-        if (key == null) key = "";
-        if (key.equals(navLblKey)) return navLblVal;
-        navLblKey = key;
-        if (key.isEmpty()) {
-            navLblVal = "未选择导航 App";
-        } else {
-            String pkg = Def.keyToPkg(key);
-            String[] m = pkg == null ? null : Def.byPkg(pkg);
-            if (m != null) {
-                navLblVal = m[2];
-            } else {
-                String nm = null;
-                try { nm = sh.host().appName(pkg != null ? pkg : key); } catch (Throwable ignored) { }
-                navLblVal = (nm == null || nm.isEmpty()) ? key : nm;
-            }
-        }
-        return navLblVal;
     }
 
     // ------------------------------------------------------------------ 媒体 / 歌词

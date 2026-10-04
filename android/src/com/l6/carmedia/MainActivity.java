@@ -88,7 +88,7 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
 
     /** 主线程 Handler（v1.5.x 借 WebView.post 用，v2.0.0 删掉 WebView 后自己持一个） */
     private android.os.Handler ui;
-    /** v1.5.23：小部件是原生 View，进不了 WebView 的 DOM ⇒ 需要一个同层容器承载它的 overlay。 */
+    /** 原生界面的根容器（v2.0.0 起只是容器：原生 Shell 挂在这一层）。 */
     private android.widget.FrameLayout rootView;
     private ValueCallback<Uri[]> filePathCallback;
     private long lastBackAt = 0L;
@@ -192,12 +192,10 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         L6Log.i("L6", "应用启动");
 
         // ★ v2.0.0：界面全部原生（NatShell 手写 View），**不再有 WebView、也不再内置 HTML 页面**。
-        //   rootView 只作容器：原生 Shell 与 AppWidgetHostView（原生小部件）都挂在这一层。
+        //   rootView 只作容器：原生 Shell 挂在这一层。
         rootView = new android.widget.FrameLayout(this);
         setContentView(rootView);
         ui = new android.os.Handler(android.os.Looper.getMainLooper());
-        L6WidgetHost.get(this).attach(this, rootView);
-        L6WidgetHost.get(this).listen();     // 主线程：AppWidgetHost 要求「同一条线程创建 + 使用」
 
         api = new Bridge();
 
@@ -227,14 +225,6 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         // v1.5.20：高德广播探针 —— 探测该车机 ROM 是否把 AUTONAVI_STANDARD_BROADCAST_SEND 转发给第三方。
         // 隐式广播在 Android 8+ 不能静态注册，只能在这里动态注册（本应用是默认桌面，生命周期≈常驻）。
         try { NavBcastProbe.start(this); } catch (Throwable ignored) {}
-
-        // v1.5.22：小部件探测 —— 「把导航 / 音乐的原生卡片嵌进主页区域」这条路通不通？
-        // ★ 只读（见 WidgetProbe），跑一次把结论摆到主页导航区域的空态诊断行。
-        //   3s 是为了等页面加载完 + SHIM 注入完，此时 SysHub 的 emitter 才收得到事件。
-        ui.postDelayed(() -> {
-            try { WidgetProbe.run(this); } catch (Throwable ignored) {}
-            if (natShell != null) natShell.refreshWidget();
-        }, 3000);
 
         // 启动 5s 后静默检查一次 OTA（不打扰首屏）
         ui.postDelayed(() -> {
@@ -480,7 +470,6 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         } catch (Throwable ignored) {
         }
         try { NavBcastProbe.stop(this); } catch (Throwable ignored) {}
-        try { L6WidgetHost.get(this).stop(); } catch (Throwable ignored) {}
         if (natShell != null) {
             natShell.stop();
         }
@@ -558,11 +547,6 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        // v1.5.23：小部件系统授权框的结果（RESULT_OK = 已绑定 / CANCELED = 自己把那个 id 删掉）
-        if (requestCode == L6WidgetHost.REQ_BIND) {
-            L6WidgetHost.get(this).onActivityResult(requestCode, resultCode, data);
-            return;
-        }
         if (requestCode == REQ_WALL) {
             // 原生版选壁纸：系统选择器返回的 Uri → 读字节 → 按类型落盘 → 进壁纸列表并选中
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
@@ -1539,61 +1523,18 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
             return SignalCapture.isRunning();
         }
 
-        /* ---------------- v1.5.23 小部件（App Widget）承载 --------------
-           页面是 WebView、AppWidgetHostView 是**原生 View** ⇒ 原生 View 进不了 DOM。
-           所以桥只负责「列 provider / 绑定 / 拉授权框 / 上报区域矩形 / 移除」，
-           真正的摆放由 L6WidgetHost 用 overlay（挂 WebView 的父容器）完成。 */
-
-        /** 这台车机上所有小部件 provider（页面自建选择列表用）。 */
-        @JavascriptInterface
-        public String widgetListJson() {
-            return L6WidgetHost.get(MainActivity.this).listJson();
-        }
-
-        /**
-         * 尝试绑定一个 provider。
-         * 直接成功 ⇒ 推 {on:true}；被系统拒绝 ⇒ 推 {needAuth:true,id}，页面接着调 widgetAuth。
-         */
-        @JavascriptInterface
-        public void widgetBind(String pkg, String cls) {
-            L6WidgetHost.get(MainActivity.this).bind(pkg, cls);
-        }
-
-        /** 拉起系统授权框「允许 X 添加小部件」（官方给 bindAppWidgetIdIfAllowed 返回 false 的补救入口）。 */
-        @JavascriptInterface
-        public void widgetAuth(int id, String pkg, String cls) {
-            L6WidgetHost.get(MainActivity.this).auth(id, pkg, cls);
-        }
-
-        /** 上报小部件应占的区域（屏幕百分比 0~1）。宽或高为 0 ⇒ 区域不可见，收起 overlay。 */
-        @JavascriptInterface
-        public void widgetPlace(double l, double t, double w, double h) {
-            L6WidgetHost.get(MainActivity.this).place(l, t, w, h);
-        }
-
-        /** 移除已嵌入的小部件（同时把系统里的 widgetId 删掉，不留悬空 id）。 */
-        @JavascriptInterface
-        public void widgetClear() {
-            L6WidgetHost.get(MainActivity.this).clear();
-        }
-
-        /** 当前嵌入状态（页面重载时对齐用）。 */
-        @JavascriptInterface
-        public String widgetStateJson() {
-            return L6WidgetHost.get(MainActivity.this).stateJson();
-        }
     }
     /* ==================================================================
      *  原生界面宿主实现（nat.Host）
      *
-     *  原生 UI 只依赖 nat.Host 这个接口，不直接碰 Activity —— 于是 WebView 版与原生版
-     *  能在同一台设备上共存、同机对比。这里的实现绝大多数是**转发给同一个 Bridge 实例**，
-     *  保证「原生版」与「网页版」的底层行为逐字节一致（同一份 OTA / 日志 / 信号采集 / 应用枚举）。
+     *  原生 UI 只依赖 nat.Host 这个接口，不直接碰 Activity。这里的实现绝大多数是
+     *  **转发给同一个 Bridge 实例** —— Bridge 是 v2.0.0 之前 JS 桥用的那套底层能力
+     *  （OTA / 日志 / 信号采集 / 应用枚举），WebView 删了但能力留着，直接复用，
+     *  避免「原生版重写一遍 ⇒ 与旧行为不一致」。
      *
-     *  ★ 只有三类是原生新增的：
+     *  ★ 有两处是原生新增的（不再走 Bridge）：
      *    ① 应用列表 / 图标改成「原生对象」而不是 JSON 字符串（视图层不用自己解析）；
-     *    ② 小部件改成直嵌进主页的 ViewGroup 槽位；
-     *    ③ 壁纸选择走系统文件选择器 + 直接落盘（不再经过 dataURL → localStorage）。
+     *    ② 壁纸选择走系统文件选择器 + 直接落盘（不再经过 dataURL → localStorage）。
      * ================================================================== */
 
     /** 应用列表缓存：PackageManager 枚举 + 图标解码都不便宜，抽屉/dock/设置页来回切会反复要 */
@@ -1833,7 +1774,7 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
     /**
      * SysHub 原始事件 → 原生合成快照。
      *
-     * 事件形态见 {@link SysHub} 类注释；只认原生界面需要的 kind，其余（widget 探针等）原样忽略。
+     * 事件形态见 {@link SysHub} 类注释；只认原生界面需要的 kind，其余原样忽略。
      * 线程任意 ⇒ natSys 全程加锁。
      */
     private void natIngest(String json) {
@@ -2283,83 +2224,6 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         }
     }
 
-    // ---------------------------------------------------------------- 小部件
-
-    @Override
-    public boolean attachWidget(ViewGroup slot) {
-        if (slot == null) {
-            return false;
-        }
-        if (!widgetEmbedded()) {
-            slot.removeAllViews();
-            return false;
-        }
-        L6WidgetHost.get(this).attachInto(slot);
-        return true;
-    }
-
-    @Override
-    public String widgetStateText() {
-        try {
-            JSONObject o = new JSONObject(api.widgetStateJson());
-            if (o.optBoolean("on", false)) {
-                String l = o.optString("label", "");
-                return l.isEmpty() ? "已嵌入" : l;
-            }
-        } catch (Throwable ignored) {
-        }
-        return "未嵌入";
-    }
-
-    @Override
-    public boolean widgetEmbedded() {
-        try {
-            return new JSONObject(api.widgetStateJson()).optBoolean("on", false);
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    @Override
-    public java.util.List<String[]> widgetList() {
-        java.util.List<String[]> out = new java.util.ArrayList<>();
-        try {
-            JSONArray arr = new JSONArray(api.widgetListJson());
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject o = arr.optJSONObject(i);
-                if (o == null) continue;
-                out.add(new String[]{
-                        o.optString("pkg", ""),
-                        o.optString("cls", ""),
-                        o.optString("label", o.optString("pkg", ""))});
-            }
-        } catch (Throwable ignored) {
-        }
-        return out;
-    }
-
-    @Override
-    public void widgetBind(String pkg, String cls) {
-        api.widgetBind(pkg, cls);
-    }
-
-    @Override
-    public void widgetAuth(int appWidgetId, String pkg, String cls) {
-        api.widgetAuth(appWidgetId, pkg, cls);
-    }
-
-    @Override
-    public void widgetClear() {
-        api.widgetClear();
-    }
-
-    @Override
-    public boolean openSystemWidgetPicker() {
-        // ★ 特意不用系统的 APPWIDGET_PICK：它返回的 id 属于系统那个 host，与我们自己的
-        //   AppWidgetHost 对不上（v1.5.23 踩过）。列表由我们自己列、自己 bind。
-        return false;
-    }
-
     // ---------------------------------------------------------------- 原生界面启动
 
     /**
@@ -2372,7 +2236,15 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
             rootView.addView(v, new android.widget.FrameLayout.LayoutParams(
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
                     android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
-            L6Log.i("L6", "原生界面已启用 (v2.0.0)");
+            // ★ 版本号**不要硬编码**：这一行是「原生界面到底起没起来」的唯一判据
+            //   （v2.0.0 的黑屏事故就是靠它定位的），写死版本号会让人以为装的是旧包
+            //   —— v2.0.1 运行时它还印着 v2.0.0。改成现读 PackageManager。
+            String verName = "?";
+            try {
+                verName = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            } catch (Throwable ignored) {
+            }
+            L6Log.i("L6", "原生界面已启用 (v" + verName + ")");
             seedNatSys();
             if (getIntent() != null && getIntent().getBooleanExtra("l6demo", false)) {
                 startNatDemo();
