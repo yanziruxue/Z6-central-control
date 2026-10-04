@@ -94,6 +94,11 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
     private long lastBackAt = 0L;
     /** 即将调起导航 App：onPause 时若确实离开本界面，才挂「返回」悬浮按钮（导航未成功接管则不留按钮）。 */
     private boolean navLaunching = false;
+
+    /** ★ v2.0.4：这次 OTA 检查是不是「启动自动检查」触发的。
+     *  只有自动检查发现新版本才弹提示框；设置页手动点「🔄 检查更新」仍只在设置页内联显示，
+     *  免得同一屏既弹窗又有内联块、重复冗余。 */
+    private boolean otaFromAuto = false;
     /** 全局 Context（Application 级），供 L6Log 发广播 / 落盘使用。 */
     private static Context appCtx = null;
 
@@ -226,10 +231,10 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         // 隐式广播在 Android 8+ 不能静态注册，只能在这里动态注册（本应用是默认桌面，生命周期≈常驻）。
         try { NavBcastProbe.start(this); } catch (Throwable ignored) {}
 
-        // 启动 5s 后静默检查一次 OTA（不打扰首屏）
+        // 启动 2s 后自动检查一次 OTA（v2.0.4：5s → 2s；发现新版本会弹可取消的提示框）
         ui.postDelayed(() -> {
-            try { checkOta(); } catch (Throwable ignored) {}
-        }, 5000);
+            try { checkOtaAuto(); } catch (Throwable ignored) {}
+        }, 2000);
 
         // 媒体进度每秒推进（含 10s 兜底重建会话）
         ui.postDelayed(mediaTick, 1200);
@@ -2078,7 +2083,20 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
 
     @Override
     public void checkOta() {
-        L6Log.i("L6Ota", "检查更新");
+        otaFromAuto = false;                        // 设置页手动检查：不弹提示框
+        L6Log.i("L6Ota", "检查更新（设置页手动）");
+        Ota.checkUpdate(this, this::forwardOta);
+    }
+
+    /**
+     * 启动时的自动检查（v2.0.4）。
+     *
+     * <p>★ 与 {@link #checkOta()} 分开而不是复用：那个会把 {@code otaFromAuto} 置 false，
+     * 而启动路径必须在调用<b>之后</b>保留标记（回调是异步的、回来时标记才被消费）。
+     */
+    private void checkOtaAuto() {
+        otaFromAuto = true;
+        L6Log.i("L6Ota", "检查更新（启动自动）");
         Ota.checkUpdate(this, this::forwardOta);
     }
 
@@ -2134,6 +2152,10 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
             }
             final String fk = kind;
             final boolean force = o.optBoolean("force", false) && "available".equals(kind);
+            // ★ v2.0.4：消费「自动检查」标记（一次检查只认一次），并记下新版本码供「跳过此版」用
+            final boolean auto = otaFromAuto;
+            otaFromAuto = false;
+            final int newCode = o.optInt("versionCode", 0);
             runOnUiThread(() -> {
                 if (natShell == null) return;
                 natShell.onOtaEvent(fk, o);
@@ -2142,6 +2164,15 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
                     natShell.forceUpdate(o.optString("changelog", ""),
                             () -> installOta(o.optString("apkUrl", ""), o.optString("sha256", "")),
                             this::cancelOta);
+                } else if (auto && "available".equals(fk)
+                        && !Ota.isSkipped(MainActivity.this, newCode)) {
+                    // ★ v2.0.4：启动自动检查发现新版本 ⇒ 弹「发现新版本 vX.Y.Z」提示框。
+                    //   「稍后再说」= onLater 传 null（弹窗自己收起即可），下次启动仍会提示；
+                    //   「跳过此版」= 记住 versionCode，同一版本不再提示（出现更高版本才再提醒）。
+                    natShell.updatePrompt(o.optString("version", ""), o.optString("changelog", ""),
+                            () -> installOta(o.optString("apkUrl", ""), o.optString("sha256", "")),
+                            null,
+                            () -> Ota.setSkippedVersionCode(MainActivity.this, newCode));
                 }
             });
         } catch (Throwable t) {

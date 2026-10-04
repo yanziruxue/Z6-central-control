@@ -2,6 +2,7 @@ package com.l6.carmedia;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -238,6 +239,48 @@ public class Ota {
         cancelFlag = true;
         HttpURLConnection c = activeConn;
         if (c != null) { try { c.disconnect(); } catch (Throwable ignored) {} }
+    }
+
+    // ------------------------------------------------------------ 「跳过此版」（v2.0.4）
+
+    /**
+     * 用户点「跳过此版」后记住的版本码。
+     *
+     * <p>★ 存**独立**的 SharedPreferences（{@code l6_ota}），**不进 {@code l6_nat/settings_json}** ——
+     * 后者整个文件会作为「设置」在界面里呈现/回写，掺一个内部状态键进去容易和界面互相覆盖。
+     * ★ 存 versionCode 而非版本名：主源只返回 latest，versionCode 是稳定标识，
+     * 版本名一旦被复用（比如回退发布）会误判。
+     */
+    private static final String SKIP_PREF = "l6_ota";
+    private static final String SKIP_KEY = "skip_version_code";
+
+    /** 读回「已跳过」的版本码；从未跳过返回 -1。取不到一律当没跳过（宁可多弹一次）。 */
+    public static int skippedVersionCode(Activity act) {
+        try {
+            return act.getSharedPreferences(SKIP_PREF, Activity.MODE_PRIVATE).getInt(SKIP_KEY, -1);
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    /** 记住「跳过此版本」。 */
+    public static void setSkippedVersionCode(Activity act, int code) {
+        try {
+            act.getSharedPreferences(SKIP_PREF, Activity.MODE_PRIVATE)
+                    .edit().putInt(SKIP_KEY, code).apply();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 这次发现的新版本是否已被用户「跳过此版」。
+     *
+     * <p>★ 只在「版本码完全相同」时才算跳过：一旦出现<b>更高</b>的版本就重新提示，
+     * 否则用户跳过后就再也不会收到任何更新提醒了。
+     */
+    public static boolean isSkipped(Activity act, int versionCode) {
+        int s = skippedVersionCode(act);
+        return s > 0 && s == versionCode;
     }
 
     public static void downloadAndInstall(Activity act, String url, String sha256, EventCb cb) {

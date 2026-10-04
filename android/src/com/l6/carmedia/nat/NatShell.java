@@ -395,6 +395,19 @@ public class NatShell implements Shell {
         forceUpdate.show(changelog, onInstall, onCancel);
     }
 
+    /**
+     * 非强制的新版本提示（v2.0.4）。
+     *
+     * <p>★ 复用<b>同一个</b> {@link ForceUpdate} 实例：它内部有「已在展示就不叠层」的守卫，
+     * 两种模式天然互斥（强制更新优先，因为它由 force 事件触发、时机更硬）。
+     */
+    @Override
+    public void updatePrompt(String version, String changelog,
+                             Runnable onInstall, Runnable onLater, Runnable onSkip) {
+        if (forceUpdate == null) forceUpdate = new ForceUpdate(this);
+        forceUpdate.showOptional(version, changelog, onInstall, onLater, onSkip);
+    }
+
     // ================================================================== Toast
 
     /** 页面内轻提示（对应原型 .l6-toast：底部居中、圆角药丸、深底描边） */

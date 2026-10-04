@@ -75,6 +75,22 @@ public interface Shell {
     /** 强制更新蒙层（force=true 的版本） */
     void forceUpdate(String changelog, Runnable onInstall, Runnable onCancel);
 
+    /**
+     * 非强制的新版本提示弹窗（v2.0.4）。
+     *
+     * <p>与 {@link #forceUpdate} 的区别：那个是**强制**更新（全屏遮罩、不可关、取消按钮要等
+     * 下载开始才出现）；这个是「有新版、要不要现在更」—— 一开始就给 **[稍后再说]** 与
+     * **[跳过此版]** 两个出口，点遮罩也能关。
+     *
+     * @param version    新版本号（显示在标题上）
+     * @param changelog  更新内容（可滚动）
+     * @param onInstall  点「立即更新」
+     * @param onLater    点「稍后再说」/点遮罩（下次启动仍会提示）
+     * @param onSkip     点「跳过此版」（记住该版本，不再提示）
+     */
+    void updatePrompt(String version, String changelog,
+                      Runnable onInstall, Runnable onLater, Runnable onSkip);
+
     /** 抽屉选中回调 */
     interface DrawerPick {
         void onPick(Def.App a);
