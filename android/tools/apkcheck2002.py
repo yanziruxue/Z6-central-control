@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-"""v2.0.1 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.2 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
+★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.1.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.2.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -36,6 +37,10 @@ POS = [
     b"com/l6/carmedia/SigDiff", b"com/l6/carmedia/SysProbe",
     b"com/l6/carmedia/SignalCapture", b"com/l6/carmedia/LrcParse",
     b"com/l6/carmedia/NavParse", b"com/l6/carmedia/NavBcastFmt",
+    b"com/l6/carmedia/NavBcastData",
+    # v2.0.2：悬浮「返回」按钮 + 它的纯逻辑点按判定（手机高密度屏点了没反应的修复）
+    b"com/l6/carmedia/FloatNav", b"com/l6/carmedia/TapJudge",
+    b"isTap", b"bringToFront", b"canDrawOverlay",
     # 业务
     b"com/l6/carmedia/Ota", b"L6Apps", b"L6Demo",
 ]

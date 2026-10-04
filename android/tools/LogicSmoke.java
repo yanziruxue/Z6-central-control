@@ -3,6 +3,7 @@ import com.l6.carmedia.NavBcastData;
 import com.l6.carmedia.NavBcastFmt;
 import com.l6.carmedia.NavParse;
 import com.l6.carmedia.SigDiff;
+import com.l6.carmedia.TapJudge;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -175,6 +176,9 @@ public class LogicSmoke {
                 "[00:05:25]开头\n[00:06:75]第二句",
                 2, new int[]{5250, 6750});
 
+        // ---- v2.0.2：悬浮「返回」按钮的「点按」判定（TapJudge）----
+        tap();
+
         sig();
 
         System.out.println();
@@ -284,6 +288,47 @@ public class LogicSmoke {
             System.out.println("    期望 " + count + " 行 " + java.util.Arrays.toString(times));
             System.out.println("    实际 " + lines.size() + " 行 " + sb);
         }
+    }
+
+    /* ---------------- 悬浮返回按钮点按判定（TapJudge，v2.0.2）---------------- */
+
+    /**
+     * 回归背景：v2.0.2 之前判定写死「位移 &lt; 8 物理像素」。车机 density=1 时 8px=8dp 正常，
+     * 但手机 density 2.6 时 8px 只等于 3dp、4.0 时只有 2dp，手指抖动必然越界
+     * ⇒ 点悬浮「返回」全被误判成拖动，用户在手机代车机上点了没反应。
+     * 三种密度 + 拖动边界全部钉死。
+     */
+    private static void tap() {
+        final float car = 1.0f;        // 车机 1920×720，density 160
+        final float phone = 2.625f;    // 420dpi 常见手机
+        final float flagship = 4.0f;   // 640dpi 旗舰
+
+        report("车机 1x：3px 抖动仍算点按", TapJudge.isTap(3, 2, 120, car));
+        report("★ 手机 2.6x：3px 抖动仍算点按（v2.0.1 的真 bug 点）",
+                TapJudge.isTap(3, 2, 120, phone));
+        report("旗舰 4x：5px 抖动仍算点按", TapJudge.isTap(5, 4, 200, flagship));
+        report("手机 2.6x：12px/9px 抖动（≈4.6dp）仍算点按", TapJudge.isTap(12, 9, 300, phone));
+        report("真拖动 40px/25px 在 2.6x 上判为拖动（别把拖动误当点击）",
+                !TapJudge.isTap(40, 25, 300, phone));
+        report("真拖动 40px/25px 在 1x 上也判为拖动", !TapJudge.isTap(40, 25, 300, car));
+        report("斜向只按各轴独立判：14px 算点按、40px 不算",
+                TapJudge.isTap(14, 3, 120, phone) && !TapJudge.isTap(40, 3, 120, phone));
+        report("反向位移按绝对值处理（-4/-4 仍算点按）", TapJudge.isTap(-4, -4, 120, phone));
+        report("按住 900ms 不算点按", !TapJudge.isTap(2, 2, 900, phone));
+        report("600ms 边界内算点按（闭区间）", TapJudge.isTap(2, 2, 600, phone));
+        report("density 传 0 兜底成 1x，不会把所有点击都判成拖动",
+                TapJudge.isTap(3, 2, 120, 0f));
+        report("density 传负数同样兜底", TapJudge.isTap(3, 2, 120, -2f));
+        report("dp→px：12dp @2.6x ≈ 30.3px、@1x = 12px",
+                Math.abs(TapJudge.dpToPx(12, car) - 12f) < 0.01f
+                        && Math.abs(TapJudge.dpToPx(12, phone) - 31.5f) < 0.01f);
+        report("describe 能直接看出判定结论（落盘日志靠它）",
+                TapJudge.describe(3, 2, 120, phone).contains("点按")
+                        && TapJudge.describe(40, 25, 300, phone).contains("拖动")
+                        && TapJudge.describe(3, 2, 120, phone).contains("density"));
+        report("★ 关键区分用例：2.6x 上 10px/4px 抖动（≈3.8dp）判为点按"
+                        + "（旧实现写死 8px，这一例会被误判成拖动 → 点了没反应）",
+                TapJudge.isTap(10, 4, 150, phone));
     }
 
     /* ---------------- 车机信号采集 diff（SigDiff，v1.5.14 起）---------------- */

@@ -156,15 +156,30 @@ public final class FloatNav {
                             } catch (Throwable ignored) {
                             }
                             return true;
-                        case MotionEvent.ACTION_UP:
-                            // 位移小于阈值且是「点按」→ 直接返回主页（不再经 performClick → onClick，避免拖动后点击链路丢失）
-                            float dx = Math.abs(e.getRawX() - sx);
-                            float dy = Math.abs(e.getRawY() - sy);
-                            if (dx < 8 && dy < 8 && System.currentTimeMillis() - downAt < 400) {
-                                hide(ctx);
+                        case MotionEvent.ACTION_UP: {
+                            // ★ v2.0.2：位移阈值原先写死 8 **物理像素**。车机（density 1）时 8px=8dp 正常，
+                            //   但手机 density 2.6 时 8px 只等于 3dp、4.0 时只有 2dp —— 手指按下到抬起的
+                            //   自然抖动就有 3~8dp，于是**每一次点击都被判成「拖动」**，只走上面的 MOVE 分支
+                            //   改窗口位置、永不调 bringToFront ⇒「悬浮窗在，但点了没反应」。
+                            //   （用户是「手机代车机」实测复现的；车机屏 density=1 恰好不犯病，所以一直没暴露。）
+                            //   现在改由 TapJudge 按 dp→px 换算判定，判定依据一并写进落盘日志，
+                            //   下次真机复现不用再猜是哪一环坏了。
+                            float dx = e.getRawX() - sx;
+                            float dy = e.getRawY() - sy;
+                            long dur = System.currentTimeMillis() - downAt;
+                            float density = ctx.getResources().getDisplayMetrics().density;
+                            boolean tap = TapJudge.isTap(dx, dy, dur, density);
+                            L6Log.i("L6Nav", "返回按钮抬手 " + TapJudge.describe(dx, dy, dur, density)
+                                    + (tap ? " ⇒ 拉回前台" : " ⇒ 不处理"));
+                            if (tap) {
+                                // ★ 这里**不**先 hide()：Android 10+ 有「后台启动 Activity」限制，
+                                //   豁免条件是本进程有**可见悬浮窗**；先把窗撤掉等于自己把豁免条件弄丢了，
+                                //   startActivity 可能被静默拦下。撤销交给 MainActivity.onResume（它本来就会撤）。
+                                //   这样万一被系统拦下，按钮还在，用户还能再点一次，不会彻底没路可回。
                                 bringToFront(ctx);
                             }
                             return true;
+                        }
                         default:
                             return false;
                     }
