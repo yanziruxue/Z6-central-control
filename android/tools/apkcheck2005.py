@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
-"""v2.0.4 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.5 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
 ★ v2.0.3 新增「清空采集日志」（删除 signal-*.json）。
 ★ v2.0.4 新增「发现新版本」可取消提示框（ForceUpdate 双模式 + 跳过此版）。
+★ v2.0.5 设置页手势分区不再挂任何提示文字。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.4.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.5.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -69,6 +70,9 @@ NEG = [
     b"com/l6/carmedia/L6WidgetHost", b"com/l6/carmedia/WidgetProbe",
     b"AppWidgetHost", b"bindAppWidgetIdIfAllowed", b"REQ_BIND",
     b"refreshWidget", b"widgetBind", b"widgetList", b"navSlot",
+    # v2.0.5：手势分区的两行提示文字已全部移除（防回归）
+    b"\xe9\x9c\x80\xe8\xa6\x81\xe4\xbb\x8e\xe5\xb1\x8f\xe5\xb9\x95\xe4\xb8\xad\xe5\xbf\x83\xe5\x8c\xba\xe5\x9f\x9f",  # 需从屏幕中心区域
+    b"\xe7\xbb\xbc\xe9\x9a\x8f\xe3\x80\x8c\xe4\xb8\x8b\xe6\xbb\x91\xe8\xb7\x9f\xe8\xb8\xaf\xe5\x8c\xaf\xe6\xba\x90",  # 默认「下滑」跟随导航源
 ]
 
 bad = 0
