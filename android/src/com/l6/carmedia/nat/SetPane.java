@@ -4,6 +4,7 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.annotation.SuppressLint;
+import android.app.AlertDialog;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -93,7 +94,7 @@ public class SetPane {
     private TextView sysAccVal, ovAccVal, homeStateVal;
 
     // ---- 信号采集 ----
-    private TextView sigState, sigBtn, sigOut;
+    private TextView sigState, sigBtn, sigOut, sigClear;
 
     // ---- 在线更新 ----
     private TextView otaCurVal, otaStatus, otaNewV, otaCLPre, chHead, otaProgTxt;
@@ -901,7 +902,11 @@ public class SetPane {
             else sh.host().startSignal();
             refreshSignal();
         });
-        card.addView(otaRow(curSpan("采集状态：", sigState), sigBtn));
+        // ★ v2.0.3：清空按钮放在「开始采集」左边
+        sigClear = U.btn(c, "🗑 清空");
+        sigClear.setTextColor(U.WARN);
+        sigClear.setOnClickListener(v -> confirmClearSignal());
+        card.addView(otaRow(curSpan("采集状态：", sigState), sigBtns()));
 
         sigOut = U.text(c, "", 11, U.TXT);
         sigOut.setBackground(U.bg(U.PANEL, 8, U.LINE, 1));
@@ -913,11 +918,47 @@ public class SetPane {
         card.addView(sigOut);
 
         card.addView(U.text(c, "点「开始采集」后保持在页面，自行操作车辆功能（车门 / 车窗 / 车辆按钮等），完成后点「结束采集」；"
-                + "结论写入本地日志（标签 L6Signal）并另存 Download/L6/signal-*.json。", 12, U.SUB));
+                + "结论写入本地日志（标签 L6Signal）并另存 Download/L6/signal-*.json。\n"
+                + "「🗑 清空」会删除全部 signal-*.json 采集产物（运行日志 l6-*.log 保留）。", 12, U.SUB));
         U.gapV(card, 8);
         s.addView(card);
         U.gapV(s, 8);
         return s;
+    }
+
+    /**
+     * 采集分区的右侧按钮组：**[🗑 清空] [▶ 开始采集]**。
+     *
+     * <p>★ v2.0.3 新增清空按钮。{@code otaRow} 只支持「左标签 + 右控件」两段，
+     * 所以右侧改成用 {@link U#row} 装两个按钮，各占 WC/WC、中间留 8u 间隙。
+     */
+    private LinearLayout sigBtns() {
+        LinearLayout r = U.row(c);
+        r.addView(sigClear, U.lp(U.WC, U.WC));
+        U.gapH(r, 8);
+        r.addView(sigBtn, U.lp(U.WC, U.WC));
+        return r;
+    }
+
+    /**
+     * 清空采集产物前二次确认（**不可逆删除**）。
+     *
+     * <p>★ v2.0.3：原生 UI 此前没有任何确认弹窗，这里第一次引入 {@link AlertDialog}。
+     * ★ 只删 {@code signal-*.json}，**不碰 {@code l6-*.log}** —— 后者里有
+     * 「原生界面已启用」那行，是判断原生界面起没起来的唯一依据，删了会毁掉排障线索。
+     */
+    private void confirmClearSignal() {
+        new AlertDialog.Builder(c)
+                .setTitle("清空采集日志")
+                .setMessage("将删除 Download/L6/ 下的 signal-*.json 采集产物，删除不可恢复。\n\n"
+                        + "运行日志 l6-*.log 不受影响。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清空", (d, w) -> {
+                    int n = sh.host().clearSignalLogs();
+                    sh.host().toast(n > 0 ? ("已清空 " + n + " 个采集日志") : "没有可清空的采集日志");
+                    refreshSignal();
+                })
+                .show();
     }
 
     private void refreshSignal() {
@@ -925,6 +966,11 @@ public class SetPane {
         boolean cap = sh.host().isSignalCapturing();
         sigState.setText(cap ? "采集中…" : "未采集");
         sigBtn.setText(cap ? "■ 结束采集" : "▶ 开始采集");
+        // 采集中禁用清空：正在写 signal-*.json，此时删会让人以为数据丢了
+        if (sigClear != null) {
+            sigClear.setEnabled(!cap);
+            sigClear.setAlpha(cap ? 0.4f : 1f);
+        }
         if (cap) {
             sigOut.setText("采集中… 请保持在页面并操作车辆功能（车门 / 车窗 / 车辆按钮等），完成后点「结束采集」。\n"
                     + "结论写入本地日志（标签 L6Signal），并另存 Download/L6/signal-*.json。");

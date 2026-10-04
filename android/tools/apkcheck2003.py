@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
-"""v2.0.2 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.3 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
+★ v2.0.3 新增「清空采集日志」（删除 signal-*.json）。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.2.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.3.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -41,6 +42,12 @@ POS = [
     # v2.0.2：悬浮「返回」按钮 + 它的纯逻辑点按判定（手机高密度屏点了没反应的修复）
     b"com/l6/carmedia/FloatNav", b"com/l6/carmedia/TapJudge",
     b"isTap", b"bringToFront", b"canDrawOverlay",
+    # v2.0.3：清空采集日志
+    b"clearSignalLogs", b"signal-",
+    # ★ Python 3 的 bytes 字面量**不支持 \uXXXX**（只支持 \xNN）——中文断言必须写 \xNN，
+    #   否则 \u 被当字面量、拿去 dex 里找必然 x0，看着像「代码没进包」，其实是断言写错了。
+    b"\xe6\xb8\x85\xe7\xa9\xba\xe9\x87\x87\xe9\x9b\x86\xe6\x97\xa5\xe5\xbf\x97",  # 清空采集日志
+    b"\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe6\x9c\xaa\xe5\x8a\xa8",  # 运行日志未动
     # 业务
     b"com/l6/carmedia/Ota", b"L6Apps", b"L6Demo",
 ]

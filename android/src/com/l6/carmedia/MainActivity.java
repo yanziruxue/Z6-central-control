@@ -2028,6 +2028,39 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         return api.isSignalCapturing();
     }
 
+    /**
+     * 删除 Download/L6/ 下全部 signal-*.json 采集产物（★ v2.0.3）。
+     *
+     * <p>遍历 {@link L6Log#artifactDir()}，只匹配 {@code signal-*.json}：
+     * <ul>
+     *   <li><b>不碰</b> {@code l6-*.log} —— 里面有「原生界面已启用 (vX.Y.Z)」那行，
+     *       是判断原生界面到底起没起来的唯一依据（v2.0.0 的静默回落事故就靠它定位）。</li>
+     *   <li>目录取不到时返回 0，不抛 —— 采集产物是「有就清」，不该因此崩了设置页。</li>
+     * </ul>
+     * 删完打一条 {@code L6Signal} 日志记数量，便于事后从落盘日志核对。
+     */
+    @Override
+    public int clearSignalLogs() {
+        int n = 0;
+        try {
+            File d = L6Log.artifactDir();
+            if (d != null && d.isDirectory()) {
+                File[] fs = d.listFiles();
+                if (fs != null) {
+                    for (File f : fs) {
+                        String fn = f.getName();
+                        if (f.isFile() && fn.startsWith("signal-") && fn.endsWith(".json")) {
+                            if (f.delete()) n++;
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        L6Log.i("L6Signal", "清空采集产物：删除 " + n + " 个 signal-*.json（运行日志未动）");
+        return n;
+    }
+
     @Override
     public JSONObject otaConfig() {
         try {

@@ -113,6 +113,16 @@ public interface Host {
 
     boolean isSignalCapturing();
 
+    /**
+     * 删除 {@code Download/L6/} 下全部 {@code signal-*.json} 采集产物。
+     *
+     * <p>★ v2.0.3 新增。**只删采集产物，不碰运行日志 {@code l6-*.log}** ——
+     * 后者含「原生界面已启用」那行，是判断原生界面起没起来的唯一依据。
+     *
+     * @return 实际删除的文件数（0 = 没有可清的 / 目录取不到）
+     */
+    int clearSignalLogs();
+
     // ------------------------------------------------------------------ OTA
 
     /** 当前版本/通道等；字段名与 JS 版 getOtaConfig() 一致，缺失容错 */
