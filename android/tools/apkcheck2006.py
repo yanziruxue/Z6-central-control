@@ -1,18 +1,19 @@
 # -*- coding: utf-8 -*-
-"""v2.0.5 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.6 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
 ★ v2.0.3 新增「清空采集日志」（删除 signal-*.json）。
 ★ v2.0.4 新增「发现新版本」可取消提示框（ForceUpdate 双模式 + 跳过此版）。
 ★ v2.0.5 设置页手势分区不再挂任何提示文字。
+★ v2.0.6 更新提示框改为卡片式弹窗（遮罩调浅 + 卡片底）。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.5.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.6.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()

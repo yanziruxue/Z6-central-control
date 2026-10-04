@@ -30,8 +30,18 @@ import android.widget.TextView;
  */
 public class ForceUpdate {
 
-    /** 遮罩 rgba(0,0,0,.88) */
-    private static final int SCRIM = 0xE0000000;
+    /**
+     * 遮罩深浅分模式（★ v2.0.6）。
+     *
+     * <p>原先两种模式都用 0xE0000000（88% 黑）⇒ **背景压得太黑**，主页几乎看不见，
+     * 观感上不像「弹窗」更像「黑屏 + 一行字」。现在：强制更新是「不可逆的全屏接管」，
+     * 保持较深（85%）；非强制提示是**常规弹窗**，遮罩只压到 54%，主页仍隐约可见。
+     */
+    private static final int SCRIM_FORCE = 0xD9000000;
+    private static final int SCRIM_OPTIONAL = 0x8A000000;
+
+    /** 弹窗卡片底：v2.0.6 新增，**不透明**且比页面底略亮（否则遮罩上文字会发飘）。 */
+    private static final int CARD_BG = 0xFF151B29;
 
     private final Shell sh;
     private FrameLayout root;
@@ -77,7 +87,7 @@ public class ForceUpdate {
         onSkip = onSkipCb;
 
         root = new FrameLayout(c);
-        root.setBackgroundColor(SCRIM);
+        root.setBackgroundColor(optionalMode ? SCRIM_OPTIONAL : SCRIM_FORCE);
         root.setClickable(true);                   // 吃掉所有触摸（含点击穿透）
         // ★ 只有非强制模式才允许「点遮罩 = 稍后再说」；下载中（started）一律不关。
         // ★ 必须先把回调捕获成局部变量：hide() 会把字段 onLater/onSkip 置 null，
@@ -89,9 +99,13 @@ public class ForceUpdate {
             if (laterCb != null) laterCb.run();
         });
 
+        // ★ v2.0.6：做成真正的「弹窗」—— 卡片底 + 1px 边框 + 圆角 18 + 投影，
+        //   而不再是「裸文字直接压在遮罩上」。卡片背景不透明，文字才不会与遮罩混在一起。
         LinearLayout col = U.col(c);
         col.setGravity(Gravity.CENTER_HORIZONTAL);
-        U.pad(col, 24, 24, 24, 24);
+        col.setBackground(U.bg(CARD_BG, 18, U.LINE, 1));
+        U.pad(col, 28, 22, 28, 22);
+        try { col.setElevation(U.px(14)); } catch (Throwable ignored) { }
         FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(U.WC, U.WC, Gravity.CENTER);
         root.addView(col, clp);
 
