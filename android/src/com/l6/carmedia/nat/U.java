@@ -221,6 +221,27 @@ public final class U {
     }
 
     /** .ota-card / .card：面板底 + 边框 + 圆角 + 内边距（默认 14） */
+    /**
+     * 去掉发布正文里的 **sha256 校验行**（★ v2.0.7）。
+     *
+     * <p>发版正文末尾那行 `sha256: <64hex>` 是给排障看的，用户不需要也不该看到
+     * （下载后仍然会按它校验完整性，只是 UI 不展示）。弹窗与设置页的更新内容共用本方法。
+     */
+    public static String hideShaLine(String s) {
+        if (s == null || s.isEmpty()) return s == null ? "" : s;
+        StringBuilder sb = new StringBuilder();
+        for (String line : s.split("\n", -1)) {
+            String t = line.trim();
+            if (t.regionMatches(true, 0, "sha", 0, 3)
+                    && (t.regionMatches(true, 0, "sha256", 0, 6) || t.regionMatches(true, 0, "sha-256", 0, 7))) {
+                continue;
+            }
+            if (sb.length() > 0) sb.append('\n');
+            sb.append(line);
+        }
+        return sb.toString().trim();
+    }
+
     public static LinearLayout card(Context c, float radiusD, float padD) {
         LinearLayout l = col(c);
         l.setBackground(bg(PANEL, radiusD, LINE, 1));

@@ -1145,7 +1145,8 @@ public class SetPane {
             otaUrl = data.optString("url", "");
             otaSha = data.optString("sha256", "");
             otaNewV.setText(v);
-            otaCLPre.setText(data.optString("changelog", "（无更新说明）"));
+            // ★ v2.0.7：正文里的 sha256 校验行不展示给用户（下载后仍按它校验）
+            otaCLPre.setText(U.hideShaLine(data.optString("changelog", "（无更新说明）")));
             U.visible(otaNew, true);
             U.visible(otaProg, false);
             otaStatus.setText("发现新版本 " + v + "，可点「⬇ 立即更新」");

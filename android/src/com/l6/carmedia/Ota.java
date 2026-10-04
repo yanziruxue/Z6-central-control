@@ -146,11 +146,15 @@ public class Ota {
                 if (remote == null && !cfg.selfBase.isEmpty() && !cfg.selfOwner.isEmpty() && !cfg.selfRepo.isEmpty()) {
                     String selfApi = cfg.selfBase.replaceAll("/+$", "") + "/api/v1/repos/" + cfg.selfOwner + "/" + cfg.selfRepo + "/releases/latest";
                     JSONObject r = safeFetch(selfApi, cfg.mirror);
-                    if (r != null) {
+                    // ★ v2.0.7：也要过 isUsable 门禁。Release 建好但**资产还没上传**时，
+                    //   /releases/latest 会返回一个「有版本号、但 assets 为空」的 release，
+                    //   归一化后 downloadUrl 是空串 —— 以前这里不校验就直接接受，
+                    //   结果弹窗照弹、点「立即更新」却报「无下载链接」。现在回落下一级源。
+                    if (isUsable(r)) {
                         remote = r;
                         source = "self";
                     } else {
-                        tried.add("自托管 Git " + hostOf(cfg.selfBase) + "：无响应或未发版");
+                        tried.add("自托管 Git " + hostOf(cfg.selfBase) + "：" + whyBad(r));
                     }
                 }
 
@@ -158,11 +162,13 @@ public class Ota {
                 if (remote == null && !cfg.repoOwner.isEmpty() && !cfg.repoName.isEmpty()) {
                     String ghApi = "https://api.github.com/repos/" + cfg.repoOwner + "/" + cfg.repoName + "/releases/latest";
                     JSONObject r = safeFetch(ghApi, cfg.mirror);
-                    if (r != null) {
+                    // ★ v2.0.7：同上，GitHub 侧也必须校验（半发版状态很常见：
+                    //   Release 先建、资产后传，中间那几分钟 latest 就是没直链的）。
+                    if (isUsable(r)) {
                         remote = r;
                         source = "github";
                     } else {
-                        tried.add("GitHub 无响应或未发版（" + cfg.repoOwner + "/" + cfg.repoName + "）");
+                        tried.add("GitHub（" + cfg.repoOwner + "/" + cfg.repoName + "）：" + whyBad(r));
                     }
                 }
 

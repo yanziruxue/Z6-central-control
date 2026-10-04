@@ -106,7 +106,8 @@ public class ForceUpdate {
         col.setBackground(U.bg(CARD_BG, 18, U.LINE, 1));
         U.pad(col, 28, 22, 28, 22);
         try { col.setElevation(U.px(14)); } catch (Throwable ignored) { }
-        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(U.WC, U.WC, Gravity.CENTER);
+        // ★ v2.0.7：卡片给固定宽度（820u），横向按钮行才排得下、正文也不会被挤成一条窄柱
+        FrameLayout.LayoutParams clp = new FrameLayout.LayoutParams(U.px(820), U.WC, Gravity.CENTER);
         root.addView(col, clp);
 
         TextView title = U.text(c, titleText, 20, titleColor);
@@ -115,8 +116,9 @@ public class ForceUpdate {
 
         // 更新内容：可滚动、保留换行、等宽换行
         MaxScroll sc = new MaxScroll(c, U.px(240));
-        TextView cl = U.text(c, changelog == null ? "" : changelog, 13, U.SUB);
-        cl.setMaxWidth(U.px(520));
+        // ★ v2.0.7：正文里的 sha256 校验行不展示（下载后仍按它校验，只是 UI 不显示）
+        TextView cl = U.text(c, U.hideShaLine(changelog), 13, U.SUB);
+        cl.setMaxWidth(U.px(760));
         cl.setLineSpacing(U.px(13 * 0.6f), 1f);
         cl.setGravity(Gravity.CENTER);
         U.pad(cl, 8, 0, 8, 0);
@@ -164,11 +166,38 @@ public class ForceUpdate {
             U.visible(skipBtn, false);
             if (onInstall != null) onInstall.run();
         });
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(U.WC, U.WC);
-        ilp.topMargin = U.px(14);
-        col.addView(installBtn, ilp);
+        // ★ v2.0.7：按钮改**横向一行**，顺序按用户指定 立即更新 / 跳过此版 / 稍后再说。
+        //   主按钮用 weight=1 吃掉剩余宽度，两个 ghost 按文字自适应；行间 8u 间隙。
+        LinearLayout btnRow = U.row(c);
+        btnRow.addView(installBtn, U.lp(0, U.WC, 1f));
+        LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(U.MP, U.WC);
+        rowLp.topMargin = U.px(14);
+        if (optional) {
+            U.gapH(btnRow, 8);
+            skipBtn = U.ghostBtn(c, "跳过此版");
+            skipBtn.setOnClickListener(v -> {
+                hide();
+                if (skipCb != null) skipCb.run();
+            });
+            btnRow.addView(skipBtn, U.lp(U.WC, U.WC));
+            U.gapH(btnRow, 8);
+            laterBtn = U.ghostBtn(c, "✕ 稍后再说");
+            laterBtn.setOnClickListener(v -> {
+                hide();
+                if (laterCb != null) laterCb.run();
+            });
+            btnRow.addView(laterBtn, U.lp(U.WC, U.WC));
+        } else {
+            // 强制更新只有「立即更新」一个按钮：不能让它 weight 拉满 820u 居中撑开
+            btnRow.setGravity(Gravity.CENTER);
+            btnRow.removeView(installBtn);
+            btnRow.addView(installBtn, U.lp(U.WC, U.WC));
+            laterBtn = null;
+            skipBtn = null;
+        }
+        col.addView(btnRow, rowLp);
 
-        // 次按钮 1：「✕ 取消下载」—— 两种模式都只有下载中才可见
+        // 「✕ 取消下载」仍单独一行、仅下载中可见（两种模式都保留）
         cancelBtn = U.ghostBtn(c, "✕ 取消下载");
         cancelBtn.setVisibility(View.GONE);
         cancelBtn.setOnClickListener(v -> {
@@ -176,26 +205,6 @@ public class ForceUpdate {
             if (cancelCb != null) cancelCb.run();
         });
         col.addView(cancelBtn, gapTop());
-
-        // 次按钮 2/3：非强制模式专属的两个出口
-        if (optional) {
-            laterBtn = U.ghostBtn(c, "✕ 稍后再说");
-            laterBtn.setOnClickListener(v -> {
-                hide();
-                if (laterCb != null) laterCb.run();
-            });
-            col.addView(laterBtn, gapTop());
-
-            skipBtn = U.ghostBtn(c, "跳过此版");
-            skipBtn.setOnClickListener(v -> {
-                hide();
-                if (skipCb != null) skipCb.run();
-            });
-            col.addView(skipBtn, gapTop());
-        } else {
-            laterBtn = null;
-            skipBtn = null;
-        }
 
         ov.addView(root, new FrameLayout.LayoutParams(U.MP, U.MP));
     }
