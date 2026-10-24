@@ -1,4 +1,4 @@
-name: Build APK (Gitea)
+name: Build APK (Gitea · Windows Runner)
 
 # 触发：打 v* tag 推送即构建（普通 push / 改代码不触发）。
 # 版本号 = tag（如 v2.0.10），build.sh 的 VER_NAME 必须与 tag 一致，否则流水线拒绝出包。
@@ -10,23 +10,20 @@ on:
 
 jobs:
   build:
-    runs-on: [linux]            # 自托管 Linux runner（act_runner 默认带 linux 标签）
-    container:
-      image: git.ziruxue.top/yanzi/android-sdk:35
-      # 镜像由仓库根 Dockerfile.android 构建并推到本仓库 registry：
-      #   docker build -t git.ziruxue.top/yanzi/android-sdk:35 -f Dockerfile.android .
-      #   docker push git.ziruxue.top/yanzi/android-sdk:35
-      # 若 runner 不想用容器：删掉 container 段，改在 runner 主机装好 SDK，
-      # 并把 ANDROID_SDK_ROOT/JDK_BIN 设为 runner 主机路径即可（build.sh 已跨平台）。
+    # 本地 Win11 自托管 Runner（act_runner 注册时带 windows / self-hosted 标签）。
+    # 不再用容器：Runner 主机已装好 JDK17 + Android SDK（见 android/tools/setup_win11.ps1）。
+    runs-on: [self-hosted, windows]
     env:
-      ANDROID_SDK_ROOT: /opt/android-sdk
-      JDK_BIN: ""               # 留空 → build.sh 用 PATH 里的 javac 反推 JDK 目录
+      # 以下为 Win11 默认位置；若你的 SDK/JDK 装在别处，改这里或在 Gitea 仓库设同名 Variable。
+      ANDROID_SDK_ROOT: C:/Users/yanzi/AppData/Local/Android/Sdk
+      JDK_BIN: ""               # 留空 → build.sh 自动按 JAVA_HOME / PATH 里的 javac 反推
       PY: python3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: 还原签名 keystore（从 secret 解码，绝不落库）
+        shell: bash
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
           KS_PASS: ${{ secrets.KEYSTORE_STORE_PASS }}
@@ -37,13 +34,20 @@ jobs:
           if [ -z "$KEYSTORE_B64" ]; then
             echo "⚠️ 未配置 KEYSTORE_B64，改用调试签名（仅自测，不能与已装 release 包共存）"
           else
-            echo "$KEYSTORE_B64" | base64 -d > /tmp/l6-release.jks
-            printf 'storeFile=/tmp/l6-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-              "$KS_PASS" "$KS_ALIAS" "$KEY_PASS" > android/keystore.properties
-            echo "✓ release 密钥已就绪"
+            # Windows 下 storeFile 必须给「正斜杠 Windows 路径」(C:/...)，否则 apksigner(java) 解析失败
+            if command -v cygpath >/dev/null 2>&1; then
+              KS_WIN="$(cygpath -w "${TMP:-/tmp}" | sed 's/\\/\//g')/l6-release.jks"
+            else
+              KS_WIN="${TMP:-/tmp}/l6-release.jks"
+            fi
+            echo "$KEYSTORE_B64" | base64 -d > "$(cygpath -u "$KS_WIN" 2>/dev/null || echo "$KS_WIN")"
+            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$KS_WIN" "$KS_PASS" "$KS_ALIAS" "$KEY_PASS" > android/keystore.properties
+            echo "✓ release 密钥已就绪: $KS_WIN"
           fi
 
       - name: 校验版本号一致（tag 必须等于 build.sh 的 VER_NAME）
+        shell: bash
         env:
           TAG: ${{ gitea.ref_name }}
         run: |
@@ -53,9 +57,11 @@ jobs:
           [ "v$VER_NAME" = "$TAG" ] || { echo "✗ 版本不一致：请同步 build.sh 的 VER_NAME 与 tag"; exit 1; }
 
       - name: 构建 APK
+        shell: bash
         run: bash android/build.sh
 
       - name: 产物反查校验
+        shell: bash
         env:
           TAG: ${{ gitea.ref_name }}
         run: |
@@ -64,12 +70,13 @@ jobs:
           echo "APK=$APK"
           APKCHECK=$(ls android/tools/apkcheck*.py | sort | tail -1)
           echo "apkcheck=$APKCHECK"
-          python3 "$APKCHECK" "$APK"
+          "$PY" "$APKCHECK" "$APK"
 
       # —— 发到 Gitea Release（可下载）：构建机把包留在 Gitea，开发者拉回本地再传 GitHub ——
       # Gitea Actions 上下文提供 gitea.server_url / gitea.repository，无需硬编码域名。
       # 车机 OTA 现在走 GitHub（见 Ota.java），本 Gitea Release 仅作「构建产物分发/下载站」。
       - name: 创建 Gitea Release + 上传 APK（可下载）
+        shell: bash
         env:
           GITEA_SERVER: ${{ gitea.server_url }}
           GITEA_REPO: ${{ gitea.repository }}
@@ -78,7 +85,7 @@ jobs:
         run: |
           set -e
           APK=$(ls dist/Z6CC-*.apk | head -1)
-          python3 - <<'PYEOF'
+          "$PY" - <<'PYEOF'
           import os, sys, json, time, urllib.request, urllib.error, urllib.parse, ssl
           ctx = ssl.create_default_context()
           server = os.environ["GITEA_SERVER"].rstrip("/")

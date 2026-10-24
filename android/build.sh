@@ -33,19 +33,29 @@ case "$(uname -s 2>/dev/null)" in
   *) OS="linux" ;;
 esac
 
-SDK="${ANDROID_SDK_ROOT:-D:/wenhaitao/Documents/sdk}"   # Linux/CI 用 ANDROID_SDK_ROOT 注入
 BT_VERSION="${BT_VERSION:-35.0.0}"
-BT="$SDK/build-tools/$BT_VERSION"
-PLATFORM="$SDK/platforms/android-35/android.jar"
 
 if [ "$OS" = "win" ]; then
   AAPT2="aapt2.exe"; D8="d8.bat"; ZIPALIGN="zipalign.exe"; APKSIGNER="apksigner.bat"
-  PY="${PY:-C:/Users/yanzi/.workbuddy/binaries/python/envs/default/Scripts/python.exe}"
+  # python：优先用 PATH 里的 python3（CI runner 已装），否则回退本机 WorkBuddy 托管 python
+  if command -v python3 >/dev/null 2>&1; then PY="${PY:-python3}"; else PY="${PY:-C:/Users/yanzi/.workbuddy/binaries/python/envs/default/Scripts/python.exe}"; fi
+  # SDK 默认走 Win11 常见位置（用户 yanzi 的 LOCALAPPDATA），ANDROID_SDK_ROOT 可覆盖
+  _def_sdk="$(cygpath "${LOCALAPPDATA:-C:/Users/yanzi/AppData/Local}/Android/Sdk" 2>/dev/null)"
+  SDK="$(cygpath "${ANDROID_SDK_ROOT:-$_def_sdk}" 2>/dev/null)"
+  # JDK：优先 JDK_BIN 环境变量 → JAVA_HOME → PATH 里的 javac → 固定备用路径
+  if [ -z "${JDK_BIN:-}" ]; then
+    if [ -n "${JAVA_HOME:-}" ] && [ -x "$(cygpath "${JAVA_HOME}/bin/javac.exe" 2>/dev/null)" ]; then
+      JDK_BIN="$(cygpath "${JAVA_HOME}/bin" 2>/dev/null)"
+    elif command -v javac.exe >/dev/null 2>&1; then
+      JDK_BIN="$(dirname "$(command -v javac.exe)")"
+    fi
+  fi
   JDK_BIN="${JDK_BIN:-C:/Program Files/Java/jdk-26.0.1/bin}"
   WORK="${WORK:-C:/Users/yanzi/l6apk-build-$(date +%s)}"
 else
   AAPT2="aapt2"; D8="d8"; ZIPALIGN="zipalign"; APKSIGNER="apksigner"
   PY="${PY:-python3}"
+  SDK="${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}"
   # Linux：优先用 PATH 里能找到的 javac 反推 JDK 目录（Docker 镜像里最稳）
   if [ -z "${JDK_BIN:-}" ]; then
     _javac="$(command -v javac 2>/dev/null)" || true
@@ -54,6 +64,9 @@ else
   JDK_BIN="${JDK_BIN:-/usr/lib/jvm/java-17-openjdk/bin}"
   WORK="${WORK:-/tmp/l6apk-build-$(date +%s)}"
 fi
+
+BT="$SDK/build-tools/$BT_VERSION"
+PLATFORM="$SDK/platforms/android-35/android.jar"
 
 # 把 JDK/bin 加进 PATH，使 javac/keytool 在两种系统都能裸名调用
 export PATH="$JDK_BIN:$PATH"
