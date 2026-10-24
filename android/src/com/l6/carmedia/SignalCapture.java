@@ -126,6 +126,16 @@ public final class SignalCapture {
         } catch (Throwable e) {
             cap = new JSONObject();
         }
+        // ② 接口探测（IfaceProbe：service list / Car API 深读 / 已装包接口 /
+        //    历史广播提取），炸掉只少一段，绝不影响采集主流程
+        if (appCtx != null) {
+            try {
+                cap.put("iface", IfaceProbe.probe(appCtx));
+            } catch (Throwable e) {
+                L6Log.i(TAG, "接口探测失败（不影响采集）：" + e);
+            }
+            IfaceProbe.arm(appCtx);
+        }
         logCapability(cap);
 
         TreeMap<String, String> prev = null;
@@ -209,6 +219,20 @@ public final class SignalCapture {
     private static void finish(long t0, List<SigDiff.Change> changes,
                                List<SigDiff.Change> filteredChanges, JSONObject cap) {
         long dur = System.currentTimeMillis() - t0;
+        // 撤嗅探器，把采集窗口内命中的广播并回 capability.iface.bcast.hits 再落盘
+        IfaceProbe.disarm();
+        try {
+            if (cap != null) {
+                JSONObject iface = cap.optJSONObject("iface");
+                if (iface != null) {
+                    JSONObject b = iface.optJSONObject("bcast");
+                    if (b != null) {
+                        b.put("hits", IfaceProbe.drainHits());
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
         String file = "";
         int logLines = 0;
         try {
@@ -440,12 +464,56 @@ public final class SignalCapture {
                 }
                 L6Log.i(TAG, "[+0.0s] CAP 车辆相关键：" + sb);
             }
+            logIface(cap);
         } catch (Throwable ignored) { }
         JSONObject o = new JSONObject();
         try {
             o.put("kind", "cap").put("cap", cap);
         } catch (Throwable ignored) { }
         emit(o);
+    }
+
+    /** 接口探测摘要（IfaceProbe 段）：一行讲清「探到了什么」。 */
+    private static void logIface(JSONObject cap) {
+        JSONObject iface = cap.optJSONObject("iface");
+        if (iface == null) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        JSONObject sv = iface.optJSONObject("services");
+        if (sv != null) {
+            JSONArray sus = sv.optJSONArray("suspects");
+            sb.append("IFACE 服务 ").append(sv.optInt("count", 0))
+                    .append(" 个，疑车辆 ").append(sus == null ? 0 : sus.length()).append(" 个");
+        }
+        JSONObject car = iface.optJSONObject("car");
+        if (car != null) {
+            JSONObject pl = car.optJSONObject("propList");
+            sb.append(" | Car属性枚举 ").append(pl == null ? "失败" : String.valueOf(pl.optInt("count", -1)));
+            JSONObject rd = car.optJSONObject("reads");
+            if (rd != null) {
+                sb.append("，试读 ").append(rd.length()).append(" 项");
+            }
+        }
+        JSONObject pk = iface.optJSONObject("pkgIfaces");
+        if (pk != null) {
+            sb.append(" | 疑组件 收")
+                    .append(pk.optJSONArray("receivers") == null ? 0 : pk.optJSONArray("receivers").length())
+                    .append(" 服")
+                    .append(pk.optJSONArray("services") == null ? 0 : pk.optJSONArray("services").length())
+                    .append(" 供")
+                    .append(pk.optJSONArray("providers") == null ? 0 : pk.optJSONArray("providers").length());
+        }
+        JSONObject bh = iface.optJSONObject("bcastHistory");
+        if (bh != null) {
+            JSONArray ac = bh.optJSONArray("actionCandidates");
+            sb.append(" | 广播action候选 ").append(ac == null ? 0 : ac.length()).append(" 个");
+        }
+        JSONObject sn = iface.optJSONObject("sensors");
+        if (sn != null) {
+            sb.append(" | 传感器 ").append(sn.optInt("count", 0)).append(" 个");
+        }
+        L6Log.i(TAG, "[+0.0s] " + sb + "（明细见 caiji-*.json 的 iface 段）");
     }
 
     private static String verdict(Object v) {

@@ -77,6 +77,10 @@ public final class SysProbe {
             // v2.0.9：新增 12V 电瓶电压相关词（车机 HU 的 12V 母线 / 蓄电瓶），
             // 多为 vendor 自定义属性（persist.vendor.vehicle.*），命名不一，广撒网：
             "battery", "电瓶", "vbat", "12v", "aux",
+            // v2.0.11：用户需求全单补词 —— 转速 / 油温 / 油位 / 油耗 / 座椅 /
+            // 灯光开关 / 温度 / 门锁，一次采集尽量多捞 OEM 私有属性
+            "rpm", "oil", "fuel", "consume", "consumption", "seat", "light",
+            "lamp", "lock", "temp", "hazard", "fog", "beam", "turn",
     };
 
     private SysProbe() {
