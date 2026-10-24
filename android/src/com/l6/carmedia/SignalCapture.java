@@ -513,6 +513,43 @@ public final class SignalCapture {
         if (sn != null) {
             sb.append(" | 传感器 ").append(sn.optInt("count", 0)).append(" 个");
         }
+        // v2.0.12 新增三段摘要：AIDL 描述符 / 全量属性 / 绑定探测
+        JSONObject sd = iface.optJSONObject("svcDesc");
+        if (sd != null) {
+            JSONObject d = sd.optJSONObject("desc");
+            int real = 0;
+            int total = 0;
+            if (d != null) {
+                total = d.length();
+                java.util.Iterator<String> it = d.keys();
+                while (it.hasNext()) {
+                    String v = d.optString(it.next(), "");
+                    // 非 null / 非 err 前缀 = 真拿到了描述符
+                    if (!v.isEmpty() && !"null".equals(v) && !v.startsWith("err")
+                            && !"not-IBinder".equals(v)) {
+                        real++;
+                    }
+                }
+            }
+            sb.append(" | 服务描述符 ").append(real).append("/").append(total).append(" 个");
+        }
+        JSONObject pf = iface.optJSONObject("propsFull");
+        if (pf != null) {
+            sb.append(" | 全量属性 ").append(pf.optInt("count", 0)).append(" 键");
+        }
+        JSONObject bp = iface.optJSONObject("bindProbe");
+        if (bp != null) {
+            JSONArray rs = bp.optJSONArray("results");
+            int conn = 0;
+            if (rs != null) {
+                for (int i = 0; i < rs.length(); i++) {
+                    if (rs.optJSONObject(i).optBoolean("connected")) {
+                        conn++;
+                    }
+                }
+            }
+            sb.append(" | 绑定连通 ").append(conn).append("/").append(rs == null ? 0 : rs.length());
+        }
         L6Log.i(TAG, "[+0.0s] " + sb + "（明细见 caiji-*.json 的 iface 段）");
     }
 

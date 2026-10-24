@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.11 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.12 产物反查：接口探测 v2 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -20,13 +20,23 @@
            + Location 测速 + SensorManager 清单 + BatteryManager 全字段 + settings list 三库扫描。
            信号覆盖用户需求全单：门窗 / 灯光开关 / 按钮 / 座椅 / 空调 / 车内外温度 / 胎压 /
            里程 / 转速 / 油位 / 油温 / 瞬时油耗。
+★ v2.0.12 接口探测 v2（依据 v2.0.11 首份车机实采结论：Car API 四权限全 denied 已死，
+           转攻 chinatsp 私有通道）：
+           - service list 补留 AIDL 描述符（v2.0.11 把行尾 [xxx.AIDL] 丢了）
+           - 新段 svcDesc：ServiceManager 反射 + getInterfaceDescriptor 取关键服务描述符
+           - 新段 propsFull：getprop 全量键值 dump（两份采集 diff 定位活信号）
+           - 新段 bindProbe：bindService 绑定 chinatsp/tbox/胎压等关键服务拿描述符
+           - pkgIfaces 补 exported/enabled 旗标 + 全量组件 comps + 关键包 keyPkgs
+             （requestedPermissions / sharedUserId / sourceDir 供定点逆向）
+           - 嗅探候选清单 EXTRA_ACTIONS（dumpsys 历史提取恒空，静态候选补位）
+           - 采集引导文案改「操作清单」：车门/车窗/空调/灯光/座椅/点火行驶逐项操作。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.11.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.12.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -76,6 +86,32 @@ POS = [
     b"car_service", b"pkgIfaces", b"bcastHistory", b"settingsScan", b"actionCandidates",
     b"ENGINE_RPM", b"ENGINE_OIL_TEMP", b"PERF_ODOMETER", b"TIRE_PRESSURE",
     b"HVAC_FAN_SPEED", b"ENV_OUTSIDE_TEMPERATURE", b"FUEL_CONSUMPTION_SINCE_RESTART",
+    # v2.0.12：接口探测 v2（Car API 已死 → 转攻 chinatsp 私有通道）。
+    #   新段名 + 反射/绑定关键调用名（字符串池可见；int 常量如 BIND_AUTO_CREATE 会被
+    #   javac 内联，**不断言**——平台 public static final int 字段名不进 dex）。
+    b"svcDesc", b"propsFull", b"bindProbe", b"keyPkgs", b"comps", b"suspectDesc",
+    b"ifaceDesc", b"connected", b"sourceDir", b"sharedUserId", b"unparsed", b"rawHead",
+    b"android.os.ServiceManager", b"getInterfaceDescriptor",
+    b"bindService", b"unbindService", b"onServiceConnected", b"getprop",
+    # 关键 binder 服务名（KEY_SVCS 字面量）
+    b"chinatsp.vehicle.network", b"coagent.tbox", b"chinatsp.autoaction",
+    # 关键已装包名（KEY_PKGS 字面量）
+    b"com.chinatsp.vehiclenetwork", b"com.chinatsp.settings", b"com.chinatsp.ifly",
+    b"com.chinatsp.onecall", b"com.chinatsp.etc", b"com.chinatsp.outsidecarvoice",
+    b"com.chinatsp.automate", b"com.banyac.midrive.app", b"com.egogame.yudanbox",
+    b"com.android.car",
+    # 关键绑定目标组件全名（KEY_BIND 字面量）
+    b"com.chinatsp.vehiclenetwork.service.VehicleNetworkService",
+    b"com.chinatsp.base.InitCarApiService",
+    b"com.banyac.tirepressure.manager.DfuService",
+    b"com.egogame.yudanbox.service.CarPropertyMonitorService",
+    b"com.chinatsp.etc.service.CarService",
+    # 嗅探候选（EXTRA_ACTIONS 字面量，挑具代表性的）
+    b"com.chinatsp.vehiclenetwork.action", b"android.car.action.VEHICLE_INFO",
+    b"vendor.vehicle.STATE", b"com.changan.vehicle.STATE",
+    # 采集引导文案改「操作清单」（SetPane 字面量，中文写 \xNN）
+    b"\xe6\x93\x8d\xe4\xbd\x9c\xe6\xb8\x85\xe5\x8d\x95",                      # 操作清单
+    b"\xe7\x82\xb9\xe7\x81\xab\xe8\xa1\x8c\xe9\xa9\xb6 5 \xe5\x88\x86\xe9\x92\x9f",  # 点火行驶 5 分钟
     # v2.0.7：必须保留 isUsable 门禁与「缺少下载直链」文案（半发版状态要被拒）
     b"\xe7\xbc\xba\xe5\xb0\x91\xe4\xb8\x8b\xe8\xbd\xbd\xe7\x9b\xb4\xe9\x93\xbe",  # 缺少下载直链
     # v2.0.4：启动自动检查发现新版本 → 可取消提示框

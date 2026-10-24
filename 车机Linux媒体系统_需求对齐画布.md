@@ -59,20 +59,39 @@
 
 > 结论：普通 APK 的车况能力上限 = **这台 ROM 愿意暴露什么**。采集功能（§4）就是为摸清暴露面而生——点「开始采集」操作车辆功能，每秒快照比对，结束落结构化 JSON。
 
-### 3.1 接口探测 IfaceProbe（v2.0.11）
+### 3.1 接口探测 IfaceProbe（v2.0.11 → v2.0.12）
 
 采集启动时自动跑一遍**全量接口探测**（`IfaceProbe.probe()`，落 `caiji-*.json` 的 `iface` 段），每段独立 try/catch，探测失败不影响采集：
 
 | 探测段 | 内容 |
 |---|---|
-| `services` | `service list` 全量 binder 服务 + 车辆关键词筛选 |
+| `services` | `service list` 全量 binder 服务 + 车辆关键词筛选（**v2.0.12 起保留行尾 AIDL 描述符**，v2.0.11 曾丢弃） |
 | `car` | Car API 反射深读：建 Car → getCarManager → **getPropertyList 全量属性枚举**（权威证据）+ 36 个已知信号 ID 逐个 try-read（denied 照记 SecurityException）+ CarInfoManager VIN + `dumpsys car_service` |
-| `pkgIfaces` | 已装包 receiver/service/provider 组件名关键词过滤（OEM 私有接口发现） |
-| `bcastHistory` | `dumpsys activity broadcasts` 正则提取真实 action 候选 |
-| `bcast` | 被动广播嗅探（arm 后窗口内命中全记录，finish 并回文件） |
+| `pkgIfaces` | 已装包 receiver/service/provider 组件名关键词过滤（OEM 私有接口发现）；**v2.0.12 起带 exported/enabled 旗标 + 全量组件 `comps` + 关键包 `keyPkgs`（权限/sharedUserId/sourceDir 供定点逆向）** |
+| `bcastHistory` | `dumpsys activity broadcasts` 正则提取真实 action 候选（本机无 DUMP 权限，实测恒空） |
+| `bcast` | 被动广播嗅探（arm 后窗口内命中全记录，finish 并回文件；v2.0.12 起带静态候选清单 EXTRA_ACTIONS） |
 | `location` / `sensors` / `battery` / `settingsScan` | GPS 测速可行性 / 传感器全清单 / 电池全字段 / settings 三库扫描 |
+| `svcDesc`（v2.0.12） | `ServiceManager.getService` 反射 + `getInterfaceDescriptor()` 取关键服务 AIDL 描述符 |
+| `propsFull`（v2.0.12） | `getprop` 全量键值 dump——**两份采集 diff 即活信号定位器**（v2.0.11 只存关键词命中的 60 键） |
+| `bindProbe`（v2.0.12） | 对 chinatsp 等关键已装服务逐个 `bindService`，连上即取描述符、随即解绑 |
 
 **用户需求全单（2026-10-24 确认，已知信号 ID 已覆盖进探测表）**：仪表盘全部信息 + 门窗状态 + 所有按钮/灯光开关状态 + 电动座椅 + 空调 + 车内外温度 + 胎压 + 里程 + 转速 + 油位 + 油温 + 瞬时油耗。标准 VHAL 无「瞬时油耗」属性（最接近 `FUEL_CONSUMPTION_SINCE_RESTART`）、电动座椅位置多为 OEM 私有扩展（`CAR_VENDOR_EXTENSION` 权限，本车已 denied）——以采集实测为准。
+
+**首份车机实采结论（v2.0.11，2026-10-24，caiji-20261024-182537.json）**：
+
+| 通道 | 实测结论 |
+|---|---|
+| Car API（`android.car.Car`） | **死路**：类存在但 POWERTRAIN/VENDOR_EXT/CABIN/INFO 四权限全 denied，`createCar` 反射 NoSuchMethodException（ROM  stub） |
+| `chinatsp.vehicle.network` binder | **疑主通道**：长安 TSP 车联网服务在册；消费方 `com.chinatsp.vehiclenetwork`（VehicleNetworkService + VehicleReceiver） |
+| `coagent.tbox` binder | TBox 远控 co-agent，在册，待探描述符 |
+| `com.banyac.midrive.app` | 胎压管理 `com.banyac.tirepressure.manager.DfuService`——**胎压疑经此 App**（可能是 BT 胎压dongle，待证） |
+| `com.egogame.yudanbox` | `CarPropertyMonitorService` 车况监控，第三方消费方 |
+| `persist.sys.door_state` | **✅ 已实证可读**：采集窗口内 0→1→0 真实跳变（门状态） |
+| 其它系统属性 | 29s 窗口内仅 `sys.tbox.uptime` / `vendor.ril.nw.signalstrength.lte.1` / `vendor.streamout.media.volume` 跳变 |
+| 传感器 | 仅 14 个 MTK 标准手机传感器，无车辆传感器 |
+| 定位 / 电池 / settings | 权限未授 / 常电 head unit 全 0 / 无车辆键位 |
+
+⇒ v2.0.12 转攻 chinatsp 私有通道（描述符 + 绑定 + 定点逆向），并按「操作清单」引导二次采集（行驶中才有的 rpm/车速/油耗必须上路采）。
 
 ## 4. 功能模块拆分（现行代码地图）
 
@@ -82,7 +101,7 @@
   - `SetPane`：设置页（壁纸 / 手势 / 采集 / OTA / 日志）
   - `Dock`：三钮 dock（长按拖动排序 + 垃圾桶取消钉住）
   - `U` / `Prefs`：UI 令牌 + 整份 JSON 偏好存储
-- **采集链路**：`SysProbe`（全量快照 + 能力探测）→ `SigDiff`（每秒差异，词边界匹配）→ `SignalCapture`（调度/落盘，changes1 保留 / changes2 过滤）→ **`IfaceProbe`（接口探测，v2.0.11：Car API 深读 / 服务清单 / 组件发现 / 广播嗅探）**
+- **采集链路**：`SysProbe`（全量快照 + 能力探测）→ `SigDiff`（每秒差异，词边界匹配）→ `SignalCapture`（调度/落盘，changes1 保留 / changes2 过滤）→ **`IfaceProbe`（接口探测，v2.0.12：Car API 深读 / 服务清单+描述符 / 组件发现 / propsFull 全量属性 / bindProbe 绑定探测 / 广播嗅探）**
 - **OTA 链路**：`Ota`（源选择：GitHub 主 → Gitea 保底 → 镜像回退；`isUsable()` 门禁拒半发版）
 - **日志链路**：`L6Log`（目录管理 + 启动迁移）+ `L6Signal` 标签采集日志
 - **纯逻辑类**（零依赖、进 `LogicSmoke`）：`NavParse` / `LrcParse` / `SigDiff` / `NavBcastFmt` / `NavBcastData` / `TapJudge`

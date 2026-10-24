@@ -984,9 +984,13 @@ public class SetPane {
         U.visible(sigOut, false);
         card.addView(sigOut);
 
-        card.addView(U.text(c, "点「开始采集」后保持在页面，自行操作车辆功能（车门 / 车窗 / 车辆按钮等），完成后点「结束采集」；"
-                + "结论写入本地日志（标签 L6Signal）并另存 Download/L6/caiji/caiji-*.json。\n"
-                + "「🗑 清空采集日志」会删除全部 caiji-*.json 采集产物（运行日志 l6-*.log 保留在 app-log/）。", 12, U.SUB));
+        card.addView(U.text(c, "点「开始采集」后保持在页面，按下面顺序逐项操作车辆（每步停留 3~5 秒），"
+                + "完成后点「结束采集」；结论写入本地日志（标签 L6Signal）并另存 Download/L6/caiji/caiji-*.json。\n"
+                + "操作清单：① 四个车门 + 后备箱逐个开→关；② 车窗 / 天窗逐个升降；"
+                + "③ 空调：开→调温→风量→循环→关；④ 灯光：大灯 / 转向 / 双闪 / 雾灯逐个开关；"
+                + "⑤ 座椅加热通风（如有）；⑥ 点火行驶 5 分钟（转速 / 车速 / 油耗只有行驶中才会变）。\n"
+                + "「🗑 清空采集日志」会删除全部 caiji-*.json 采集产物（运行日志 l6-*.log 保留在 app-log/）。",
+                12, U.SUB));
         U.gapV(card, 8);
         s.addView(card);
         U.gapV(s, 8);

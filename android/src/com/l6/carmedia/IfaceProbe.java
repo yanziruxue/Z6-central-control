@@ -1,9 +1,12 @@
 package com.l6.carmedia;
 
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
@@ -11,19 +14,22 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationManager;
 import android.os.BatteryManager;
+import android.os.IBinder;
 import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 /**
  * 接口探测 —— 「采集所有能检测到的接口信息」的执行体。
  *
@@ -48,6 +54,27 @@ import java.util.regex.Pattern;
  *
  * <p>红线（与采集主流程同标准）：**每一段独立 try/catch，任何一段炸掉只少一段信息，
  * 绝不让探测拖垮采集**。所有 exec 带超时（复用 {@link SysProbe#exec}）。
+ *
+ * <p>★ v2.0.12 探测增强（依据 v2.0.11 首份车机实采结论 2026-10-24）：
+ * Car API 四权限全 denied + {@code createCar} NoSuchMethodException ⇒ 该路已死；
+ * 但 {@code service list} 里发现 {@code chinatsp.vehicle.network}（长安 TSP 车联网）与
+ * {@code coagent.tbox} 两条私有 binder，且已装包里有
+ * {@code com.chinatsp.vehiclenetwork}（VehicleNetworkService + VehicleReceiver）、
+ * {@code com.banyac.midrive.app}（胎压 manager.DfuService）、
+ * {@code com.egogame.yudanbox}（CarPropertyMonitorService）等消费方。
+ * 本轮新增四段，目标是把「私有数据通道」凿实：
+ * <ul>
+ *   <li><b>service list 保留 AIDL 描述符</b>：v2.0.11 解析时把行尾 {@code [xxx.AIDL]}
+ *       丢掉了，本轮补回——描述符直接告诉我们对端是什么接口</li>
+ *   <li><b>svcDesc</b>：{@code ServiceManager.getService} 反射取关键服务的
+ *       {@code IBinder.getInterfaceDescriptor()}（不依赖 service list 行格式）</li>
+ *   <li><b>propsFull</b>：{@code getprop} 全量键值 dump（v2.0.11 只存了关键词命中的 60 个键，
+ *       实时值可能藏在没命中的键里；两份采集 diff 即可定位活信号）</li>
+ *   <li><b>bindProbe</b>：对关键已装服务逐个 {@code bindService}，
+ *       连上就拿 {@code IBinder.getInterfaceDescriptor()}——拿不到 AIDL 定义也能坐实接口名</li>
+ * </ul>
+ * pkgIfaces 段同时补 exported/enabled 旗标与关键包的权限/uid/sourceDir（APK 路径，
+ * 供逆向工程定点拉取）。
  */
 public final class IfaceProbe {
 
@@ -124,12 +151,76 @@ public final class IfaceProbe {
     /** 已知可用的导航广播（高德）——武装进嗅探器作「已知活接口」参照。 */
     private static final String NAV_BCAST = "AUTONAVI_STANDARD_BROADCAST_SEND";
 
+    /**
+     * 关键 binder 服务名（v2.0.12 svcDesc 段目标）。
+     *
+     * <p>来源：v2.0.11 车机实采 {@code service list} 145 个服务里筛出的私有车辆通道。
+     * {@code chinatsp.vehicle.network} = 长安 TSP 车联网（消费方 com.chinatsp.vehiclenetwork）；
+     * {@code coagent.tbox} = TBox 远控 co-agent。
+     */
+    private static final String[] KEY_SVCS = {
+            "chinatsp.vehicle.network", "coagent.tbox", "chinatsp.autoaction",
+            "car_service", "upgrade.service", "fce-radio-ctrl",
+    };
+
+    /**
+     * 关键已装包（v2.0.12 pkgIfaces.keyPkgs 段目标）——拉权限/uid/sourceDir 供定点逆向。
+     *
+     * <p>前 7 个是 chinatsp 系（车联网/设置/语音 OIL/一键呼叫/ETC/车外语音/InitCarApi），
+     * 后 3 个是已发现的第三方车况消费方（胎压 / CarProperty 监控 / AOSP Car）。
+     */
+    private static final String[] KEY_PKGS = {
+            "com.chinatsp.vehiclenetwork", "com.chinatsp.settings", "com.chinatsp.ifly",
+            "com.chinatsp.onecall", "com.chinatsp.etc", "com.chinatsp.outsidecarvoice",
+            "com.chinatsp.automate", "com.banyac.midrive.app", "com.egogame.yudanbox",
+            "com.android.car",
+    };
+
+    /**
+     * 关键绑定目标（v2.0.12 bindProbe 段）：{pkg, cls}。
+     *
+     * <p>★ 只绑「疑似车辆数据通道」的服务，且拿到 descriptor 立即解绑；
+     *   bindService 对未导出组件抛 SecurityException、对 onBind 返 null 的服务 2s 超时，
+     *   两种结果都如实记录——**能连上就是突破口，连不上也排除了一个方向**。
+     * ★ 来自 v2.0.11 实采 pkgIfaces 段（组件名逐字抄录，防止拼写漂移）。
+     */
+    private static final String[][] KEY_BIND = {
+            {"com.chinatsp.vehiclenetwork", "com.chinatsp.vehiclenetwork.service.VehicleNetworkService"},
+            {"com.android.car", "com.android.car.CarService"},
+            {"com.chinatsp.automate", "com.chinatsp.base.InitCarApiService"},
+            {"com.banyac.midrive.app", "com.banyac.tirepressure.manager.DfuService"},
+            {"com.egogame.yudanbox", "com.egogame.yudanbox.service.CarPropertyMonitorService"},
+            {"com.chinatsp.etc", "com.chinatsp.etc.service.CarService"},
+    };
+
+    /**
+     * 嗅探候选 action 增量（v2.0.12）。
+     *
+     * <p>★ v2.0.11 教训：{@code dumpsys activity broadcasts} 要 DUMP 权限（denied）⇒
+     *   历史提取恒为空 ⇒ 嗅探器实际只武装了 BATTERY_CHANGED + 高德两个 action，
+     *   采集窗口内就算车机真在发车辆广播也拦不到。
+     * ★ 本轮按已发现包名推导候选（action 与包名同命名空间是 OEM 常见写法），
+     *   best-effort：拦不到不亏，拦到就是活接口。
+     */
+    private static final String[] EXTRA_ACTIONS = {
+            "com.chinatsp.vehiclenetwork", "com.chinatsp.vehiclenetwork.action",
+            "com.chinatsp.ifly", "com.chinatsp.ifly.action",
+            "com.chinatsp.onecall", "com.chinatsp.settings", "com.chinatsp.etc",
+            "com.chinatsp.outsidecarvoice", "com.chinatsp.autoaction",
+            "com.banyac.midrive.app", "com.egogame.yudanbox",
+            // AOSP car 命名空间的既有广播（API 28 车机常见）
+            "android.car.action.VEHICLE_INFO", "android.car.broadcast.action.VEHICLE_STATE",
+            // 常见 OEM 车辆状态广播写法（历史车机 ROM 约定，逐字抄录防漂移）
+            "vendor.vehicle.STATE", "vendor.vehicle.state",
+            "com.android.car.action.VEHICLE_STATE", "com.changan.vehicle.STATE",
+    };
+
     /** 广播历史行里的 action 形态：act=com.foo.BAR 或裸 com.foo.BAR_ACTION（≥3 段点分路径）。 */
     private static final Pattern ACT_PAT = Pattern.compile(
             "\\b(?:[a-z][a-z0-9_]*\\.){2,}[A-Za-z0-9_]+\\b");
 
     private static final int MAX_ARMED = 200;
-    private static final int MAX_HITS = 200;
+    private static final int MAX_HITS = 500;
     private static final int MAX_CANDIDATES = 100;
 
     /* ==================== 嗅探器状态 ==================== */
@@ -196,6 +287,22 @@ public final class IfaceProbe {
                 probeSettings(s);
             }
         });
+        // v2.0.12 新增三段：svcDesc / propsFull / bindProbe（见类注释）
+        section(o, "svcDesc", new Section() {
+            public void run(JSONObject s) throws Throwable {
+                probeSvcDesc(s);
+            }
+        });
+        section(o, "propsFull", new Section() {
+            public void run(JSONObject s) throws Throwable {
+                probePropsFull(s);
+            }
+        });
+        section(o, "bindProbe", new Section() {
+            public void run(JSONObject s) throws Throwable {
+                probeBind(c, s);
+            }
+        });
         try {
             JSONObject b = new JSONObject();
             b.put("armed", new JSONArray(armedActions));
@@ -237,6 +344,9 @@ public final class IfaceProbe {
             return;
         }
         List<String> all = new ArrayList<>();
+        // v2.0.12：name → [AIDL 描述符] 全量保留（v2.0.11 把行尾描述符丢了）。
+        // service list 行格式："  6  car_service: [android.car.ICarService]"
+        JSONObject desc = new JSONObject();
         for (String line : out.split("\n")) {
             String t = line.trim();
             if (t.isEmpty()) {
@@ -247,6 +357,17 @@ public final class IfaceProbe {
             String name = colon > 0 ? t.substring(0, colon).trim() : t;
             if (!name.isEmpty() && !name.startsWith("Found")) {
                 all.add(name);
+                if (colon > 0) {
+                    // 行尾 "[com.foo.IBar]" —— 描述符原样留存（无则为空串）
+                    int lb = t.indexOf('[', colon);
+                    int rb = lb >= 0 ? t.indexOf(']', lb) : -1;
+                    if (rb > lb) {
+                        try {
+                            desc.put(name, t.substring(lb + 1, rb));
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                }
             }
         }
         List<String> suspects = new ArrayList<>();
@@ -259,6 +380,19 @@ public final class IfaceProbe {
         s.put("count", all.size());
         s.put("all", new JSONArray(all));
         s.put("suspects", new JSONArray(suspects));
+        // v2.0.12：全量 AIDL 描述符映射 + 疑车辆服务的描述符子集
+        s.put("desc", desc);
+        JSONObject sd = new JSONObject();
+        for (String n : suspects) {
+            if (desc.has(n)) {
+                try {
+                    sd.put(n, desc.getString(n));
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+        s.put("suspectDesc", sd);
+        s.put("rawHead", head(out, 60));
     }
 
     /* ==================== ② Car API 深读（反射） ==================== */
@@ -411,19 +545,25 @@ public final class IfaceProbe {
 
     private static void probePackages(Context c, JSONObject s) throws Throwable {
         PackageManager pm = c.getPackageManager();
+        // v2.0.12：补 GET_PERMISSIONS —— keyPkgs 段要 requestedPermissions
         List<PackageInfo> pkgs = pm.getInstalledPackages(
                 PackageManager.GET_RECEIVERS | PackageManager.GET_SERVICES
-                        | PackageManager.GET_PROVIDERS);
+                        | PackageManager.GET_PROVIDERS | PackageManager.GET_PERMISSIONS);
         JSONArray rcv = new JSONArray();
         JSONArray svc = new JSONArray();
         JSONArray prv = new JSONArray();
+        // v2.0.12：全量组件清单（带 exported/enabled）——关键词过滤会漏掉不带车字样
+        //   却真是车辆通道的组件（如 com.foo.bar.LightController），落盘供离线分析。
+        JSONArray comps = new JSONArray();
         for (PackageInfo pi : pkgs) {
             String pkg = pi.packageName;
             if (pi.receivers != null) {
                 for (android.content.pm.ActivityInfo ai : pi.receivers) {
+                    putComp(comps, pkg, ai.name, ai.exported, ai.enabled);
                     if (hit(ai.name)) {
                         try {
-                            rcv.put(new JSONObject().put("pkg", pkg).put("cls", ai.name));
+                            rcv.put(new JSONObject().put("pkg", pkg).put("cls", ai.name)
+                                    .put("exp", ai.exported).put("en", ai.enabled));
                         } catch (Throwable ignored) {
                         }
                     }
@@ -431,9 +571,11 @@ public final class IfaceProbe {
             }
             if (pi.services != null) {
                 for (android.content.pm.ServiceInfo si : pi.services) {
+                    putComp(comps, pkg, si.name, si.exported, si.enabled);
                     if (hit(si.name)) {
                         try {
-                            svc.put(new JSONObject().put("pkg", pkg).put("cls", si.name));
+                            svc.put(new JSONObject().put("pkg", pkg).put("cls", si.name)
+                                    .put("exp", si.exported).put("en", si.enabled));
                         } catch (Throwable ignored) {
                         }
                     }
@@ -441,11 +583,13 @@ public final class IfaceProbe {
             }
             if (pi.providers != null) {
                 for (android.content.pm.ProviderInfo pvi : pi.providers) {
+                    putComp(comps, pkg, pvi.name, pvi.exported, pvi.enabled);
                     // provider 的 authority 才是接口名，优先按它匹配
                     if (hit(pvi.authority) || hit(pvi.name)) {
                         try {
                             prv.put(new JSONObject().put("pkg", pkg)
-                                    .put("authority", pvi.authority));
+                                    .put("authority", pvi.authority)
+                                    .put("exp", pvi.exported).put("en", pvi.enabled));
                         } catch (Throwable ignored) {
                         }
                     }
@@ -457,6 +601,70 @@ public final class IfaceProbe {
         s.put("receivers", rcv);
         s.put("services", svc);
         s.put("providers", prv);
+        s.put("comps", comps);
+        s.put("keyPkgs", probeKeyPkgs(pm, pkgs));
+    }
+
+    /** 全量组件清单条目（封顶 4000 条防 JSON 膨胀）。 */
+    private static void putComp(JSONArray arr, String pkg, String cls,
+            boolean exported, boolean enabled) {
+        if (arr.length() >= 4000) {
+            return;
+        }
+        try {
+            arr.put(new JSONObject().put("pkg", pkg).put("cls", cls)
+                    .put("exp", exported).put("en", enabled));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * 关键包详情（v2.0.12）：请求的权限 / sharedUserId / APK 路径 / 是否系统应用。
+     *
+     * <p>★ {@code sourceDir} 是 APK 在车机上的绝对路径——**用户拿 adb pull 它即可定点逆向**，
+     *   不用在整个 /data/app 里翻。
+     * ★ {@code sharedUserId} 非空说明该包与系统同 uid（数据通道可能只对同 uid 开放），
+     *   这是判断「通道是否对我方 App 可用」的关键证据。
+     */
+    private static JSONObject probeKeyPkgs(PackageManager pm, List<PackageInfo> pkgs) {
+        JSONObject out = new JSONObject();
+        for (PackageInfo pi : pkgs) {
+            boolean key = false;
+            for (String k : KEY_PKGS) {
+                if (k.equals(pi.packageName)) {
+                    key = true;
+                    break;
+                }
+            }
+            if (!key) {
+                continue;
+            }
+            try {
+                JSONObject j = new JSONObject();
+                j.put("versionName", pi.versionName);
+                j.put("versionCode", pi.versionCode);
+                j.put("sharedUserId", pi.sharedUserId == null ? JSONObject.NULL
+                        : pi.sharedUserId);
+                ApplicationInfo ai = pi.applicationInfo;
+                if (ai != null) {
+                    j.put("sourceDir", ai.sourceDir == null ? JSONObject.NULL : ai.sourceDir);
+                    j.put("system", (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
+                    j.put("uid", ai.uid);
+                }
+                JSONArray perms = new JSONArray();
+                if (pi.requestedPermissions != null) {
+                    for (String p : pi.requestedPermissions) {
+                        if (p != null) {
+                            perms.put(p);
+                        }
+                    }
+                }
+                j.put("perms", perms);
+                out.put(pi.packageName, j);
+            } catch (Throwable ignored) {
+            }
+        }
+        return out;
     }
 
     /* ==================== ④ 历史广播提取（action 维度） ==================== */
@@ -627,6 +835,159 @@ public final class IfaceProbe {
         }
     }
 
+    /* ==================== ⑨ svcDesc：关键 binder 服务的 AIDL 描述符（v2.0.12） ==================== */
+
+    /**
+     * {@code ServiceManager.getService} 反射取关键服务的 {@code IBinder.getInterfaceDescriptor()}。
+     *
+     * <p>★ 不依赖 {@code service list} 的行格式（那条路的描述符在 services.desc 里也有一份，互为印证）。
+     * ★ 描述符就是 AIDL 接口全名（如 {@code android.car.ICarService}）——私有通道
+     *   （chinatsp/tbox）的描述符是本段最大看点：拿到了名字才有下一步逆向的可能。
+     * ★ {@code android.os.ServiceManager} 是 hidden API：API 28 上多为 light-greylist
+     *   （反射可达、最多一条警告日志）；万一被 blocklist 挡住只记 err，不影响其它段。
+     */
+    private static void probeSvcDesc(JSONObject s) throws Throwable {
+        Method getService;
+        try {
+            Class<?> smCls = Class.forName("android.os.ServiceManager");
+            getService = smCls.getMethod("getService", String.class);
+        } catch (Throwable e) {
+            s.put("ok", false).put("why", "ServiceManager 反射不可达: " + brief(e));
+            return;
+        }
+        JSONObject desc = new JSONObject();
+        for (String name : KEY_SVCS) {
+            try {
+                Object b = getService.invoke(null, name);
+                if (b == null) {
+                    desc.put(name, "null");
+                    continue;
+                }
+                if (!(b instanceof IBinder)) {
+                    desc.put(name, "not-IBinder");
+                    continue;
+                }
+                desc.put(name, ((IBinder) b).getInterfaceDescriptor());
+            } catch (Throwable e) {
+                desc.put(name, "err: " + e.getClass().getSimpleName());
+            }
+        }
+        s.put("ok", true).put("desc", desc);
+    }
+
+    /* ==================== ⑩ propsFull：全量系统属性 dump（v2.0.12） ==================== */
+
+    /** {@code getprop} 无参输出行格式：{@code [key]: [value]}。 */
+    private static final Pattern PROP_LINE = Pattern.compile("^\\[(.+)\\]: \\[(.*)\\]$");
+
+    /**
+     * 全量 {@code getprop} 键值 dump。
+     *
+     * <p>★ v2.0.11 只存了车辆关键词命中的 60 个键——但实时值未必长在带关键词的键上
+     *   （实测活的 {@code persist.sys.door_state} 命中了 door，可 {@code sys.tbox.*} 之类
+     *   就可能漏）。本轮全量落盘，**两份采集 diff 即活信号定位器**。
+     * ★ 值长 clip 到 400 字符（个别属性带长列表，防 JSON 膨胀）；空值留空串。
+     */
+    private static void probePropsFull(JSONObject s) throws Throwable {
+        String out = SysProbe.exec(12, "getprop");
+        if (out == null) {
+            s.put("ok", false).put("why", "exec 失败/超时");
+            return;
+        }
+        JSONObject kv = new JSONObject();
+        int n = 0;
+        int unparsed = 0;
+        for (String line : out.split("\n")) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            Matcher m = PROP_LINE.matcher(line);
+            if (!m.find()) {
+                unparsed++;
+                continue;
+            }
+            try {
+                kv.put(m.group(1), clip(m.group(2), 400));
+                n++;
+            } catch (Throwable ignored) {
+            }
+        }
+        s.put("ok", true).put("count", n).put("unparsed", unparsed).put("kv", kv);
+        s.put("rawHead", head(out, 40));
+    }
+
+    /* ==================== ⑪ bindProbe：绑定关键服务取 AIDL 描述符（v2.0.12） ==================== */
+
+    /** 单个绑定目标等待 onServiceConnected 的时长（ms）。 */
+    private static final long BIND_WAIT_MS = 2000L;
+
+    /**
+     * 对 {@link #KEY_BIND} 里的关键已装服务逐个 {@code bindService}，连上即取
+     * {@code IBinder.getInterfaceDescriptor()}，随后立即解绑。
+     *
+     * <p>★ 三种结果都有信息量：
+     *   {@code connected=true + desc} = **通道坐实**（接口名到手，可据此逆向 AIDL）；
+     *   {@code bind=true 但 2s 未回调} = 服务在但 onBind 返 null（要权限/要签名）；
+     *   {@code SecurityException / bind=false} = 未导出，此路不通。
+     * ★ BIND_AUTO_CREATE 会把服务拉起来——探测目的正当，且拿到描述符立刻解绑，
+     *   不停赖在后台。每个目标独立 try/catch，一个炸不影响其余。
+     */
+    private static void probeBind(Context c, JSONObject s) throws Throwable {
+        JSONArray arr = new JSONArray();
+        for (final String[] kb : KEY_BIND) {
+            final JSONObject j = new JSONObject();
+            try {
+                j.put("pkg", kb[0]).put("cls", kb[1]);
+                final Object[] conn = {null};
+                final CountDownLatch latch = new CountDownLatch(1);
+                ServiceConnection sc = new ServiceConnection() {
+                    @Override
+                    public void onServiceConnected(ComponentName name, IBinder service) {
+                        conn[0] = service;
+                        try {
+                            j.put("connected", true);
+                            j.put("ifaceDesc", service.getInterfaceDescriptor());
+                        } catch (Throwable e) {
+                            try {
+                                j.put("connected", true);
+                                j.put("ifaceDesc", "err: " + brief(e));
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onServiceDisconnected(ComponentName name) {
+                        latch.countDown();
+                    }
+                };
+                Intent intent = new Intent();
+                intent.setComponent(new ComponentName(kb[0], kb[1]));
+                boolean bound = c.bindService(intent, sc, Context.BIND_AUTO_CREATE);
+                j.put("bind", bound);
+                if (bound) {
+                    latch.await(BIND_WAIT_MS, TimeUnit.MILLISECONDS);
+                    if (conn[0] == null) {
+                        j.put("why", BIND_WAIT_MS + "ms 未回调（未导出被拒/onBind 返 null/权限不足）");
+                    }
+                    try {
+                        c.unbindService(sc);
+                    } catch (Throwable ignored) {
+                    }
+                }
+            } catch (Throwable e) {
+                try {
+                    j.put("err", e.getClass().getSimpleName() + ": "
+                            + (e.getMessage() == null ? "?" : e.getMessage()));
+                } catch (Throwable ignored) {
+                }
+            }
+            arr.put(j);
+        }
+        s.put("ok", true).put("results", arr);
+    }
+
     /* ==================== 嗅探器 arm / drain / disarm ==================== */
 
     /**
@@ -642,6 +1003,11 @@ public final class IfaceProbe {
             Set<String> acts = new HashSet<>();
             acts.add(Intent.ACTION_BATTERY_CHANGED);
             acts.add(NAV_BCAST);
+            // v2.0.12：dumpsys 历史提取恒空（要 DUMP 权限）⇒ 补静态候选清单，
+            //   否则嗅探器实际只armed 两个 action，车机发车辆广播也拦不到
+            for (String a : EXTRA_ACTIONS) {
+                acts.add(a);
+            }
             int added = 0;
             synchronized (discoveredCache) {
                 for (String a : discoveredCache) {

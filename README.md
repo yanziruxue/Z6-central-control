@@ -69,6 +69,9 @@ git push gitzx vX.Y.Z     # Gitea（可选，Runner 构建/分发站）
 
 | 版本 | 主要内容 |
 |---|---|
+| v2.0.12 | 接口探测 v2：Car API 实证死路后转攻 chinatsp 私有通道——service list 保留 AIDL 描述符 / `ServiceManager` 反射取描述符 / `getprop` 全量属性 dump / bindProbe 绑定关键服务 / 组件 exported 旗标 + 关键包 sourceDir 定点逆向；采集引导改「操作清单」 |
+| v2.0.11 | 接口探测 IfaceProbe：采集时自动探 service list / Car API 深读 / 已装包组件 / 广播嗅探 / 传感器 / 电池 / settings，落 `caiji-*.json` 的 `iface` 段 |
+| v2.0.10 | **P0 修复**刷新路径半成品视图树连崩（原子化替换 + 入口线程兜底 + 静默 catch 留日志） |
 | v2.0.9 | 12V 电瓶低压红字告警；采集快照 changes1/changes2 拆分；**P0 修复采集后台线程回推崩溃**；存储目录重构（app-log/caiji）；「🗑 清空采集日志」按钮 |
 | v2.0.8 | 更新弹窗按钮横向一行；更新正文去 sha256 行；半发版门禁 |
 | v2.0.7 | 半发版状态（Release 已建资产未传）不再误报可更新（**从未发布**） |
