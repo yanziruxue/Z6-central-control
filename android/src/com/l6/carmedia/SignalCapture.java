@@ -38,8 +38,9 @@ import java.util.TreeMap;
  * <p>采集结束时会另存一份结构化 JSON（与日志同目录），把能力清单 / 车辆键 / 标记 /
  * 变化序列 / 窗口内的 logcat 全部打包，便于整份外发。
  *
- * <p><b>不申请任何新权限</b>；不做前台服务 —— 用户会保持 App 在前台
- * （若将来需要在后台采，再挂 {@link L6NotifyService} 那样的前台通知）。
+ * <p><b>不申请任何新权限</b>。v2.0.13 起挂 {@link CapService} 前台服务保活：
+ * 采集期间可切后台 / 熄屏 / 用导航，划多任务卡片与 ROM 内存压力都不再杀采集
+ * （通知栏显示进度、可一键结束）。
  */
 public final class SignalCapture {
 
@@ -100,6 +101,9 @@ public final class SignalCapture {
         }, "l6-signal");
         worker.setDaemon(true);
         worker.start();
+        // v2.0.13：挂前台服务保活（采集可后台进行，通知栏看进度/一键结束）
+        CapService.start(appCtx);
+        L6Log.i(TAG, "已开始采集，挂前台服务保活");
     }
 
     /** 请求结束。真正的收尾（落盘 / 汇总）在采集线程里做，保证顺序。 */
@@ -199,6 +203,8 @@ public final class SignalCapture {
                     nextBeat = t + BEAT_MS;
                     L6Log.i(TAG, stamp(t) + " · 采集中（轮次 " + rounds + "，累计变化 "
                             + changes.size() + " 条）");
+                    // v2.0.13：顺手刷新通知栏进度（复用 10s 心跳，不新增定时器）
+                    CapService.progress(t, changes.size());
                     JSONObject b = new JSONObject();
                     try {
                         b.put("kind", "beat").put("t", t).put("rounds", rounds)
@@ -254,6 +260,10 @@ public final class SignalCapture {
                     .put("logcatLines", logLines).put("file", file);
         } catch (Throwable ignored) { }
         emit(o);
+
+        // v2.0.13：落盘完毕才撤前台服务（提前撤=给 ROM 留杀窗口）
+        CapService.stop(appCtx);
+        L6Log.i(TAG, "采集结束，撤前台服务");
 
         running = false;
         stopReq = false;

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.12 产物反查：接口探测 v2 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.13 产物反查：采集前台保活 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -30,13 +30,19 @@
              （requestedPermissions / sharedUserId / sourceDir 供定点逆向）
            - 嗅探候选清单 EXTRA_ACTIONS（dumpsys 历史提取恒空，静态候选补位）
            - 采集引导文案改「操作清单」：车门/车窗/空调/灯光/座椅/点火行驶逐项操作。
+★ v2.0.13 采集前台保活（回答「支持后台采集吗」：采集线程本就不绑 Activity，
+           按 HOME/切导航/熄屏都能活，但无前台优先级会被划卡片/ROM 杀 ⇒ 白采）：
+           - 新增 CapService（前台 Service + 常驻通知：进度/一键结束/点击回主页）
+           - SignalCapture.start 挂服务、finish 落盘后撤服务、10s 心跳刷通知进度
+           - SetPane 引导文案改「可切后台 / 熄屏 / 用导航」
+           - 不申请任何新权限；START_NOT_STICKY（进程真死了不空跑重启）。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.12.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.13.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -112,6 +118,20 @@ POS = [
     # 采集引导文案改「操作清单」（SetPane 字面量，中文写 \xNN）
     b"\xe6\x93\x8d\xe4\xbd\x9c\xe6\xb8\x85\xe5\x8d\x95",                      # 操作清单
     b"\xe7\x82\xb9\xe7\x81\xab\xe8\xa1\x8c\xe9\xa9\xb6 5 \xe5\x88\x86\xe9\x92\x9f",  # 点火行驶 5 分钟
+    # v2.0.13：采集前台保活 CapService —— 类名 + startForeground/onStartCommand
+    #   （方法名走 dex string pool）+ 通知渠道 / 动作 / 文案字面量 + 联动钩子日志。
+    b"com/l6/carmedia/CapService",
+    b"startForeground", b"onStartCommand", b"setOngoing", b"NotificationChannel",
+    b"l6_capture", b"com.l6.carmedia.CAP_STOP",
+    b"\xe8\x80\x81\xe5\x85\xad \xc2\xb7 \xe4\xbf\xa1\xe5\x8f\xb7\xe9\x87\x87\xe9\x9b\x86\xe4\xb8\xad",  # 老六 · 信号采集中
+    b"\xe7\xbb\x93\xe6\x9d\x9f\xe9\x87\x87\xe9\x9b\x86",                                # 结束采集
+    b"\xe4\xbf\xa1\xe5\x8f\xb7\xe9\x87\x87\xe9\x9b\x86\xe4\xbf\x9d\xe6\xb4\xbb",        # 信号采集保活
+    b"\xe6\x8c\x82\xe5\x89\x8d\xe5\x8f\xb0\xe6\x9c\x8d\xe5\x8a\xa1\xe4\xbf\x9d\xe6\xb4\xbb",  # 挂前台服务保活
+    b"\xe6\x92\xa4\xe5\x89\x8d\xe5\x8f\xb0\xe6\x9c\x8d\xe5\x8a\xa1",                    # 撤前台服务
+    # SetPane 引导文案改「可切后台 / 熄屏 / 用导航」
+    b"\xe5\x89\x8d\xe5\x8f\xb0\xe6\x9c\x8d\xe5\x8a\xa1\xe4\xbf\x9d\xe6\xb4\xbb\xef\xbc\x8c\xe9\x80\x9a\xe7\x9f\xa5\xe6\xa0\x8f",  # 前台服务保活，通知栏
+    # 通知正文格式串（fmt 拼出来的字面量「已 」/「 · 变化 」）
+    b"\xe5\xb7\xb2 ", b"\xc2\xb7 \xe5\x8f\x98\xe5\x8c\x96 ", b" \xe6\x9d\xa1",
     # v2.0.7：必须保留 isUsable 门禁与「缺少下载直链」文案（半发版状态要被拒）
     b"\xe7\xbc\xba\xe5\xb0\x91\xe4\xb8\x8b\xe8\xbd\xbd\xe7\x9b\xb4\xe9\x93\xbe",  # 缺少下载直链
     # v2.0.4：启动自动检查发现新版本 → 可取消提示框

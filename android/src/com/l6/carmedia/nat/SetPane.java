@@ -984,7 +984,8 @@ public class SetPane {
         U.visible(sigOut, false);
         card.addView(sigOut);
 
-        card.addView(U.text(c, "点「开始采集」后保持在页面，按下面顺序逐项操作车辆（每步停留 3~5 秒），"
+        card.addView(U.text(c, "点「开始采集」后可切后台 / 熄屏 / 用导航（前台服务保活，通知栏看进度、一键结束），"
+                + "按下面顺序逐项操作车辆（每步停留 3~5 秒），"
                 + "完成后点「结束采集」；结论写入本地日志（标签 L6Signal）并另存 Download/L6/caiji/caiji-*.json。\n"
                 + "操作清单：① 四个车门 + 后备箱逐个开→关；② 车窗 / 天窗逐个升降；"
                 + "③ 空调：开→调温→风量→循环→关；④ 灯光：大灯 / 转向 / 双闪 / 雾灯逐个开关；"

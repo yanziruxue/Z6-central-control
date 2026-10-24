@@ -86,6 +86,14 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+        <!--
+          采集保活（v2.0.13）：前台服务 + 常驻通知。采集期间把进程提到前台优先级，
+          划多任务卡片 / ROM 内存压力都不再杀采集；通知栏显示进度并可一键结束。
+          无需任何权限；启动入口仅设置页「开始采集」按钮（App 在前台时）。
+        -->
+        <service
+            android:name="com.l6.carmedia.CapService"
+            android:exported="false" />
     </application>
 
 </manifest>

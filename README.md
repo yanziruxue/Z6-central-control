@@ -69,6 +69,7 @@ git push gitzx vX.Y.Z     # Gitea（可选，Runner 构建/分发站）
 
 | 版本 | 主要内容 |
 |---|---|
+| v2.0.13 | **后台采集保活**：新增 CapService 前台服务 + 常驻通知（进度 / 一键结束 / 点击回主页）——采集可切后台、熄屏、用导航，划多任务卡片与 ROM 内存压力不再杀采集；采集引导文案同步改「可切后台」 |
 | v2.0.12 | 接口探测 v2：Car API 实证死路后转攻 chinatsp 私有通道——service list 保留 AIDL 描述符 / `ServiceManager` 反射取描述符 / `getprop` 全量属性 dump / bindProbe 绑定关键服务 / 组件 exported 旗标 + 关键包 sourceDir 定点逆向；采集引导改「操作清单」 |
 | v2.0.11 | 接口探测 IfaceProbe：采集时自动探 service list / Car API 深读 / 已装包组件 / 广播嗅探 / 传感器 / 电池 / settings，落 `caiji-*.json` 的 `iface` 段 |
 | v2.0.10 | **P0 修复**刷新路径半成品视图树连崩（原子化替换 + 入口线程兜底 + 静默 catch 留日志） |
