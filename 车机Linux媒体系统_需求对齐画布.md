@@ -59,6 +59,21 @@
 
 > 结论：普通 APK 的车况能力上限 = **这台 ROM 愿意暴露什么**。采集功能（§4）就是为摸清暴露面而生——点「开始采集」操作车辆功能，每秒快照比对，结束落结构化 JSON。
 
+### 3.1 接口探测 IfaceProbe（v2.0.11）
+
+采集启动时自动跑一遍**全量接口探测**（`IfaceProbe.probe()`，落 `caiji-*.json` 的 `iface` 段），每段独立 try/catch，探测失败不影响采集：
+
+| 探测段 | 内容 |
+|---|---|
+| `services` | `service list` 全量 binder 服务 + 车辆关键词筛选 |
+| `car` | Car API 反射深读：建 Car → getCarManager → **getPropertyList 全量属性枚举**（权威证据）+ 36 个已知信号 ID 逐个 try-read（denied 照记 SecurityException）+ CarInfoManager VIN + `dumpsys car_service` |
+| `pkgIfaces` | 已装包 receiver/service/provider 组件名关键词过滤（OEM 私有接口发现） |
+| `bcastHistory` | `dumpsys activity broadcasts` 正则提取真实 action 候选 |
+| `bcast` | 被动广播嗅探（arm 后窗口内命中全记录，finish 并回文件） |
+| `location` / `sensors` / `battery` / `settingsScan` | GPS 测速可行性 / 传感器全清单 / 电池全字段 / settings 三库扫描 |
+
+**用户需求全单（2026-10-24 确认，已知信号 ID 已覆盖进探测表）**：仪表盘全部信息 + 门窗状态 + 所有按钮/灯光开关状态 + 电动座椅 + 空调 + 车内外温度 + 胎压 + 里程 + 转速 + 油位 + 油温 + 瞬时油耗。标准 VHAL 无「瞬时油耗」属性（最接近 `FUEL_CONSUMPTION_SINCE_RESTART`）、电动座椅位置多为 OEM 私有扩展（`CAR_VENDOR_EXTENSION` 权限，本车已 denied）——以采集实测为准。
+
 ## 4. 功能模块拆分（现行代码地图）
 
 - **`nat/` 原生视图层**
@@ -67,7 +82,7 @@
   - `SetPane`：设置页（壁纸 / 手势 / 采集 / OTA / 日志）
   - `Dock`：三钮 dock（长按拖动排序 + 垃圾桶取消钉住）
   - `U` / `Prefs`：UI 令牌 + 整份 JSON 偏好存储
-- **采集链路**：`SysProbe`（全量快照 + 能力探测）→ `SigDiff`（每秒差异，词边界匹配）→ `SignalCapture`（调度/落盘，changes1 保留 / changes2 过滤）
+- **采集链路**：`SysProbe`（全量快照 + 能力探测）→ `SigDiff`（每秒差异，词边界匹配）→ `SignalCapture`（调度/落盘，changes1 保留 / changes2 过滤）→ **`IfaceProbe`（接口探测，v2.0.11：Car API 深读 / 服务清单 / 组件发现 / 广播嗅探）**
 - **OTA 链路**：`Ota`（源选择：GitHub 主 → Gitea 保底 → 镜像回退；`isUsable()` 门禁拒半发版）
 - **日志链路**：`L6Log`（目录管理 + 启动迁移）+ `L6Signal` 标签采集日志
 - **纯逻辑类**（零依赖、进 `LogicSmoke`）：`NavParse` / `LrcParse` / `SigDiff` / `NavBcastFmt` / `NavBcastData` / `TapJudge`
