@@ -27,20 +27,40 @@ l6_require_git_bash "$0" "$@" || exit 1
 
 SIGN="${SIGN:-release}"
 
-SDK="${ANDROID_SDK_ROOT:-D:/wenhaitao/Documents/sdk}"
+# ---- 跨平台：检测运行环境（Windows Git Bash vs Linux runner）----
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*) OS="win" ;;
+  *) OS="linux" ;;
+esac
+
+SDK="${ANDROID_SDK_ROOT:-D:/wenhaitao/Documents/sdk}"   # Linux/CI 用 ANDROID_SDK_ROOT 注入
 BT_VERSION="${BT_VERSION:-35.0.0}"
 BT="$SDK/build-tools/$BT_VERSION"
 PLATFORM="$SDK/platforms/android-35/android.jar"
-PY="${PY:-C:/Users/yanzi/.workbuddy/binaries/python/envs/default/Scripts/python.exe}"
-# keytool 不在 PATH 上（Oracle javapath 只软链了 java/javac），单独定位 JDK
-JDK_BIN="${JDK_BIN:-C:/Program Files/Java/jdk-26.0.1/bin}"
-KEYTOOL="$JDK_BIN/keytool.exe"
-if [ ! -x "$KEYTOOL" ] && command -v keytool >/dev/null 2>&1; then KEYTOOL="$(command -v keytool)"; fi
 
-ROOT="D:/AI/WorkBuddy/老六"                  # 项目根目录（原 car-linux-media/ 内容已上提到根）
+if [ "$OS" = "win" ]; then
+  AAPT2="aapt2.exe"; D8="d8.bat"; ZIPALIGN="zipalign.exe"; APKSIGNER="apksigner.bat"
+  PY="${PY:-C:/Users/yanzi/.workbuddy/binaries/python/envs/default/Scripts/python.exe}"
+  JDK_BIN="${JDK_BIN:-C:/Program Files/Java/jdk-26.0.1/bin}"
+  WORK="${WORK:-C:/Users/yanzi/l6apk-build-$(date +%s)}"
+else
+  AAPT2="aapt2"; D8="d8"; ZIPALIGN="zipalign"; APKSIGNER="apksigner"
+  PY="${PY:-python3}"
+  # Linux：优先用 PATH 里能找到的 javac 反推 JDK 目录（Docker 镜像里最稳）
+  if [ -z "${JDK_BIN:-}" ]; then
+    _javac="$(command -v javac 2>/dev/null)" || true
+    [ -n "$_javac" ] && JDK_BIN="$(dirname "$(readlink -f "$_javac")")"
+  fi
+  JDK_BIN="${JDK_BIN:-/usr/lib/jvm/java-17-openjdk/bin}"
+  WORK="${WORK:-/tmp/l6apk-build-$(date +%s)}"
+fi
+
+# 把 JDK/bin 加进 PATH，使 javac/keytool 在两种系统都能裸名调用
+export PATH="$JDK_BIN:$PATH"
+
+ROOT="$(cd "$SELF_DIR/.." && pwd)"            # 项目根目录（脚本位于 android/ 下，根即上级）
 SRC="$ROOT/android"
 DIST="$ROOT/dist"
-WORK="${WORK:-C:/Users/yanzi/l6apk-build-$(date +%s)}"
 
 APP_NAME="老六中控"              # 应用显示名（build 时写入 res/values/strings.xml 的 app_name）
 APK_NAME="Z6CC"                  # 产物文件名前缀（作为 GitHub Release 资产上传，必须 ASCII）
@@ -55,7 +75,7 @@ VER_CODE=$(( ${_VMA:-0} * 10000 + ${_VMI:-0} * 100 + ${_VPA:-0} ))
 # OTA 中继靠文件名里的 v?X.Y.Z 解析版本号，务必保留版本号、勿改前缀。
 OUT_APK="$DIST/$APK_NAME-$VER_NAME.apk"
 
-for f in "$BT/aapt2.exe" "$BT/d8.bat" "$BT/zipalign.exe" "$BT/apksigner.bat" "$PLATFORM"; do
+for f in "$BT/$AAPT2" "$BT/$D8" "$BT/$ZIPALIGN" "$BT/$APKSIGNER" "$PLATFORM"; do
   [ -e "$f" ] || { echo "✗ 缺少构建组件: $f"; exit 1; }
 done
 
@@ -81,10 +101,10 @@ echo "    配置已内嵌: assets/app.properties ($(wc -c < "$WORK/assets/app.pr
 cd "$WORK"
 
 echo "==> 2/7 编译资源 (aapt2 compile)"
-"$BT/aapt2.exe" compile --dir res -o build/res/res.zip
+"$BT/$AAPT2" compile --dir res -o build/res/res.zip
 
 echo "==> 3/7 链接资源 + 打包 assets (aapt2 link)"
-"$BT/aapt2.exe" link \
+"$BT/$AAPT2" link \
   -o out/base.apk \
   -I "$PLATFORM" \
   --manifest AndroidManifest.xml \
@@ -103,7 +123,7 @@ javac --release 17 -encoding UTF-8 -nowarn \
 
 echo "==> 5/7 转 dex (d8)"
 find build/classes -name "*.class" > build/classes.txt
-"$BT/d8.bat" --release --min-api 28 --lib "$PLATFORM" \
+"$BT/$D8" --release --min-api 28 --lib "$PLATFORM" \
   --output build/dex @build/classes.txt
 
 echo "==> 6/7 合成 APK (resources + assets + classes.dex)"
@@ -139,24 +159,24 @@ else
   if [ ! -f "$KS_FILE" ]; then
     echo "    首次生成调试密钥: $KS_FILE"
     mkdir -p "$(dirname "$KS_FILE")"
-    "$KEYTOOL" -genkeypair -keystore "$KS_FILE" \
+    keytool -genkeypair -keystore "$KS_FILE" \
       -storepass android -keypass android -alias androiddebugkey \
       -dname "CN=Android Debug,O=Android,C=CN" -keyalg RSA -keysize 2048 -validity 10000 >/dev/null 2>&1
   fi
-  [ -f "$KS_FILE" ] || { echo "✗ keytool 生成密钥失败: $KEYTOOL"; exit 1; }
+  [ -f "$KS_FILE" ] || { echo "✗ keytool 生成密钥失败: keytool"; exit 1; }
   echo "    签名方式: debug（固定密钥，仅本机自测；与 release 包彼此不兼容）"
 fi
 
-"$BT/zipalign.exe" -f -p 4 out/app-unsigned.apk out/app-aligned.apk
+"$BT/$ZIPALIGN" -f -p 4 out/app-unsigned.apk out/app-aligned.apk
 
-"$BT/apksigner.bat" sign \
+"$BT/$APKSIGNER" sign \
   --ks "$KS_FILE" --ks-type "$KS_TYPE" \
   --ks-pass "pass:$KS_STORE_PASS" --key-pass "pass:$KS_KEY_PASS" \
   --ks-key-alias "$KS_ALIAS" \
   --v1-signing-enabled true --v2-signing-enabled true \
   --out out/app-signed.apk out/app-aligned.apk
 
-"$BT/apksigner.bat" verify --print-certs out/app-signed.apk | grep -E "DN:|SHA-256 digest|Verified using" || true
+"$BT/$APKSIGNER" verify --print-certs out/app-signed.apk | grep -E "DN:|SHA-256 digest|Verified using" || true
 
 mkdir -p "$DIST"
 cp out/app-signed.apk "$OUT_APK"
@@ -164,4 +184,4 @@ cp out/app-signed.apk "$OUT_APK"
 echo
 echo "✓ 打包完成: $OUT_APK"
 echo "  大小: $(wc -c < "$OUT_APK") bytes"
-"$BT/aapt2.exe" dump badging out/app-signed.apk 2>/dev/null | grep -E "^package|^application-label|launchable-activity|sdkVersion" || true
+"$BT/$AAPT2" dump badging out/app-signed.apk 2>/dev/null | grep -E "^package|^application-label|launchable-activity|sdkVersion" || true

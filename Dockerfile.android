@@ -1,0 +1,27 @@
+# Android SDK 构建镜像：JDK17 + build-tools;35.0.0 + platforms;android-35
+# 供 .gitea/workflows/build.yaml 的 container 步骤使用。
+#
+# 构建并推到本仓库 registry（Gitea 自带）：
+#   docker build -t git.ziruxue.top/yanzi/android-sdk:35 -f Dockerfile.android .
+#   docker push git.ziruxue.top/yanzi/android-sdk:35
+#
+# runner 主机需 docker login git.ziruxue.top 才能拉到私有镜像；
+# 若不想用容器，删掉 workflow 的 container 段、直接在 runner 主机装同样组件即可。
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      openjdk-17-jdk-headless python3 unzip curl git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+RUN mkdir -p $ANDROID_SDK_ROOT/cmdline-tools && cd $ANDROID_SDK_ROOT/cmdline-tools \
+ && curl -sSLO https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+ && unzip commandlinetools-linux-*.zip \
+ && rm -f commandlinetools-linux-*.zip \
+ && mv cmdline-tools latest
+
+ENV PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+RUN yes | sdkmanager --sdk_root=$ANDROID_SDK_ROOT \
+      "build-tools;35.0.0" "platforms;android-35" "platform-tools"

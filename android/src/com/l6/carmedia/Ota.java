@@ -122,7 +122,7 @@ public class Ota {
                 result.put("currentVersion", curVer);
                 result.put("currentCode", curCode);
 
-                // ---- 源选择：自托管 Git 主源 → GitHub 保底（可选 OTA_JSON_URL 自建 JSON 前置覆盖）----
+                // ---- 源选择：GitHub 主源 → 自托管 Git 保底（可选 OTA_JSON_URL 自建 JSON 前置覆盖）----
                 // 判据用 isUsable()：坏数据（ok:false / 缺 versionCode / 缺 downloadUrl）不算成功，
                 // 必须继续试下一级 —— 否则会把坏数据当结果、误报「已是最新」而不去回落。
                 JSONObject remote = null;
@@ -140,35 +140,36 @@ public class Ota {
                     }
                 }
 
-                // ② 自托管 Git 主源（git.ziruxue.top / Gitea releases/latest）
-                //    Gitea 的 release JSON 与 GitHub 同构（tag_name + assets[].browser_download_url + body），
-                //    可直接复用 normalizeGithubRelease。三项配置齐全才启用，否则整段跳过、直退 GitHub。
-                if (remote == null && !cfg.selfBase.isEmpty() && !cfg.selfOwner.isEmpty() && !cfg.selfRepo.isEmpty()) {
-                    String selfApi = cfg.selfBase.replaceAll("/+$", "") + "/api/v1/repos/" + cfg.selfOwner + "/" + cfg.selfRepo + "/releases/latest";
-                    JSONObject r = safeFetch(selfApi, cfg.mirror);
+                // ② GitHub 主源（releases/latest，tag 形如 v2.0.9）
+                //    api.github.com/repos/{owner}/{repo}/releases/latest；资产落在
+                //    objects.githubusercontent.com，下载时由 MIRROR(gh-proxy) 回落覆盖。
+                if (remote == null && !cfg.repoOwner.isEmpty() && !cfg.repoName.isEmpty()) {
+                    String ghApi = "https://api.github.com/repos/" + cfg.repoOwner + "/" + cfg.repoName + "/releases/latest";
+                    JSONObject r = safeFetch(ghApi, cfg.mirror);
                     // ★ v2.0.7：也要过 isUsable 门禁。Release 建好但**资产还没上传**时，
                     //   /releases/latest 会返回一个「有版本号、但 assets 为空」的 release，
                     //   归一化后 downloadUrl 是空串 —— 以前这里不校验就直接接受，
                     //   结果弹窗照弹、点「立即更新」却报「无下载链接」。现在回落下一级源。
                     if (isUsable(r)) {
                         remote = r;
-                        source = "self";
-                    } else {
-                        tried.add("自托管 Git " + hostOf(cfg.selfBase) + "：" + whyBad(r));
-                    }
-                }
-
-                // ③ GitHub 保底：主源（自托管 Git）挂时回落
-                if (remote == null && !cfg.repoOwner.isEmpty() && !cfg.repoName.isEmpty()) {
-                    String ghApi = "https://api.github.com/repos/" + cfg.repoOwner + "/" + cfg.repoName + "/releases/latest";
-                    JSONObject r = safeFetch(ghApi, cfg.mirror);
-                    // ★ v2.0.7：同上，GitHub 侧也必须校验（半发版状态很常见：
-                    //   Release 先建、资产后传，中间那几分钟 latest 就是没直链的）。
-                    if (isUsable(r)) {
-                        remote = r;
                         source = "github";
                     } else {
                         tried.add("GitHub（" + cfg.repoOwner + "/" + cfg.repoName + "）：" + whyBad(r));
+                    }
+                }
+
+                // ③ 自托管 Git 保底（git.ziruxue.top / Gitea releases/latest）
+                //    Gitea 的 release JSON 与 GitHub 同构（tag_name + assets[].browser_download_url + body），
+                //    可直接复用 normalizeGithubRelease。三项配置齐全才启用，否则整段跳过（无保底源）。
+                if (remote == null && !cfg.selfBase.isEmpty() && !cfg.selfOwner.isEmpty() && !cfg.selfRepo.isEmpty()) {
+                    String selfApi = cfg.selfBase.replaceAll("/+$", "") + "/api/v1/repos/" + cfg.selfOwner + "/" + cfg.selfRepo + "/releases/latest";
+                    JSONObject r = safeFetch(selfApi, cfg.mirror);
+                    // 同样过 isUsable 门禁（半发版状态 Gitea 侧也一样常见）。
+                    if (isUsable(r)) {
+                        remote = r;
+                        source = "self";
+                    } else {
+                        tried.add("自托管 Git " + hostOf(cfg.selfBase) + "：" + whyBad(r));
                     }
                 }
 
@@ -184,11 +185,12 @@ public class Ota {
                     cb.emit(result.toString());
                     return;
                 }
-                // 主源是自托管 Git 时，顺带取 GitHub 的 apkUrl/sha256 作为下载保底
-                // （主源下载失败再试 GitHub，落实「github 保底」）；非 self 源则清空。
+                // 主源是 GitHub 时，顺带取自托管 Git 的 apkUrl/sha256 作为下载保底
+                // （GitHub 下载失败再试自托管 Git，落实「自托管 Git 保底」）；非 github 源则清空。
                 String fbUrl = "", fbSha = "";
-                if ("self".equals(source) && !cfg.repoOwner.isEmpty() && !cfg.repoName.isEmpty()) {
-                    JSONObject gh = safeFetch("https://api.github.com/repos/" + cfg.repoOwner + "/" + cfg.repoName + "/releases/latest", cfg.mirror);
+                if ("github".equals(source) && !cfg.selfBase.isEmpty() && !cfg.selfOwner.isEmpty() && !cfg.selfRepo.isEmpty()) {
+                    String selfApi = cfg.selfBase.replaceAll("/+$", "") + "/api/v1/repos/" + cfg.selfOwner + "/" + cfg.selfRepo + "/releases/latest";
+                    JSONObject gh = safeFetch(selfApi, cfg.mirror);
                     if (gh != null) { fbUrl = gh.optString("downloadUrl", ""); fbSha = gh.optString("sha256", ""); }
                 }
                 lastFallbackUrl = fbUrl;

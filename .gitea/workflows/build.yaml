@@ -1,0 +1,115 @@
+name: Build & Release APK
+
+# 触发：仅打 v* tag 推送时构建发版（普通 push 不触发，避免每次提交都出包）
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: [linux]            # 自托管 Linux runner（act_runner 默认带 linux 标签）
+    container:
+      image: git.ziruxue.top/yanzi/android-sdk:35
+      # 镜像由仓库根 Dockerfile.android 构建并推到本仓库 registry：
+      #   docker build -t git.ziruxue.top/yanzi/android-sdk:35 -f Dockerfile.android .
+      #   docker push git.ziruxue.top/yanzi/android-sdk:35
+      # 若 runner 不想用容器：删掉 container 段，改在 runner 主机装好 SDK，
+      # 并把 ANDROID_SDK_ROOT/JDK_BIN 设为 runner 主机路径即可（build.sh 已跨平台）。
+    env:
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      JDK_BIN: ""               # 留空 → build.sh 用 PATH 里的 javac 反推 JDK 目录
+      PY: python3
+      # ★ 必须与 android/assets/ota.properties 的 REPO_OWNER / REPO_NAME 一致
+      GH_OWNER: yanziruxue
+      GH_REPO: Z6-central-control
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 还原签名 keystore（从 secret 解码，绝不落库）
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_STORE_PASS }}
+          KEY_PASS: ${{ secrets.KEYSTORE_KEY_PASS }}
+          KS_ALIAS: ${{ secrets.KEYSTORE_ALIAS }}
+        run: |
+          set -e
+          echo "$KEYSTORE_B64" | base64 -d > /tmp/l6-release.jks
+          printf 'storeFile=/tmp/l6-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KS_PASS" "$KS_ALIAS" "$KEY_PASS" > android/keystore.properties
+
+      - name: 构建 APK
+        run: bash android/build.sh
+
+      - name: 产物反查校验
+        run: python3 android/tools/apkcheck2009.py
+
+      # —— 把代码与 tag 同步到 GitHub（best-effort：github.com 部分 IP 概率性阻断，失败不阻断发版）——
+      # OTA 只认 GitHub Release + 资产，不要求 tag 必须存在于 GitHub；
+      # 但若推送成功，Release 的 tag 会指向真实提交，仓库也更整洁。
+      - name: 推送代码与 tag 到 GitHub（best-effort）
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TAG: ${{ gitea.ref_name }}
+        run: |
+          git config user.email "ci@l6.local"
+          git config user.name "L6 CI"
+          URL="https://x-access-token:${GH_TOKEN}@github.com/${GH_OWNER}/${GH_REPO}.git"
+          for i in 1 2 3 4 5; do
+            if git push "$URL" HEAD:main && git push "$URL" "refs/tags/$TAG"; then
+              echo "✓ 代码/tag 已推送到 GitHub"; break
+            fi
+            echo "push 失败，重试 $i/5 ..."; sleep 6
+          done || echo "⚠️ 代码/tag 推送 GitHub 失败（不影响 OTA：Release 仍会创建）"
+
+      # —— 创建 GitHub Release（draft）——
+      - name: 创建 GitHub Release（draft）
+        id: rel
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TAG: ${{ gitea.ref_name }}
+        run: |
+          set -e
+          BODY="自动构建于 Gitea Runner @ ${TAG}"
+          RESP=$(curl -sS -X POST "https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/releases" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"body\":\"$BODY\",\"draft\":true,\"prerelease\":false}")
+          echo "RELEASE_ID=$(echo "$RESP" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')" >> $GITHUB_OUTPUT
+
+      # —— 上传 APK 资产到 GitHub（uploads.github.com 单 IP 常超时 → 重试）——
+      - name: 上传 APK 资产（uploads.github.com，重试）
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          RELEASE_ID: ${{ steps.rel.outputs.RELEASE_ID }}
+          TAG: ${{ gitea.ref_name }}
+        run: |
+          APK=$(ls dist/Z6CC-*.apk)
+          NAME=$(basename "$APK")
+          code=000
+          for i in $(seq 1 8); do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+              "https://uploads.github.com/repos/${GH_OWNER}/${GH_REPO}/releases/${RELEASE_ID}/assets?name=${NAME}" \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$APK")
+            if [ "$code" = "201" ]; then echo "✓ 资产上传成功 ($NAME)"; break; fi
+            echo "上传返回 $code，重试 $i/8 ..."; sleep 8
+          done
+          [ "$code" = "201" ] || { echo "✗ 资产上传最终失败"; exit 1; }
+
+      # —— 解除 draft（发布为 Latest，供车机 OTA 直拉）——
+      - name: 发布 Release（解除 draft）
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          RELEASE_ID: ${{ steps.rel.outputs.RELEASE_ID }}
+        run: |
+          set -e
+          curl -sS -X PATCH "https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/releases/${RELEASE_ID}" \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            -d '{"draft":false}'
