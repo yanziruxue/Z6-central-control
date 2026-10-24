@@ -437,7 +437,7 @@ public class HomePane {
 
         // 动力 · 服务端（数值卡）
         numCard(0, car, "fuel", "%");
-        numCard(1, car, "batt", "V");
+        numCardLow(1, car, "batt", "V", 12.0);
         numCard(2, car, "odo", "km");
         numCard(3, car, "load", "%");
         numCard(4, car, "temp", "°C");
@@ -490,6 +490,14 @@ public class HomePane {
     private void numCard(int i, JSONObject o, String k, String unit) {
         boolean miss = missing(o, k);
         setCard(i, miss ? PH : numStr(o, k), miss ? "" : unit, 0);
+    }
+
+    /** 数值卡 + 低阈值告警：值存在且 < low 时红色文字 + 警告背景 */
+    private void numCardLow(int i, JSONObject o, String k, String unit, double low) {
+        boolean miss = missing(o, k);
+        double v = miss ? Double.NaN : o.optDouble(k, Double.NaN);
+        boolean lowWarn = !Double.isNaN(v) && v < low;
+        setCard(i, miss ? PH : numStr(o, k), miss ? "" : unit, lowWarn ? 1 : 0);
     }
 
     private void boolCard(int i, JSONObject o, String k, String t, String f, boolean warnOn) {

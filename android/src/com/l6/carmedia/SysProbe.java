@@ -74,6 +74,9 @@ public final class SysProbe {
             "ignition", "acc_status", "brake", "seat", "belt", "trunk", "hood",
             "mirror", "voltage", "tire", "wheel", "steer", "hvac", "defrost",
             "wiper", "horn", "airbag", "parking", "carlock", "car_lock", "key_status",
+            // v2.0.9：新增 12V 电瓶电压相关词（车机 HU 的 12V 母线 / 蓄电瓶），
+            // 多为 vendor 自定义属性（persist.vendor.vehicle.*），命名不一，广撒网：
+            "battery", "电瓶", "vbat", "12v", "aux",
     };
 
     private SysProbe() {

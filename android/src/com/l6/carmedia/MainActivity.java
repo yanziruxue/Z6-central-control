@@ -88,6 +88,8 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
 
     /** 主线程 Handler（v1.5.x 借 WebView.post 用，v2.0.0 删掉 WebView 后自己持一个） */
     private android.os.Handler ui;
+    /** 采集回推的 UI 刷新合并标志：避免后台线程每秒几十次触发设置页整页重建（既错线程又成风暴）。 */
+    private boolean setRefreshPending;
     /** 原生界面的根容器（v2.0.0 起只是容器：原生 Shell 挂在这一层）。 */
     private android.widget.FrameLayout rootView;
     private ValueCallback<Uri[]> filePathCallback;
@@ -188,11 +190,22 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         enterImmersive();
         appCtx = getApplicationContext();
         L6Log.init(this);
+        // v2.0.9 方案 B：启动时把旧版落在 L6 根的 l6-*.log / signal-*.json 迁移到 app-log / caiji 子目录
+        L6Log.migrateOldLayout();
         // 车机信号采集：能力清单 / 每条变化 / 心跳 / 结束，都走同一条回推。
         // 变化里的 from/to 是车机属性原文（可能含引号与中文），同样必须 Base64 包一层。
         SignalCapture.setListener(json -> {
-            // v2.0.0：设置页「信号采集」卡片的状态在每次重建时**现读**，这里只负责触发重建
-            if (natShell != null) natShell.refreshSet();
+            // v2.0.0：设置页「信号采集」卡片的状态在每次重建时**现读**，这里只负责触发重建。
+            // ★ 回推来自采集后台线程，绝不能直接碰 View（日志里 1885 行 CalledFromWrongThreadException 即此）：
+            //   子线程改视图树会污染 UI，下一帧主线程遍历时抛异常把进程杀掉（表现=采集几秒后自动退出）。
+            //   必须投递到主线程，并用 pending 标志合并风暴（每秒几十次变化只刷一次）。
+            if (natShell == null) return;
+            if (setRefreshPending) return;
+            setRefreshPending = true;
+            ui.post(() -> {
+                setRefreshPending = false;
+                if (natShell != null) natShell.refreshSet();
+            });
         });
         L6Log.i("L6", "应用启动");
 
@@ -1488,7 +1501,7 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
                     toast("暂无日志文件（先产生一些运行日志）");
                     return;
                 }
-                Uri u = Uri.parse("content://" + OtaFileProvider.AUTHORITY + "/logs/" + f.getName());
+                Uri u = Uri.parse("content://" + OtaFileProvider.AUTHORITY + "/logs/app-log/" + f.getName());
                 Intent i = new Intent(Intent.ACTION_SEND);
                 i.setType("text/plain");
                 i.putExtra(Intent.EXTRA_STREAM, u);
@@ -1504,9 +1517,9 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
          * 场景：用户点「开始采集」→ 自行操作车辆功能 → 点「结束采集」→ 把日志发出来（操作了什么由用户说明）。
          * 目的：看清「操作车辆功能时，这台车机向外吐了什么信号」，为将来在这些事件上做响应
          *      （开车门提示、倒车切画面等）打底。
-         * 只读、不申请新权限；采集期间每秒比对系统快照差异，逐条写本地日志（标签 L6Signal）
-         * 并另存 Download/L6/signal-*.json。
-         */
+     * 只读、不申请新权限；采集期间每秒比对系统快照差异，逐条写本地日志（标签 L6Signal）
+     * 并另存 Download/L6/caiji/caiji-*.json。
+     */
 
         /** 开始采集（已结束/未开始时有效；已在跑则忽略）。 */
         @JavascriptInterface
@@ -2034,9 +2047,9 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
     }
 
     /**
-     * 删除 Download/L6/ 下全部 signal-*.json 采集产物（★ v2.0.3）。
+     * 删除 Download/L6/caiji/ 下全部 caiji-*.json 采集产物（★ v2.0.3 起；v2.0.9 迁入 caiji 子目录并改名）。
      *
-     * <p>遍历 {@link L6Log#artifactDir()}，只匹配 {@code signal-*.json}：
+     * <p>遍历 {@link L6Log#artifactDir()}，只匹配 {@code caiji-*.json}：
      * <ul>
      *   <li><b>不碰</b> {@code l6-*.log} —— 里面有「原生界面已启用 (vX.Y.Z)」那行，
      *       是判断原生界面到底起没起来的唯一依据（v2.0.0 的静默回落事故就靠它定位）。</li>
@@ -2054,7 +2067,7 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
                 if (fs != null) {
                     for (File f : fs) {
                         String fn = f.getName();
-                        if (f.isFile() && fn.startsWith("signal-") && fn.endsWith(".json")) {
+                        if (f.isFile() && fn.startsWith("caiji-") && fn.endsWith(".json")) {
                             if (f.delete()) n++;
                         }
                     }
@@ -2062,7 +2075,7 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
             }
         } catch (Throwable ignored) {
         }
-        L6Log.i("L6Signal", "清空采集产物：删除 " + n + " 个 signal-*.json（运行日志未动）");
+        L6Log.i("L6Signal", "清空采集产物：删除 " + n + " 个 caiji-*.json（运行日志未动）");
         return n;
     }
 

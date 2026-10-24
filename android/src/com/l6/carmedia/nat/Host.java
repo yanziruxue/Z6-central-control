@@ -114,7 +114,7 @@ public interface Host {
     boolean isSignalCapturing();
 
     /**
-     * 删除 {@code Download/L6/} 下全部 {@code signal-*.json} 采集产物。
+     * 删除 {@code Download/L6/caiji/} 下全部 {@code caiji-*.json} 采集产物（v2.0.9 迁入 caiji 子目录并改名）。
      *
      * <p>★ v2.0.3 新增。**只删采集产物，不碰运行日志 {@code l6-*.log}** ——
      * 后者含「原生界面已启用」那行，是判断原生界面起没起来的唯一依据。

@@ -119,7 +119,7 @@ public class NatShell implements Shell {
         //   被当成「原生界面起不来」而**静默回退整个网页版** —— 症状极具误导性：
         //   界面看起来正常（那是 HTML 原型在 WebView 里渲染的，两者是忠实移植），
         //   但原生侧所有 android.util.Log 一条都不出，任何原生交互改动都「测不出效果」。
-        //   实测证据：/sdcard/Download/L6/l6-<date>.log 里
+        //   实测证据：/sdcard/Download/L6/app-log/l6-<date>.log 里
         //   「原生界面启动失败，回退网页版: java.lang.NullPointerException: ... addView ... on a null object reference」。
         overlay = new FrameLayout(c);
         overlay.setLayoutParams(new FrameLayout.LayoutParams(U.MP, U.MP));

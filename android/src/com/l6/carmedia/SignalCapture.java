@@ -115,6 +115,8 @@ public final class SignalCapture {
     private static void loop() {
         long t0 = System.currentTimeMillis();
         List<SigDiff.Change> changes = new ArrayList<>();
+        // 被 ignoreKeys 过滤掉的噪声（落盘进 changes2），与 changes（changes1）相加 = 全部变化
+        List<SigDiff.Change> filteredChanges = new ArrayList<>();
         JSONObject cap = null;
         try {
             // ① 能力探测（先落地：这是「探索 API 逻辑」的结论）
@@ -156,16 +158,25 @@ public final class SignalCapture {
                     // 单轮失败不终止采集：车机上偶发 SecurityException 很正常
                     continue;
                 }
+                // 全量 diff（不过滤），再按 ignoreKeys 拆成「保留 / 过滤」两组，
+                // 落盘时分别进 changes1 / changes2，二者相加 = 本次采集的全部变化。
                 List<SigDiff.Change> delta = (prev == null)
                         ? new ArrayList<SigDiff.Change>()
-                        : SigDiff.diff(prev, now, ignoreKeys());
+                        : SigDiff.diff(prev, now);
                 prev = now;
 
                 long t = System.currentTimeMillis() - t0;
                 int emitted = 0;
+                Set<String> ig = ignoreKeys();
                 for (SigDiff.Change ch : delta) {
+                    if (ig.contains(ch.key)) {
+                        if (filteredChanges.size() < MAX_CHANGES) {
+                            filteredChanges.add(ch);
+                        }
+                        continue;
+                    }
                     if (changes.size() >= MAX_CHANGES) {
-                        break;
+                        continue;
                     }
                     changes.add(ch);
                     L6Log.i(TAG, stamp(t) + " " + ch.src() + " | " + ch.describe());
@@ -190,29 +201,32 @@ public final class SignalCapture {
             L6Log.i(TAG, "采集线程异常退出：" + e);
         }
 
-        finish(t0, changes, cap);
+        finish(t0, changes, filteredChanges, cap);
     }
 
     /* ==================== 收尾 ==================== */
 
-    private static void finish(long t0, List<SigDiff.Change> changes, JSONObject cap) {
+    private static void finish(long t0, List<SigDiff.Change> changes,
+                               List<SigDiff.Change> filteredChanges, JSONObject cap) {
         long dur = System.currentTimeMillis() - t0;
         String file = "";
         int logLines = 0;
         try {
             String[] logs = dumpLogcat(t0, System.currentTimeMillis());
             logLines = logs.length;
-            file = dump(t0, dur, changes, cap, logs);
+            file = dump(t0, dur, changes, filteredChanges, cap, logs);
         } catch (Throwable e) {
             L6Log.i(TAG, "落盘失败：" + e);
         }
-        L6Log.i(TAG, stamp(dur) + " END 采集结束：用时 " + (dur / 1000) + "s，变化 "
-                + changes.size() + " 条，logcat " + logLines
+        L6Log.i(TAG, stamp(dur) + " END 采集结束：用时 " + (dur / 1000) + "s，保留 "
+                + changes.size() + " 条 / 过滤 " + filteredChanges.size() + " 条（合计 "
+                + (changes.size() + filteredChanges.size()) + "），logcat " + logLines
                 + " 行" + (file.isEmpty() ? "" : "，已存 " + file));
 
         JSONObject o = new JSONObject();
         try {
             o.put("kind", "done").put("ms", dur).put("changes", changes.size())
+                    .put("filtered", filteredChanges.size())
                     .put("logcatLines", logLines).put("file", file);
         } catch (Throwable ignored) { }
         emit(o);
@@ -271,12 +285,12 @@ public final class SignalCapture {
 
     /** 结构化落盘：能力清单 / 车辆键 / 标记 / 变化序列 / logcat 窗口。 */
     private static String dump(long t0, long dur, List<SigDiff.Change> changes,
-                               JSONObject cap, String[] logs) {
+                               List<SigDiff.Change> filteredChanges, JSONObject cap, String[] logs) {
         File dir = L6Log.artifactDir();
         if (dir == null) {
             return "";
         }
-        File f = new File(dir, "signal-"
+        File f = new File(dir, "caiji-"
                 + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date(t0)) + ".json");
         JSONObject o = new JSONObject();
         try {
@@ -288,15 +302,27 @@ public final class SignalCapture {
             if (cap != null) {
                 o.put("capability", cap);
             }
-            JSONArray cs = new JSONArray();
+            // 变化拆成两组：changes1 = 过滤后保留（有意义），changes2 = 被 ignoreKeys 过滤掉的噪声；
+            // changes1 + changes2 = 本次采集的全部变化（changeTotal 仅作快速校验）。
+            JSONArray c1 = new JSONArray();
             for (SigDiff.Change ch : changes) {
-                cs.put(new JSONObject()
+                c1.put(new JSONObject()
                         .put("src", ch.src()).put("key", ch.name())
                         .put("from", ch.from == null ? JSONObject.NULL : ch.from)
                         .put("to", ch.to == null ? JSONObject.NULL : ch.to)
                         .put("kind", ch.kind));
             }
-            o.put("changes", cs);
+            JSONArray c2 = new JSONArray();
+            for (SigDiff.Change ch : filteredChanges) {
+                c2.put(new JSONObject()
+                        .put("src", ch.src()).put("key", ch.name())
+                        .put("from", ch.from == null ? JSONObject.NULL : ch.from)
+                        .put("to", ch.to == null ? JSONObject.NULL : ch.to)
+                        .put("kind", ch.kind));
+            }
+            o.put("changes1", c1);
+            o.put("changes2", c2);
+            o.put("changeTotal", changes.size() + filteredChanges.size());
             JSONArray lg = new JSONArray();
             for (String s : logs) {
                 lg.put(s);

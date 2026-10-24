@@ -30,13 +30,17 @@ public class OtaFileProvider extends ContentProvider {
 
     private File resolve(Uri uri) {
         String seg = uri.getLastPathSegment() == null ? "" : uri.getLastPathSegment();
-        // logs/<name> → Download/L6/<name>（运行日志与采集产物，供「下载日志」导出）
+        // 拒绝路径穿越：URI 是应用自身拼出来的，理论上不含 ".."，此处兜底防止越权读其它文件
+        if (seg.contains("..")) {
+            return new File(getContext().getFilesDir(), "update/__invalid__");
+        }
+        // logs/<sub/name> → Download/L6/<sub/name>（运行日志与采集产物，供「下载日志」导出；v2.0.9 起含 app-log 子目录）
         if (seg.startsWith("logs/")) {
             File dir = new File(android.os.Environment
                     .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS), "L6");
             return new File(dir, seg.substring("logs/".length()));
         }
-        // extlogs/<name> → 应用私有 files/L6/<name>（取不到公共目录时的回落）
+        // extlogs/<sub/name> → 应用私有 files/L6/<sub/name>（取不到公共目录时的回落）
         if (seg.startsWith("extlogs/")) {
             File dir = new File(getContext().getExternalFilesDir(null), "L6");
             return new File(dir, seg.substring("extlogs/".length()));
