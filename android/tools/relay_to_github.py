@@ -9,7 +9,7 @@ relay_to_github.py —— 把 Gitea Runner 构建好的 APK 拉回本地、再�
      （车机 OTA 直拉 GitHub releases/latest）
 
 配置（环境变量，secret 不落库）：
-  GITEA_SERVER   默认 https://git.ziruxue.top   （LAN 用 http://192.168.24.10:8024）
+  GITEA_SERVER   默认 http://192.168.24.10:8024 （本机走局域网 IP，绕开域名；外网回退改此值）
   GITEA_REPO     默认 yanzi/Z6
   GITEA_TOKEN    Gitea 个人令牌（repo 权限）
   GH_REPO        默认 yanziruxue/Z6-central-control
@@ -36,7 +36,7 @@ import urllib.parse
 
 CTX = ssl.create_default_context()
 
-GITEA_SERVER = os.environ.get("GITEA_SERVER", "https://git.ziruxue.top").rstrip("/")
+GITEA_SERVER = os.environ.get("GITEA_SERVER", "http://192.168.24.10:8024").rstrip("/")
 GITEA_REPO = os.environ.get("GITEA_REPO", "yanzi/Z6")
 GITEA_TOKEN = os.environ.get("GITEA_TOKEN", "")
 GH_REPO = os.environ.get("GH_REPO", "yanziruxue/Z6-central-control")
@@ -102,8 +102,11 @@ def main():
     for a in rel.get("assets", []):
         n = a.get("name", "")
         if n.startswith("Z6CC") and n.endswith(".apk"):
-            asset_url = a.get("browser_download_url") or (GITEA_SERVER + "/api/v1/repos/" +
-                              GITEA_REPO + "/releases/assets/" + str(a.get("id")))
+            # ★ 一律用 GITEA_SERVER（局域网 IP）构造资产 API 下载地址，绝不读 browser_download_url：
+            #   Gitea 的 browser_download_url 按 ROOT_URL 生成（可能是域名），本机连不上域名会卡下载。
+            #   API 端点 + Accept: application/octet-stream 返回二进制，且走 token 鉴权。
+            asset_id = a.get("id")
+            asset_url = GITEA_SERVER + "/api/v1/repos/" + GITEA_REPO + "/releases/assets/" + str(asset_id)
             asset_name = n
             break
     if not asset_url:
@@ -113,7 +116,7 @@ def main():
     os.makedirs("dist", exist_ok=True)
     local = os.path.join("dist", asset_name)
     print("==> 下载 APK: %s -> %s" % (asset_url, local))
-    with gitea_req("GET", asset_url) as r, open(local, "wb") as f:
+    with gitea_req("GET", asset_url, extra={"Accept": "application/octet-stream"}) as r, open(local, "wb") as f:
         f.write(r.read())
     print("✓ 已拉回本地: %s (%d bytes)" % (local, os.path.getsize(local)))
 
