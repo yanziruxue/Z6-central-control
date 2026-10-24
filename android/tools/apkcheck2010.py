@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.9 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.10 产物反查：界面全原生 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -11,13 +11,16 @@
 ★ v2.0.8 弹窗按钮改横向一行（立即更新/跳过此版/稍后再说）+ 更新正文不再显示 sha256 行。
 ★ v2.0.9 目录重构（app-log/caiji 子目录 + 采集文件改名 caiji-）+ 采集快照拆 changes1/changes2
            + **P0 修复**：采集后台线程回推刷新 UI 改投递主线程（setRefreshPending 合并风暴）。
+★ v2.0.10（实发版）P0 修复（2026-10-24 车机连崩两次）：刷新路径原子化
+           （SetPane 五处 removeAllViews+addView 改「先建 list 后替换」、HomePane.refresh 同）
+           + SetPane.refresh / HomePane.refresh 入口线程兜底 + 静默 catch 加 L6Log.e 留现场。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.9.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.10.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -53,6 +56,13 @@ POS = [
     b"clearSignalLogs", b"signal-",
     # v2.0.9：目录重构（app-log/caiji 子目录 + caiji- 前缀）+ 采集快照拆 changes1/changes2
     b"caiji", b"caiji-", b"changes1", b"changes2", b"app-log",
+    # v2.0.10 P0 修复（车机连崩两次）：刷新路径原子化 + 入口线程兜底 + 静默 catch 留日志。
+    #   断言全部落在新增的 L6Log.e 消息字面量上（字符串池，dex 可见）。
+    b"onResume refreshHome \xe5\xa4\xb1\xe8\xb4\xa5",       # onResume refreshHome 失败
+    b"onResume refreshSet \xe5\xa4\xb1\xe8\xb4\xa5",        # onResume refreshSet 失败
+    b"onSys updateCar \xe5\xa4\xb1\xe8\xb4\xa5",            # onSys updateCar 失败
+    b"onSys updateMedia \xe5\xa4\xb1\xe8\xb4\xa5",          # onSys updateMedia 失败
+    b"refreshOta \xe8\xaf\xbb otaConfig \xe5\xa4\xb1\xe8\xb4\xa5",  # refreshOta 读 otaConfig 失败
     # v2.0.7：必须保留 isUsable 门禁与「缺少下载直链」文案（半发版状态要被拒）
     b"\xe7\xbc\xba\xe5\xb0\x91\xe4\xb8\x8b\xe8\xbd\xbd\xe7\x9b\xb4\xe9\x93\xbe",  # 缺少下载直链
     # v2.0.4：启动自动检查发现新版本 → 可取消提示框

@@ -295,14 +295,22 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         if (!bounced) {
             try {
                 if (natShell != null) natShell.refreshHome();
-            } catch (Throwable ignored) {
+            } catch (Throwable t) {
+                // ★ v2.0.10（P0 修复）：这里以前是静默吞掉 —— refreshHome 中途抛异常时
+                //   主页三栏会停在「已清空、只加回一半」的半成品状态，mChildren 留 null
+                //   槽位，下一帧必崩（2026-10-24 车机连崩两次）。现在 HomePane.refresh 本身
+                //   已原子化，这里仍要留日志：万一还有别的路径抛，至少现场能抓。
+                L6Log.e("L6", "onResume refreshHome 失败: " + t);
             }
         }
         // 悬浮窗授权 / 默认桌面 可能刚在系统「应用管理 / 默认应用」页改过
         // → 重建设置页（卡片状态在 build 时现读，重建即刷新）
         try {
             if (natShell != null) natShell.refreshSet();
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            // ★ v2.0.10（P0 修复）：同上，SetPane.refresh 已原子化 + 入口兜底主线程，
+            //   这里留日志防未来新增子刷新再踩。
+            L6Log.e("L6", "onResume refreshSet 失败: " + t);
         }
     }
 

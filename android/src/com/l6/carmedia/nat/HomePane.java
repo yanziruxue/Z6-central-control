@@ -1,6 +1,7 @@
 package com.l6.carmedia.nat;
 
 import android.content.Context;
+import com.l6.carmedia.L6Log;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -24,6 +25,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -114,16 +116,36 @@ public class HomePane {
     /**
      * 按最新 homeState()（LinkedHashMap 保序）重排三栏并切换可见性。
      * 只调顺序 / GONE，不重建栏内结构。
+     *
+     * ★ v2.0.10（P0 修复）：原子替换。老写法先 root.removeAllViews() 再循环 addView(col)，
+     *   中途一抛（colFor/setVisibility/LayoutParams 构造）就被上游
+     *   catch (Throwable ignored) 静默吞掉 ⇒ root 停在「已清空、只加回一半」的状态，
+     *   mChildren 数组里留下 null 槽位 ⇒ 下一帧主线程 collectViewAttributes 或
+     *   RenderThread 绘制遍历必崩（2026-10-24 车机连崩两次的根因模型）。
+     *   现在先把要放回的 col 全部挑好、设好可见性（这步抛了屏幕分毫未动），
+     *   全部成功后才 removeAllViews + 逐个 addView —— 到这一步已不可能抛。
+     *   col 是 build() 时创建的长期字段，只能暂存后放回，不能新建。
+     *
+     *   ★ 入口同样兜底主线程（同 SetPane.refresh 的理由，2026-10-24 车机连崩两次：
+     *     非主线程 removeAllViews/addView 与绘制竞争 ⇒ mChildren null 槽位 ⇒ 必崩）。
      */
     public void refresh() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(this::refresh);
+            return;
+        }
         if (root == null) return;
         LinkedHashMap<String, Boolean> st = sh.prefs().homeState();
-        root.removeAllViews();
+        ArrayList<View> cols = new ArrayList<>();
         for (Map.Entry<String, Boolean> e : st.entrySet()) {
             LinearLayout col = colFor(e.getKey());
             if (col == null) continue;
             boolean on = e.getValue() != null && e.getValue();
             col.setVisibility(on ? View.VISIBLE : View.GONE);
+            cols.add(col);
+        }
+        root.removeAllViews();
+        for (View col : cols) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, U.MP, 1f);
             p.leftMargin = U.px(14);
             root.addView(col, p);
@@ -409,8 +431,15 @@ public class HomePane {
      */
     public void onSys(JSONObject sys) {
         if (sys == null) sys = new JSONObject();
-        try { updateCar(sys.optJSONObject("car")); } catch (Throwable ignored) { }
-        try { updateMedia(sys.optJSONObject("media"), sys.optJSONObject("lyrics")); } catch (Throwable ignored) { }
+        // ★ v2.0.10（P0 修复）：以前这两处静默吞异常。虽然 updateCar/updateMedia 目前
+        //   只做 setText/setFrac（不增删视图），但一旦未来谁在这里加了重建逻辑，
+        //   半成品树就会留屏成帧（2026-10-24 车机连崩两次的根因模型）——留日志。
+        try { updateCar(sys.optJSONObject("car")); } catch (Throwable t) {
+            L6Log.e("L6", "onSys updateCar 失败: " + t);
+        }
+        try { updateMedia(sys.optJSONObject("media"), sys.optJSONObject("lyrics")); } catch (Throwable t) {
+            L6Log.e("L6", "onSys updateMedia 失败: " + t);
+        }
     }
 
     // ------------------------------------------------------------------ 车况

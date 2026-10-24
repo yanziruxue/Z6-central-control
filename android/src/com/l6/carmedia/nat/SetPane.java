@@ -1,6 +1,7 @@
 package com.l6.carmedia.nat;
 
 import android.content.Context;
+import com.l6.carmedia.L6Log;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.annotation.SuppressLint;
@@ -152,8 +153,22 @@ public class SetPane {
         return root;
     }
 
-    /** 重算全部动态文案 / 勾选态 / 列表 */
+    /**
+     * 重算全部动态文案 / 勾选态 / 列表。
+     *
+     * ★ v2.0.10（P0 修复）入口兜底线程保护：上游目前都各自做了主线程投递
+     *   （SignalCapture 用 ui.post + pending 合并、OTA 用 runOnUiThread 归一化、
+     *   sysWake 用主线程 Handler），但这个方法一旦被未来新增的第五六个事件源
+     *   直接从后台线程调到，子刷新里的 removeAllViews/addView 就会与主线程
+     *   绘制竞争。2026-10-24 车机实测：ViewGroup 遍历 mChildren 撞上 null
+     *   子 view，连崩两次（dispatchDraw / dispatchCollectViewAttributes 两个
+     *   不同入口）。这里花一行成本把整个入口锁在主线程。
+     */
     public void refresh() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            new Handler(Looper.getMainLooper()).post(this::refresh);
+            return;
+        }
         refreshHomeMode();
         refreshMusicSrc();
         refreshNavSrc();
@@ -181,10 +196,23 @@ public class SetPane {
     private void refreshHomeMode() {
         if (hmRow == null) return;
         hmClearVisuals();
-        hmRow.removeAllViews();
+        // ★ v2.0.10（P0 修复）：原子替换。老写法先 removeAllViews 再循环 addView，
+        //   中途一抛（hmItem 里的图标/文案/prefs 读取都可能）就被上游
+        //   catch (Throwable ignored) 静默吞掉 ⇒ hmRow 停在「已清空、只加回一半」
+        //   的状态，mChildren 数组里留下 null 槽位 ⇒ 下一帧主线程 collectViewAttributes
+        //   或 RenderThread 绘制遍历必崩（2026-10-24 车机连崩两次的根因模型）。
+        //   现在先在局部 list 里把全部 item 建好（这步抛了屏幕上的 hmRow 分毫未动），
+        //   全部成功后才 removeAllViews + 逐个 addView —— 到这一步已不可能抛。
+        //   ★ 不能改成「建临时 row 再整体 addView」：hmMove 按 hmRow.getChildAt(i)
+        //     的索引与 hmFrom（被拖项序号）一一对应，多包一层会把拖动排序全打乱。
         LinkedHashMap<String, Boolean> st = prefs.homeState();
+        ArrayList<View> items = new ArrayList<>();
         for (Map.Entry<String, Boolean> e : st.entrySet()) {
-            hmRow.addView(hmItem(e.getKey(), e.getValue()), U.lp(0, U.WC, 1f));
+            items.add(hmItem(e.getKey(), e.getValue()));
+        }
+        hmRow.removeAllViews();
+        for (View v : items) {
+            hmRow.addView(v, U.lp(0, U.WC, 1f));
         }
         U.gapH(hmRow, 10);
     }
@@ -446,7 +474,9 @@ public class SetPane {
 
     private void refreshMusicSrc() {
         if (musicOpts == null) return;
-        musicOpts.removeAllViews();
+        // ★ v2.0.10（P0 修复）：原子替换，理由同 refreshHomeMode ——
+        //   removeAllViews 与 addView 之间不能留可抛窗口，否则半成品树留屏必崩。
+        ArrayList<View> opts = new ArrayList<>();
         for (final String[] m : Def.LOCAL_MUSIC) {
             TextView b = U.smallBtn(c, m[2] + " " + m[1]);
             U.setOn(b, m[0].equals(prefs.musicSrc));
@@ -455,14 +485,22 @@ public class SetPane {
                 prefs.save();
                 refreshMusicSrc();
             });
-            musicOpts.addView(b, U.lp(U.WC, U.WC));
+            opts.add(b);
+        }
+        musicOpts.removeAllViews();
+        for (View v : opts) {
+            musicOpts.addView(v, U.lp(U.WC, U.WC));
         }
         U.gapH(musicOpts, 8);
 
-        musicCur.removeAllViews();
         SrcInfo si = resolveSrc(prefs.musicSrc, "music");
-        musicCur.addView(U.text(c, si.icon, 16, U.TXT), U.lp(U.WC, U.WC));
-        musicCur.addView(U.bold(U.text(c, si.name, 12, U.TXT)), U.lp(U.WC, U.WC));
+        ArrayList<View> cur = new ArrayList<>();
+        cur.add(U.text(c, si.icon, 16, U.TXT));
+        cur.add(U.bold(U.text(c, si.name, 12, U.TXT)));
+        musicCur.removeAllViews();
+        for (View v : cur) {
+            musicCur.addView(v, U.lp(U.WC, U.WC));
+        }
         U.gapH(musicCur, 6);
     }
 
@@ -494,14 +532,19 @@ public class SetPane {
 
     private void refreshNavSrc() {
         if (navCur == null) return;
-        navCur.removeAllViews();
+        // ★ v2.0.10（P0 修复）：原子替换，理由同 refreshHomeMode。
+        ArrayList<View> cur = new ArrayList<>();
         if (prefs.navApp == null || prefs.navApp.isEmpty()) {
-            navCur.addView(U.text(c, "未选择导航应用", 12, U.SUB), U.lp(U.WC, U.WC));
-            return;
+            cur.add(U.text(c, "未选择导航应用", 12, U.SUB));
+        } else {
+            SrcInfo si = resolveSrc(prefs.navApp, "nav");
+            cur.add(U.text(c, si.icon, 16, U.TXT));
+            cur.add(U.bold(U.text(c, si.name, 12, U.TXT)));
         }
-        SrcInfo si = resolveSrc(prefs.navApp, "nav");
-        navCur.addView(U.text(c, si.icon, 16, U.TXT), U.lp(U.WC, U.WC));
-        navCur.addView(U.bold(U.text(c, si.name, 12, U.TXT)), U.lp(U.WC, U.WC));
+        navCur.removeAllViews();
+        for (View v : cur) {
+            navCur.addView(v, U.lp(U.WC, U.WC));
+        }
         U.gapH(navCur, 6);
     }
 
@@ -524,7 +567,8 @@ public class SetPane {
 
     private void refreshGestures() {
         if (gesBox == null) return;
-        gesBox.removeAllViews();
+        // ★ v2.0.10（P0 修复）：原子替换，理由同 refreshHomeMode。
+        ArrayList<View> rows = new ArrayList<>();
         for (final String k : GES_KEYS) {
             LinearLayout row = U.row(c);
             row.addView(U.text(c, dirName(k), 12, U.SUB), U.lp(U.WC, U.WC));
@@ -542,7 +586,11 @@ public class SetPane {
             row.addView(bp, U.lp(U.WC, U.WC));
             row.addView(bd, U.lp(U.WC, U.WC));
             U.gapH(row, 8);
-            gesBox.addView(row);
+            rows.add(row);
+        }
+        gesBox.removeAllViews();
+        for (View v : rows) {
+            gesBox.addView(v);
         }
         U.gapV(gesBox, 6);
     }
@@ -691,39 +739,56 @@ public class SetPane {
 
     private void layoutWallItems() {
         if (wallGrid == null) return;
+        // ★ v2.0.10（P0 修复）：原子替换，理由同 refreshHomeMode。
+        //   先在局部 list 里把全部行建好，全部成功后才清空 wallGrid 放回去 ——
+        //   事后的 margin 补丁与 gapV 仍对屏幕上的 wallGrid 做，行为与老写法一致。
+        ArrayList<View> rows = new ArrayList<>();
+        if (!(wallItems == null || wallItems.isEmpty())) {
+            int gap = U.px(10);
+            int itemW = U.px(112);
+            int avail = wallGrid.getWidth();
+            if (avail <= 0) avail = U.px(1800);   // 尚未布局时的兜底，真宽到了会再排一次
+            int cols = Math.max(1, (avail + gap) / (itemW + gap));
+
+            LinearLayout row = null;
+            for (int i = 0; i < wallItems.size(); i++) {
+                if (i % cols == 0) {
+                    row = U.row(c);
+                    rows.add(row);
+                }
+                Prefs.WallItem it = wallItems.get(i);
+                row.addView(wallItemView(it, it.id.equals(wallCurId)), U.lp(112, U.WC));
+            }
+            // 行内用固定 10u 外边距（首列不加），LinearLayout 没有 flex gap，只能逐项补
+            for (LinearLayout r : toRows(rows)) {
+                for (int ci = 0; ci < r.getChildCount(); ci++) {
+                    View ch = r.getChildAt(ci);
+                    ViewGroup.LayoutParams lp = ch.getLayoutParams();
+                    if (lp instanceof LinearLayout.LayoutParams) {
+                        ((LinearLayout.LayoutParams) lp).rightMargin = ci == 0 ? 0 : gap;
+                    }
+                }
+            }
+        }
         wallGrid.removeAllViews();
+        for (View v : rows) {
+            wallGrid.addView(v);
+        }
         if (wallItems == null || wallItems.isEmpty()) {
             lastWallW = wallGrid.getWidth();
             return;
         }
-        int gap = U.px(10);
-        int itemW = U.px(112);
-        int avail = wallGrid.getWidth();
-        if (avail <= 0) avail = U.px(1800);   // 尚未布局时的兜底，真宽到了会再排一次
-        int cols = Math.max(1, (avail + gap) / (itemW + gap));
-
-        LinearLayout row = null;
-        for (int i = 0; i < wallItems.size(); i++) {
-            if (i % cols == 0) {
-                row = U.row(c);
-                wallGrid.addView(row);
-            }
-            Prefs.WallItem it = wallItems.get(i);
-            row.addView(wallItemView(it, it.id.equals(wallCurId)), U.lp(112, U.WC));
-        }
-        // 行内用固定 10u 外边距（首列不加），LinearLayout 没有 flex gap，只能逐项补
-        for (int ri = 0; ri < wallGrid.getChildCount(); ri++) {
-            LinearLayout r = (LinearLayout) wallGrid.getChildAt(ri);
-            for (int ci = 0; ci < r.getChildCount(); ci++) {
-                View ch = r.getChildAt(ci);
-                ViewGroup.LayoutParams lp = ch.getLayoutParams();
-                if (lp instanceof LinearLayout.LayoutParams) {
-                    ((LinearLayout.LayoutParams) lp).rightMargin = ci == 0 ? 0 : gap;
-                }
-            }
-        }
         U.gapV(wallGrid, 10);
         lastWallW = wallGrid.getWidth();
+    }
+
+    /** layoutWallItems 用：把 rows 里是 LinearLayout 的挑出来（wallItemView 可能返回非 row） */
+    private static ArrayList<LinearLayout> toRows(ArrayList<View> rows) {
+        ArrayList<LinearLayout> out = new ArrayList<>();
+        for (View v : rows) {
+            if (v instanceof LinearLayout) out.add((LinearLayout) v);
+        }
+        return out;
     }
 
     private View wallItemView(final Prefs.WallItem it, boolean on) {
@@ -1124,7 +1189,9 @@ public class SetPane {
         try {
             JSONObject cfg = sh.host().otaConfig();
             if (cfg != null) ver = cfg.optString("version", "--");
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            // ★ v2.0.10（P0 修复）：以前静默 —— 配置读失败时连现场都留不下
+            L6Log.e("L6", "refreshOta 读 otaConfig 失败: " + t);
         }
         otaCurVal.setText(ver);
     }
