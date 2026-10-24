@@ -905,7 +905,7 @@ public class SetPane {
             refreshSignal();
         });
         // ★ v2.0.3：清空按钮放在「开始采集」左边
-        sigClear = U.btn(c, "🗑 清空");
+        sigClear = U.btn(c, "🗑 清空采集日志");
         sigClear.setTextColor(U.WARN);
         sigClear.setOnClickListener(v -> confirmClearSignal());
         card.addView(otaRow(curSpan("采集状态：", sigState), sigBtns()));
@@ -921,7 +921,7 @@ public class SetPane {
 
         card.addView(U.text(c, "点「开始采集」后保持在页面，自行操作车辆功能（车门 / 车窗 / 车辆按钮等），完成后点「结束采集」；"
                 + "结论写入本地日志（标签 L6Signal）并另存 Download/L6/caiji/caiji-*.json。\n"
-                + "「🗑 清空」会删除全部 caiji-*.json 采集产物（运行日志 l6-*.log 保留在 app-log/）。", 12, U.SUB));
+                + "「🗑 清空采集日志」会删除全部 caiji-*.json 采集产物（运行日志 l6-*.log 保留在 app-log/）。", 12, U.SUB));
         U.gapV(card, 8);
         s.addView(card);
         U.gapV(s, 8);
@@ -929,7 +929,7 @@ public class SetPane {
     }
 
     /**
-     * 采集分区的右侧按钮组：**[🗑 清空] [▶ 开始采集]**。
+     * 采集分区的右侧按钮组：**[🗑 清空采集日志] [▶ 开始采集]**。
      *
      * <p>★ v2.0.3 新增清空按钮。{@code otaRow} 只支持「左标签 + 右控件」两段，
      * 所以右侧改成用 {@link U#row} 装两个按钮，各占 WC/WC、中间留 8u 间隙。
