@@ -729,6 +729,10 @@ public class SetPane {
 
     private void refreshWall() {
         if (wallStaticBtn == null) return;
+        // ★ 关键修复：每次进设置页 / 切静态动态标签都重新扫一遍壁纸目录。
+        //   原实现只在 Prefs 单例构造（App 启动）时扫一次，导致启动后手动拷进的壁纸
+        //   必须重启 App 才看得到。scanWallDirs 幂等（按 s_/d_+文件名 去重），只增量补条目。
+        prefs.scanWallDirs();
         U.setOn(wallStaticBtn, Prefs.KIND_STATIC.equals(prefs.wall));
         U.setOn(wallDynamicBtn, Prefs.KIND_DYNAMIC.equals(prefs.wall));
         wallDimBtn.setText(prefs.wallDim ? "● 开启" : "○ 关闭");

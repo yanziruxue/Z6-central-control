@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.13 产物反查：采集前台保活 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.14 产物反查：壁纸手动放置修复 —— 断言 dex / assets 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -36,13 +36,19 @@
            - SignalCapture.start 挂服务、finish 落盘后撤服务、10s 心跳刷通知进度
            - SetPane 引导文案改「可切后台 / 熄屏 / 用导航」
            - 不申请任何新权限；START_NOT_STICKY（进程真死了不空跑重启）。
+★ v2.0.14 壁纸手动放置修复（用户在设置页壁纸选择处看不到手动放进目录的壁纸）：
+           - 根因：Prefs.scanWallDirs() 只在 App 启动（Prefs 单例构造）时跑一次，
+             refreshWall() 只读内存列表 → 启动后手动拷入的壁纸须重启 App 才出现。
+           - 修复：SetPane.refreshWall() 入口加 prefs.scanWallDirs()（幂等、去重、只增量补），
+             进设置页 / 切静态动态标签即重新扫盘，无需重启。
+           - 上传壁纸本就走内存列表，不受影响；本次仅修手动放置这路径。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.13.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.14.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
