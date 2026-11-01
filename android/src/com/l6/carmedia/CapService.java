@@ -47,6 +47,8 @@ public final class CapService extends Service {
     private static volatile CapService self;
     private static volatile NotificationManager nm;
     private static volatile Notification.Builder builder;
+    /** v2.0.16：startForeground 专用的最小通知（仅 icon+标题+渠道，无 action/PendingIntent）。 */
+    private static volatile Notification.Builder minBuilder;
 
     private CapService() {
     }
@@ -121,6 +123,14 @@ public final class CapService extends Service {
         if (icon == 0) {
             icon = android.R.drawable.ic_dialog_info;
         }
+        // v2.0.16 P0：最小通知——startForeground 时只挂它。system_server 会对
+        // startForeground 提交的通知做严格校验，复杂通知（addAction/contentIntent）在
+        // 定制 ROM 上可能被判 Bad notification ⇒ AMS 直接杀进程（app 侧 try-catch 拦不住）。
+        // 最小通知通过校验概率最高；保活挂稳后再 notify 完整版（失败只损失按钮/进度）。
+        minBuilder = new Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(icon)
+                .setContentTitle("老六 · 信号采集中")
+                .setOngoing(true);
         builder = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(icon)
                 .setContentTitle("老六 · 信号采集中")
@@ -142,14 +152,26 @@ public final class CapService extends Service {
         //   API 28 起缺 FOREGROUND_SERVICE 权限（v2.0.14 及之前漏声明）或 ROM 拦截时
         //   这里会抛异常，服务崩溃=整个进程闪退（点开始采集直接退回桌面）。
         //   兜底策略：保活失败只损失通知，采集线程照跑，绝不带崩进程。
-        Notification.Builder b = builder;
-        if (b != null) {
+        // v2.0.16 P0：先挂「最小通知」（minBuilder，无 action/PendingIntent），
+        //   挂稳后再 notify 完整版——把 Bad notification 杀进程的炸点排除在
+        //   startForeground 之外（完整版失败只损失按钮/进度，不影响保活）。
+        Notification.Builder mb = minBuilder;
+        if (mb != null) {
             try {
-                startForeground(NOTIF_ID, b.build());
+                startForeground(NOTIF_ID, mb.build());
             } catch (Throwable t) {
                 L6Log.e("L6Signal", "startForeground 失败（仅损失保活，采集继续）：" + t);
                 stopSelf();
                 return START_NOT_STICKY;
+            }
+            Notification.Builder fb = builder;
+            NotificationManager m = nm;
+            if (fb != null && m != null) {
+                try {
+                    m.notify(NOTIF_ID, fb.build());
+                } catch (Throwable ignored) {
+                    // 完整版挂不上只损失「结束采集」按钮与进度文案，最小常驻通知仍在
+                }
             }
         }
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
@@ -167,6 +189,7 @@ public final class CapService extends Service {
     public void onDestroy() {
         self = null;
         builder = null;
+        minBuilder = null;
         nm = null;
         super.onDestroy();
     }

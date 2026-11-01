@@ -139,7 +139,13 @@ public final class SignalCapture {
             } catch (Throwable e) {
                 L6Log.i(TAG, "接口探测失败（不影响采集）：" + e);
             }
-            IfaceProbe.arm(appCtx);
+            // v2.0.16：arm 内部虽有兜底，这里再包一层外层 catch（双保险——
+            // 采集主流程绝不能被探测附属逻辑带崩）
+            try {
+                IfaceProbe.arm(appCtx);
+            } catch (Throwable e) {
+                L6Log.i(TAG, "嗅探挂载失败（不影响采集）：" + e);
+            }
         }
         logCapability(cap);
 
@@ -218,7 +224,17 @@ public final class SignalCapture {
             L6Log.i(TAG, "采集线程异常退出：" + e);
         }
 
-        finish(t0, changes, filteredChanges, cap);
+        // v2.0.16：finish 含落盘/撤服务/状态复位，任何异常都不能带崩进程
+        // （原实现裸调在主 try-catch 之外，是防御缺口）
+        try {
+            finish(t0, changes, filteredChanges, cap);
+        } catch (Throwable e) {
+            L6Log.e(TAG, "采集收尾异常（已强制复位状态）：" + e);
+            running = false;
+            stopReq = false;
+            worker = null;
+            CapService.stop(appCtx);
+        }
     }
 
     /* ==================== 收尾 ==================== */

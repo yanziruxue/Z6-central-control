@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.15 产物反查：采集闪退修复 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.16 产物反查：崩溃守护 + 前台通知加固 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -49,13 +49,22 @@
            - 修复：① manifest 补 <uses-permission FOREGROUND_SERVICE/>（normal 权限）
                    ② CapService.startForeground 包 try-catch（只损失保活，绝不带崩进程）
            - 断言：二进制 manifest 字符串池（UTF-8/UTF-16 两种编码都搜）必须含该权限名。
+★ v2.0.16 崩溃守护 + 前台通知加固（v2.0.15 装车仍闪退，车机实际版本号停在 v2.0.13 ⇒
+           修复未装上；本轮双管齐下把「点采集即崩」的两条路径全堵死 + 终结盲猜）：
+           - 新增 CrashGuard：全局 UncaughtExceptionHandler，任何线程崩溃先落盘
+             app-log/l6-crash-<ts>.txt（堆栈+线程名+版本）再交回系统——下次闪退拷这一个文件定位
+           - CapService 加固：startForeground 先挂「最小通知」（仅 icon+标题+渠道，
+             无 addAction/contentIntent）——system_server 判 Bad notification 杀进程的
+             炸点排除在 startForeground 之外；挂稳后再 notify 完整版（失败只损失按钮/进度）
+           - SignalCapture 补口：finish() 纳入 try-catch 保护（原裸调在主 try 外）；
+             IfaceProbe.arm 包外层 catch（双保险）
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.15.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.16.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -203,6 +212,15 @@ for perm in ["android.permission.FOREGROUND_SERVICE"]:
     ok = n > 0
     bad += 0 if ok else 1
     print("   %s %-58s x%d (axml %dB)" % ("ok  " if ok else "FAIL", perm, n, len(axml)))
+
+print("\n== v2.0.16 断言（崩溃守护 + 通知加固）==")
+for t in [b"L6Crash", b"l6-crash-", "崩溃守护已挂载".encode("utf-8"),
+          "采集收尾异常（已强制复位状态）".encode("utf-8"),
+          "嗅探挂载失败（不影响采集）".encode("utf-8")]:
+    n = dex.count(t)
+    ok = n > 0
+    bad += 0 if ok else 1
+    print("   %s %-58s x%d" % ("ok  " if ok else "FAIL", t.decode("utf-8", "replace")[:58], n))
 
 print("\n== assets 断言 ==")
 has_proto = any("index.html" in n for n in names)
