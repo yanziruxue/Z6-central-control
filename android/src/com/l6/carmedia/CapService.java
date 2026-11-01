@@ -24,7 +24,10 @@ import android.os.IBinder;
  *   <li>{@link #stop}：采集落盘后由 {@code finish()} 调用撤掉</li>
  * </ul>
  *
- * <p><b>不申请任何新权限</b>（前台服务无需权限）；通知渠道 IMPORTANCE_LOW 无声无角标。
+ * <p><b>权限</b>：API 28 起 {@code startForeground} 必需 manifest 声明
+ * {@code FOREGROUND_SERVICE}（normal 权限，声明即授予，无运行时弹窗）。
+ * v2.0.14 及之前漏声明 ⇒ startForeground 抛异常带崩整个进程（点开始采集闪退），
+ * v2.0.15 补上并在此处 try-catch 兜底。通知渠道 IMPORTANCE_LOW 无声无角标。
  * START_NOT_STICKY：进程真被杀了不重启——采集数据已散佚，空跑无意义。
  *
  * <p>★ 唯一启动入口是设置页「开始采集」按钮（App 必在前台），
@@ -135,10 +138,19 @@ public final class CapService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // ★ 必须先 startForeground（onCreate 里已建好 builder，正常非 null）
+        // ★ startForeground 必须在 onCreate 后尽早调；★ 必须 try-catch——
+        //   API 28 起缺 FOREGROUND_SERVICE 权限（v2.0.14 及之前漏声明）或 ROM 拦截时
+        //   这里会抛异常，服务崩溃=整个进程闪退（点开始采集直接退回桌面）。
+        //   兜底策略：保活失败只损失通知，采集线程照跑，绝不带崩进程。
         Notification.Builder b = builder;
         if (b != null) {
-            startForeground(NOTIF_ID, b.build());
+            try {
+                startForeground(NOTIF_ID, b.build());
+            } catch (Throwable t) {
+                L6Log.e("L6Signal", "startForeground 失败（仅损失保活，采集继续）：" + t);
+                stopSelf();
+                return START_NOT_STICKY;
+            }
         }
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             // 通知栏结束：只置停止请求，真正的落盘收尾在采集线程；

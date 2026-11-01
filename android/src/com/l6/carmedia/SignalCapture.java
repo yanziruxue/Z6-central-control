@@ -38,7 +38,8 @@ import java.util.TreeMap;
  * <p>采集结束时会另存一份结构化 JSON（与日志同目录），把能力清单 / 车辆键 / 标记 /
  * 变化序列 / 窗口内的 logcat 全部打包，便于整份外发。
  *
- * <p><b>不申请任何新权限</b>。v2.0.13 起挂 {@link CapService} 前台服务保活：
+ * <p><b>权限</b>：仅 manifest 声明 {@code FOREGROUND_SERVICE}（normal 权限，声明即授予，
+ * 无运行时弹窗；v2.0.15 补——缺它 startForeground 抛异常会带崩进程）。v2.0.13 起挂 {@link CapService} 前台服务保活：
  * 采集期间可切后台 / 熄屏 / 用导航，划多任务卡片与 ROM 内存压力都不再杀采集
  * （通知栏显示进度、可一键结束）。
  */

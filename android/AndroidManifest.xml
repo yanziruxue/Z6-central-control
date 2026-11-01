@@ -20,6 +20,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 悬浮窗权限：已不作为返回主页主通道（改用系统默认桌面）；仅保留作备用通道的授权入口 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 采集保活（v2.0.15 修复闪退）：API 28 起 startForeground 必需，normal 权限声明即授予 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <queries>
         <intent>
@@ -89,7 +91,8 @@
         <!--
           采集保活（v2.0.13）：前台服务 + 常驻通知。采集期间把进程提到前台优先级，
           划多任务卡片 / ROM 内存压力都不再杀采集；通知栏显示进度并可一键结束。
-          无需任何权限；启动入口仅设置页「开始采集」按钮（App 在前台时）。
+          ★ 需要 FOREGROUND_SERVICE 权限（v2.0.14 及之前漏声明 → startForeground 抛异常带崩进程闪退）。
+          启动入口仅设置页「开始采集」按钮（App 在前台时）。
         -->
         <service
             android:name="com.l6.carmedia.CapService"

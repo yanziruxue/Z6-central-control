@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.14 产物反查：壁纸手动放置修复 —— 断言 dex / assets 的「该有的在、不该有的没了」。
+"""v2.0.15 产物反查：采集闪退修复 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -42,13 +42,20 @@
            - 修复：SetPane.refreshWall() 入口加 prefs.scanWallDirs()（幂等、去重、只增量补），
              进设置页 / 切静态动态标签即重新扫盘，无需重启。
            - 上传壁纸本就走内存列表，不受影响；本次仅修手动放置这路径。
+★ v2.0.15 采集闪退修复（车机实证：点「开始采集」闪退回桌面、后台也没有）：
+           - 根因：API 28 起 startForeground 必需 manifest 声明 FOREGROUND_SERVICE，
+             v2.0.13/14 漏声明 ⇒ CapService.onStartCommand 里 startForeground 抛异常
+             带崩整个进程（服务生命周期异步，start() 外面的 catch 拦不住）。
+           - 修复：① manifest 补 <uses-permission FOREGROUND_SERVICE/>（normal 权限）
+                   ② CapService.startForeground 包 try-catch（只损失保活，绝不带崩进程）
+           - 断言：二进制 manifest 字符串池（UTF-8/UTF-16 两种编码都搜）必须含该权限名。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.14.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.15.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -184,6 +191,18 @@ for t in NEG:
     ok = n == 0
     bad += 0 if ok else 1
     print("   %s %-58s x%d" % ("ok  " if ok else "FAIL", t.decode("utf-8", "replace")[:58], n))
+
+print("\n== manifest 断言（解压后的二进制 AXML，UTF-8/UTF-16 都搜）==")
+# ★ AndroidManifest.xml 在 APK zip 里是 deflate 压缩条目，对整个 APK 原始字节搜明文必然 x0；
+#   必须先 z.read() 解压再搜字符串池。
+axml = z.read("AndroidManifest.xml")
+for perm in ["android.permission.FOREGROUND_SERVICE"]:
+    t8 = perm.encode("utf-8")
+    t16 = perm.encode("utf-16-le")
+    n = axml.count(t8) + axml.count(t16)
+    ok = n > 0
+    bad += 0 if ok else 1
+    print("   %s %-58s x%d (axml %dB)" % ("ok  " if ok else "FAIL", perm, n, len(axml)))
 
 print("\n== assets 断言 ==")
 has_proto = any("index.html" in n for n in names)
