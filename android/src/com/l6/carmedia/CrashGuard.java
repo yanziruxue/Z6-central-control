@@ -45,10 +45,15 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
     @Override
     public void uncaughtException(Thread t, Throwable e) {
         // ★ 先同步落盘——交回系统后进程随时可能被回收，必须赶在那之前写完
-        writeCrash(t, e);
+        String text = writeCrash(t, e);
         try {
             L6Log.e("L6Crash", "未捕获异常 线程=" + t.getName() + "：" + e);
         } catch (Throwable ignored) {
+        }
+        // ★ v2.0.17：崩溃堆栈同时上报到云端（后台线程，fire-and-forget；崩溃瞬间可能没网，
+        //   真正兜底靠 MainActivity 启动时 flushPendingCrash 扫描残留文件补发）。
+        if (text != null && !text.isEmpty()) {
+            L6Reporter.sendCrash(t == null ? "?" : t.getName(), text);
         }
         Thread.UncaughtExceptionHandler p = prev;
         if (p != null) {
@@ -56,8 +61,9 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
         }
     }
 
-    /** 崩溃堆栈落盘：写到运行日志同目录（app-log/l6-crash-<ts>.txt），失败静默。 */
-    private void writeCrash(Thread t, Throwable e) {
+    /** 崩溃堆栈落盘：写到运行日志同目录（app-log/l6-crash-<ts>.txt），失败静默；返回崩溃文本供上报。 */
+    private String writeCrash(Thread t, Throwable e) {
+        StringBuilder sb = new StringBuilder();
         FileWriter w = null;
         try {
             File dir = null;
@@ -65,16 +71,15 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
             if (daily != null && daily.getParentFile() != null) {
                 dir = daily.getParentFile();
                 if (!dir.exists() && !dir.mkdirs()) {
-                    return;
+                    return "";
                 }
             }
             if (dir == null || !dir.isDirectory()) {
-                return;
+                return "";
             }
             File f = new File(dir, "l6-crash-"
                     + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date())
                     + ".txt");
-            StringBuilder sb = new StringBuilder();
             sb.append("time=").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT)
                     .format(new Date())).append('\n');
             sb.append("thread=").append(t == null ? "?" : t.getName()).append('\n');
@@ -103,6 +108,7 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
                 }
             }
         }
+        return sb.toString();
     }
 
     /** 一个 Throwable 的 toString + 堆栈行（Caused by 复用）。 */

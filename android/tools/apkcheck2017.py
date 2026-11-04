@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.16 产物反查：崩溃守护 + 前台通知加固 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.17 产物反查：日志发送功能（崩溃自动上报 + 手动按钮）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -58,13 +58,21 @@
              炸点排除在 startForeground 之外；挂稳后再 notify 完整版（失败只损失按钮/进度）
            - SignalCapture 补口：finish() 纳入 try-catch 保护（原裸调在主 try 外）；
              IfaceProbe.arm 包外层 catch（双保险）
+★ v2.0.17 日志发送功能（用户要求：把日志发到自己服务端 /api/l6zz/event）：
+           - 新增 L6Reporter：POST JSON 到 https://yanzi-api.ziruxue.top/api/l6zz/event，
+             鉴权走自定义请求头 token: <共享token>；复用 HttpURLConnection（无新依赖）；
+             全量 try-catch 不抛；后台守护线程池执行。
+           - 触发：① 崩溃自动上报（CrashGuard 落盘后调 L6Reporter.sendCrash）
+                  ② 启动兜底补发（MainActivity 启动调 flushPendingCrash 扫残留 l6-crash-*.txt 上报并删）
+                  ③ 设置页「📤 发送运行日志到云端」手动按钮（onSendRunLog → sendLogText）
+           - 发送内容：kind(crash/log) + ver + os + model + time + msg（崩溃堆栈 / 运行日志全文）
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.16.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.17.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -165,6 +173,15 @@ POS = [
     b"\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe6\x9c\xaa\xe5\x8a\xa8",  # 运行日志未动
     # 业务
     b"com/l6/carmedia/Ota", b"L6Apps", b"L6Demo",
+    # v2.0.17：日志发送功能 L6Reporter（崩溃自动 + 启动兜底 + 手动按钮）
+    b"com/l6/carmedia/L6Reporter",
+    b"flushPendingCrash", b"sendLogText", b"sendCrash", b"sendEvent",
+    b"l6zz/event", b"yanzi-api.ziruxue.top",
+    b"token",  # 自定义请求头名 token: <共享token>（鉴权契约由服务端校验）
+    b"366577b64b2b76ac",  # 共享 token 前 16 位（端点契约，防误改）
+    b"\xe5\x8f\x91\xe9\x80\x81\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\x88\xb0\xe4\xba\x91\xe7\xab\xaf",  # 发送运行日志到云端
+    b"\xe6\x97\xa5\xe5\xbf\x97\xe4\xb8\x8a\xe6\x8a\xa5",  # 日志上报
+    b"\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\xb7\xb2\xe5\x8f\x91\xe9\x80\x81",  # 运行日志已发送
 ]
 NEG = [
     # v2.0.0 明确删掉的：HTML 页面 / SHIM 注入层 / WebView 桥注册

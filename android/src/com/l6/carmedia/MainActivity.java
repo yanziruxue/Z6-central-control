@@ -192,6 +192,8 @@ public class MainActivity extends Activity implements com.l6.carmedia.nat.Host {
         L6Log.init(this);
         // v2.0.16：全局崩溃守护——任何线程未捕获异常先落盘 app-log/l6-crash-*.txt 再交回系统
         CrashGuard.install();
+        // v2.0.17：启动兜底补发——扫描 app-log 下残留崩溃日志上报到云端（崩溃瞬间可能没网 / 进程即死）
+        com.l6.carmedia.L6Reporter.flushPendingCrash();
         // v2.0.9 方案 B：启动时把旧版落在 L6 根的 l6-*.log / signal-*.json 迁移到 app-log / caiji 子目录
         L6Log.migrateOldLayout();
         // 车机信号采集：能力清单 / 每条变化 / 心跳 / 结束，都走同一条回推。

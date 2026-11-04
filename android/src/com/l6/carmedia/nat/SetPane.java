@@ -2,6 +2,7 @@ package com.l6.carmedia.nat;
 
 import android.content.Context;
 import com.l6.carmedia.L6Log;
+import com.l6.carmedia.L6Reporter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.annotation.SuppressLint;
@@ -997,6 +998,16 @@ public class SetPane {
                 + "「🗑 清空采集日志」会删除全部 caiji-*.json 采集产物（运行日志 l6-*.log 保留在 app-log/）。",
                 12, U.SUB));
         U.gapV(card, 8);
+
+        // ★ v2.0.17：日志上报到云端（手动）。点按把当前运行日志 POST 到远端事件接口，给出反馈。
+        TextView sendLogBtn = U.btn(c, "📤 发送运行日志到云端");
+        sendLogBtn.setOnClickListener(v -> onSendRunLog());
+        LinearLayout sendRow = U.row(c);
+        sendRow.addView(U.text(c, "日志上报", 12, U.TXT));
+        U.gapH(sendRow, 8);
+        sendRow.addView(sendLogBtn);
+        card.addView(sendRow);
+        U.gapV(card, 8);
         s.addView(card);
         U.gapV(s, 8);
         return s;
@@ -1035,6 +1046,45 @@ public class SetPane {
                     refreshSignal();
                 })
                 .show();
+    }
+
+    /**
+     * v2.0.17：手动把当前运行日志发到云端事件接口（后台线程，吐司反馈）。
+     * 崩溃日志不在此处发——它走 CrashGuard 实时上报 + MainActivity 启动兜底补发。
+     */
+    private void onSendRunLog() {
+        String txt = gatherRunLog();
+        L6Reporter.sendLogText("runlog", txt);
+        sh.host().toast("运行日志已发送（崩溃日志下次启动自动补发）");
+    }
+
+    /** 收集当前运行日志文本：优先读当天日志文件（截断 100KB），空则退回内存缓冲。 */
+    private String gatherRunLog() {
+        try {
+            java.io.File f = L6Log.logFile();
+            StringBuilder sb = new StringBuilder();
+            if (f != null && f.exists() && f.length() > 0) {
+                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+                char[] buf = new char[8192];
+                int n;
+                long total = 0;
+                while ((n = r.read(buf)) > 0) {
+                    sb.append(buf, 0, n);
+                    total += n;
+                    if (total > 100000) break;
+                }
+                r.close();
+            }
+            if (sb.length() == 0) {
+                org.json.JSONArray a = L6Log.recentJson(0);
+                for (int i = 0; i < a.length(); i++) {
+                    sb.append(a.optJSONObject(i).toString()).append('\n');
+                }
+            }
+            return sb.length() > 0 ? sb.toString() : "(无日志)";
+        } catch (Throwable ignored) {
+            return "(日志读取失败)";
+        }
     }
 
     private void refreshSignal() {
