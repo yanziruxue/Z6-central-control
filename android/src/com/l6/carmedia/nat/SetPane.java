@@ -1049,13 +1049,22 @@ public class SetPane {
     }
 
     /**
-     * v2.0.17：手动把当前运行日志发到云端事件接口（后台线程，吐司反馈）。
-     * 崩溃日志不在此处发——它走 CrashGuard 实时上报 + MainActivity 启动兜底补发。
+     * v2.0.19：手动把当前运行日志发到云端事件接口，并回显 HTTP 返回码（404/400/401 等）。
+     * 先弹「发送中」，后台线程拿到真实状态码后回主线程弹结果；崩溃日志不在此处发——
+     * 它走 CrashGuard 实时上报 + MainActivity 启动兜底补发。
      */
     private void onSendRunLog() {
         String txt = gatherRunLog();
-        L6Reporter.sendLogText("runlog", txt);
-        sh.host().toast("运行日志已发送（崩溃日志下次启动自动补发）");
+        sh.host().toast("运行日志发送中…");
+        L6Reporter.sendLogText("runlog", txt, code -> {
+            String msg;
+            if (code >= 200 && code < 300) {
+                msg = "✅ 运行日志发送成功（HTTP " + code + "）";
+            } else {
+                msg = "❌ 发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code);
+            }
+            sh.host().toast(msg);
+        });
     }
 
     /** 收集当前运行日志文本：优先读当天日志文件（截断 100KB），空则退回内存缓冲。 */

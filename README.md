@@ -3,7 +3,7 @@
 长安欧尚 Z6 车机媒体中控 APK。原生 Java 视图层，横屏单屏，替换车机原厂娱乐桌面。
 
 - **包名**：`com.l6.carmedia`
-- **当前版本**：v2.0.9（versionCode 20009）
+- **当前版本**：v2.0.19（versionCode 20019）
 - **平台**：Android 9（API 28），minSdk = targetSdk = 28，横屏 1920×720（2.667:1）
 - **OTA 主源**：GitHub Releases（`yanziruxue/Z6-central-control`），Gitea 分发站保底
 
@@ -50,7 +50,7 @@
 # 签名：release keystore 在 C:/Users/yanzi/.android-keystore/l6-carmedia-release.jks
 #       （alias l6release，口令在 android/keystore.properties）
 bash android/build.sh                    # → dist/Z6CC-<ver>.apk
-python android/tools/apkcheck2009.py     # 产物反查（dex/assets 断言）
+python android/tools/apkcheck2019.py     # 产物反查（dex/assets 断言）
 ```
 
 版本号 = `major*10000 + minor*100 + patch`，须与 git tag 一致；`build.sh` 的 `VER_NAME` 是唯一版本源。
@@ -69,6 +69,8 @@ git push gitzx vX.Y.Z     # Gitea（可选，Runner 构建/分发站）
 
 | 版本 | 主要内容 |
 |---|---|
+| v2.0.19 | **手动发送增加 HTTP 返回码反馈**：`L6Reporter.sendEvent` 由返回 boolean 改为返回 HTTP 状态码（网络/解析异常统一 -1），新增 `codeMessage(code)` 翻译可读说明；`sendLogText` 增加 `ResultCallback`，后台拿到码后回主线程；`onSendRunLog` 先弹「发送中」，再弹「✅ 发送成功（HTTP 200）」或「❌ 发送失败：HTTP 404 — 接口不存在…」，让 404/400/401 等现形，杜绝假绿 |
+| v2.0.18 | **日志发送端点修正（l6zz → l6）**：v2.0.17 已实现 L6Reporter（崩溃自动上报 + 启动兜底补发 + 设置页「📤 发送运行日志到云端」），但客户端 ENDPOINT 误写 `/api/l6zz/event`，而服务端注册段名为 `l6`（token 一致）→ 每次上报 404 被静默丢弃（假绿）。本版改回 `/api/l6/event`；服务端 webyanzi 同步为 `/event` 新增 l6 宽松分支（kind∈{crash,log} 落 `l6_events` 表），与本端 payload（kind+ver+os+model+time+msg）对齐。双平台下载回比逐字节一致 |
 | v2.0.16 | **崩溃守护 + 前台通知加固**：新增 CrashGuard（任何线程崩溃先落盘 `app-log/l6-crash-*.txt` 再交回系统，终结盲猜）；CapService 的 `startForeground` 改挂「最小通知」（无 action/PendingIntent，排除定制 ROM 判 Bad notification 杀进程的炸点），挂稳后再 notify 完整版；SignalCapture 补口（finish 纳入 try-catch、arm 包外层 catch） |
 | v2.0.17 | **日志发送功能**：新增 `L6Reporter`，把崩溃 / 运行日志 POST 到 `https://yanzi-api.ziruxue.top/api/l6zz/event`（自定义请求头 `token:` 鉴权，复用 HttpURLConnection 无新依赖，全量 try-catch 不抛）。三种触发：**① 崩溃自动上报**（CrashGuard 落盘后 `sendCrash`）、**② 启动兜底补发**（`MainActivity` 启动扫残留 `l6-crash-*.txt` 上报并删）、**③ 设置页「📤 发送运行日志到云端」手动按钮**（`onSendRunLog` → `sendLogText`）。发送内容：`kind`(crash/log) + `ver` + `os` + `model` + `time` + `msg` |
 | v2.0.15 | **P0 采集闪退修复**：API 28 起 `startForeground` 必需 manifest 声明 `FOREGROUND_SERVICE`，v2.0.13/14 漏声明 → 点「开始采集」抛异常带崩整个进程（闪退回桌面）；补权限 + `startForeground` try-catch 兜底（只损失保活，绝不带崩进程） |

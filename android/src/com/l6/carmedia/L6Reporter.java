@@ -10,11 +10,13 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import android.os.Handler;
+import android.os.Looper;
 
 /**
  * 日志上报（v2.0.17）：把崩溃 / 运行日志 POST 到远端事件接口。
  *
- * <p><b>目标</b>：{@link #ENDPOINT} = https://yanzi-api.ziruxue.top/api/l6zz/event
+ * <p><b>目标</b>：{@link #ENDPOINT} = https://yanzi-api.ziruxue.top/api/l6/event
  * <br><b>鉴权</b>：自定义请求头 {@code token: <共享token>}（服务端校验该头）。
  *
  * <p><b>设计约束</b>：
@@ -27,7 +29,7 @@ import java.util.concurrent.Executors;
 public final class L6Reporter {
 
     /** 远端事件接口。 */
-    public static final String ENDPOINT = "https://yanzi-api.ziruxue.top/api/l6zz/event";
+    public static final String ENDPOINT = "https://yanzi-api.ziruxue.top/api/l6/event";
 
     /** 共享 token：经自定义请求头 token: <TOKEN> 携带，服务端校验。 */
     public static final String TOKEN = "366577b64b2b76ac4dd318b99cff9745eb6c24f140a8da7fad43eb99546832c4";
@@ -43,10 +45,11 @@ public final class L6Reporter {
     }
 
     /**
-     * POST 一个事件到远端（同步、吞异常）。返回是否发送成功（仅指 HTTP 2xx，不解析业务体）。
+     * POST 一个事件到远端（同步、吞异常）。
+     * @return HTTP 状态码（2xx 表示成功）；网络 / 解析异常统一返回 -1。调用方据码判断并反馈。
      * 调用方需自行保证不在主线程调用（sendCrash / flushPendingCrash / sendLogText 已包线程）。
      */
-    public static boolean sendEvent(JSONObject ev) {
+    public static int sendEvent(JSONObject ev) {
         HttpURLConnection c = null;
         java.io.OutputStream os = null;
         try {
@@ -64,10 +67,9 @@ public final class L6Reporter {
             os = c.getOutputStream();
             os.write(body);
             os.flush();
-            int code = c.getResponseCode();
-            return code >= 200 && code < 300;
+            return c.getResponseCode();
         } catch (Throwable ignored) {
-            return false;
+            return -1;
         } finally {
             try {
                 if (os != null) os.close();
@@ -77,6 +79,30 @@ public final class L6Reporter {
                 c.disconnect();
             } catch (Throwable ignored) {
             }
+        }
+    }
+
+    /** 手动发送结果回调：在 UI 主线程回调，便于直接弹吐司。 */
+    public interface ResultCallback {
+        void onResult(int code);
+    }
+
+    /**
+     * 把 HTTP 状态码翻译成用户可读的简短说明（手动发送反馈用）。
+     * @param code sendEvent 的返回值；-1 表示网络异常
+     */
+    public static String codeMessage(int code) {
+        if (code >= 200 && code < 300) return "成功";
+        switch (code) {
+            case -1:  return "网络异常（无网络 / 超时 / 被拦截）";
+            case 400: return "请求格式错误（服务端拒收，检查 kind/字段）";
+            case 401: return "鉴权失败（token 不匹配）";
+            case 403: return "接口已停用";
+            case 404: return "接口不存在（段名 / 路径错误）";
+            case 429: return "请求过于频繁";
+            default:
+                if (code >= 500 && code < 600) return "服务器内部错误";
+                return "未知错误（" + code + "）";
         }
     }
 
@@ -126,7 +152,8 @@ public final class L6Reporter {
                     o.put("kind", "crash");
                     o.put("thread", "pending:" + f.getName());
                     o.put("msg", text);
-                    if (sendEvent(o)) {
+                    int code = sendEvent(o);
+                    if (code >= 200 && code < 300) {
                         f.delete();
                     }
                 }
@@ -135,16 +162,21 @@ public final class L6Reporter {
         });
     }
 
-    /** 上报一段运行日志文本（手动按钮调用）。后台线程执行。 */
-    public static void sendLogText(final String title, final String text) {
+    /** 上报一段运行日志文本（手动按钮调用）。后台线程执行，结果经主线程回调。 */
+    public static void sendLogText(final String title, final String text, final ResultCallback cb) {
         POOL.execute(() -> {
+            int code = -1;
             try {
                 JSONObject o = baseEvent();
                 o.put("kind", "log");
                 o.put("title", title == null ? "" : title);
                 o.put("msg", text == null ? "" : text);
-                sendEvent(o);
+                code = sendEvent(o);
             } catch (Throwable ignored) {
+            }
+            final int rc = code;
+            if (cb != null) {
+                new Handler(Looper.getMainLooper()).post(() -> cb.onResult(rc));
             }
         });
     }
