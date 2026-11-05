@@ -3,7 +3,7 @@
 长安欧尚 Z6 车机媒体中控 APK。原生 Java 视图层，横屏单屏，替换车机原厂娱乐桌面。
 
 - **包名**：`com.l6.carmedia`
-- **当前版本**：v2.0.19（versionCode 20019）
+- **当前版本**：v2.0.21（versionCode 20021）
 - **平台**：Android 9（API 28），minSdk = targetSdk = 28，横屏 1920×720（2.667:1）
 - **OTA 主源**：GitHub Releases（`yanziruxue/Z6-central-control`），Gitea 分发站保底
 
@@ -69,6 +69,7 @@ git push gitzx vX.Y.Z     # Gitea（可选，Runner 构建/分发站）
 
 | 版本 | 主要内容 |
 |---|---|
+| v2.0.20 | **手动发送 -1 异常详情细分**：`L6Reporter.sendEvent` 的 catch 捕获异常类名+信息写入 `ThreadLocal`（`getLastError()` 读）；`codeMessage(int,String)` 新重载，当 `code==-1` 且带 detail 时回显「网络异常（`<类名>: <信息>`）」，一眼区分 `UnknownHostException`(DNS) / `SocketTimeoutException`(超时/被拦) / `SSLHandshakeException`(TLS 时钟/证书/代理拦截)；`ResultCallback.onResult(int,String)` 加 detail 参数，`sendLogText` 透传到主线程回调，`onSendRunLog` 用两参 lambda 调 `codeMessage(code, detail)`。仍走 HTTPS、无新依赖、不破静默策略 |
 | v2.0.19 | **手动发送增加 HTTP 返回码反馈**：`L6Reporter.sendEvent` 由返回 boolean 改为返回 HTTP 状态码（网络/解析异常统一 -1），新增 `codeMessage(code)` 翻译可读说明；`sendLogText` 增加 `ResultCallback`，后台拿到码后回主线程；`onSendRunLog` 先弹「发送中」，再弹「✅ 发送成功（HTTP 200）」或「❌ 发送失败：HTTP 404 — 接口不存在…」，让 404/400/401 等现形，杜绝假绿 |
 | v2.0.18 | **日志发送端点修正（l6zz → l6）**：v2.0.17 已实现 L6Reporter（崩溃自动上报 + 启动兜底补发 + 设置页「📤 发送运行日志到云端」），但客户端 ENDPOINT 误写 `/api/l6zz/event`，而服务端注册段名为 `l6`（token 一致）→ 每次上报 404 被静默丢弃（假绿）。本版改回 `/api/l6/event`；服务端 webyanzi 同步为 `/event` 新增 l6 宽松分支（kind∈{crash,log} 落 `l6_events` 表），与本端 payload（kind+ver+os+model+time+msg）对齐。双平台下载回比逐字节一致 |
 | v2.0.16 | **崩溃守护 + 前台通知加固**：新增 CrashGuard（任何线程崩溃先落盘 `app-log/l6-crash-*.txt` 再交回系统，终结盲猜）；CapService 的 `startForeground` 改挂「最小通知」（无 action/PendingIntent，排除定制 ROM 判 Bad notification 杀进程的炸点），挂稳后再 notify 完整版；SignalCapture 补口（finish 纳入 try-catch、arm 包外层 catch） |

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.19 产物反查：手动发送增加 HTTP 返回码反馈（404/400/401 等回显）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.21 产物反查：手动发送 -1 异常详情细分（DNS/超时/TLS 一眼看出）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -62,12 +62,18 @@
            - L6Reporter.ENDPOINT 由 /api/l6zz/event 改回 /api/l6/event（服务端已注册 seg=l6 且 token 一致）；
              服务端 handleEvent 新增 l6 宽松分支（kind∈{crash,log} 落 l6_events），与本端 payload 对齐。
 ★ v2.0.19 手动发送增加 HTTP 返回码反馈：
-           - sendEvent 由返回 boolean 改为返回 HTTP 状态码（异常统一 -1）；新增 codeMessage(code) 翻译可读说明；
+           - sendEvent 由返回 boolean 改为返回 HTTP 状态码（异常统一 -1）；新增 codeMessage(int) 翻译可读说明；
              sendLogText 增加 ResultCallback，后台拿到码后回主线程；onSendRunLog 先弹「发送中」，再弹
              「✅ 发送成功（HTTP 200）」或「❌ 发送失败：HTTP 404 — 接口不存在…」，让 404/400/401 等现形，杜绝假绿。
            - 其余不变：POST JSON 到 https://yanzi-api.ziruxue.top/api/l6/event，
              鉴权走自定义请求头 token: <共享token>；复用 HttpURLConnection（无新依赖）；
              全量 try-catch 不抛；后台守护线程池执行。
+★ v2.0.21 手动发送 -1 异常详情细分（用户反馈「HTTP -1 网络异常」看不出是哪类断网）：
+           - L6Reporter.sendEvent 的 catch 捕获异常类名+信息写入 ThreadLocal（getLastError() 读取）；
+             codeMessage(int,String) 新增重载：-1 且有 detail 时回显「网络异常（<类名>: <信息>）」，
+             一眼区分 UnknownHostException（DNS）/ SocketTimeoutException（超时/被拦）/ SSLHandshakeException（TLS 时钟/证书/代理拦截）；
+             ResultCallback.onResult(int code, String detail) 加 detail 参数；sendLogText 透传 detail 到主线程回调；
+             onSendRunLog 用两参 lambda 调 codeMessage(code, detail)。无新依赖、不影响静默策略。
            - 触发：① 崩溃自动上报（CrashGuard 落盘后调 L6Reporter.sendCrash）
                   ② 启动兜底补发（MainActivity 启动调 flushPendingCrash 扫残留 l6-crash-*.txt 上报并删）
                   ③ 设置页「📤 发送运行日志到云端」手动按钮（onSendRunLog → sendLogText）
@@ -78,7 +84,7 @@ import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.19.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.21.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -192,6 +198,9 @@ POS = [
     b"HTTP ",
     b"\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\x8f\x91\xe9\x80\x81\xe6\x88\x90\xe5\x8a\x9f",  # 运行日志发送成功
     b"\xe5\x8f\x91\xe9\x80\x81\xe5\xa4\xb1\xe8\xb4\xa5",  # 发送失败
+    # v2.0.21：-1 异常详情细分（DNS/超时/TLS 一眼看出）—— 证明 detail 透传 + codeMessage(int,String) 进包
+    b"getLastError", b"ThreadLocal",
+    b"\xe7\xbd\x91\xe7\xbb\x9c\xe5\xbc\x82\xe5\xb8\xb8\xef\xbc\x88",  # 网络异常（（codeMessage(int,String) 前缀，detail 嵌其后）
 ]
 NEG = [
     # v2.0.0 明确删掉的：HTML 页面 / SHIM 注入层 / WebView 桥注册

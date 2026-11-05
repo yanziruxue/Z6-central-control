@@ -44,6 +44,14 @@ public final class L6Reporter {
     private L6Reporter() {
     }
 
+    /** 线程局部：记录当前线程最后一次网络异常的「类名: 信息」，用于 -1 时细分 DNS/超时/TLS（不跨线程污染）。 */
+    private static final ThreadLocal<String> sLastErr = new ThreadLocal<>();
+
+    /** 取当前线程最后一次网络异常详情（sendEvent 捕获后写入；非 -1 时为 null）。 */
+    public static String getLastError() {
+        return sLastErr.get();
+    }
+
     /**
      * POST 一个事件到远端（同步、吞异常）。
      * @return HTTP 状态码（2xx 表示成功）；网络 / 解析异常统一返回 -1。调用方据码判断并反馈。
@@ -68,7 +76,9 @@ public final class L6Reporter {
             os.write(body);
             os.flush();
             return c.getResponseCode();
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
+            String m = t.getMessage();
+            sLastErr.set(t.getClass().getSimpleName() + (m != null ? ": " + m : ""));
             return -1;
         } finally {
             try {
@@ -82,19 +92,23 @@ public final class L6Reporter {
         }
     }
 
-    /** 手动发送结果回调：在 UI 主线程回调，便于直接弹吐司。 */
+    /** 手动发送结果回调：在 UI 主线程回调，便于直接弹吐司。detail 为网络异常详情（-1 时有值，如 UnknownHostException: ...）。 */
     public interface ResultCallback {
-        void onResult(int code);
+        void onResult(int code, String detail);
     }
 
     /**
      * 把 HTTP 状态码翻译成用户可读的简短说明（手动发送反馈用）。
-     * @param code sendEvent 的返回值；-1 表示网络异常
+     * @param code   sendEvent 的返回值；-1 表示网络异常
+     * @param detail sendEvent 捕获的异常详情（类名: 信息）；-1 且有值时 finer 区分 DNS/超时/TLS
      */
-    public static String codeMessage(int code) {
+    public static String codeMessage(int code, String detail) {
         if (code >= 200 && code < 300) return "成功";
+        if (code == -1) {
+            if (detail != null && !detail.isEmpty()) return "网络异常（" + detail + "）";
+            return "网络异常（无网络 / 超时 / 被拦截）";
+        }
         switch (code) {
-            case -1:  return "网络异常（无网络 / 超时 / 被拦截）";
             case 400: return "请求格式错误（服务端拒收，检查 kind/字段）";
             case 401: return "鉴权失败（token 不匹配）";
             case 403: return "接口已停用";
@@ -104,6 +118,11 @@ public final class L6Reporter {
                 if (code >= 500 && code < 600) return "服务器内部错误";
                 return "未知错误（" + code + "）";
         }
+    }
+
+    /** 兼容旧调用：detail 取空。 */
+    public static String codeMessage(int code) {
+        return codeMessage(code, "");
     }
 
     /** 构造事件外壳（带设备 / 版本信息）。 */
@@ -175,8 +194,9 @@ public final class L6Reporter {
             } catch (Throwable ignored) {
             }
             final int rc = code;
+            final String detail = getLastError();
             if (cb != null) {
-                new Handler(Looper.getMainLooper()).post(() -> cb.onResult(rc));
+                new Handler(Looper.getMainLooper()).post(() -> cb.onResult(rc, detail));
             }
         });
     }

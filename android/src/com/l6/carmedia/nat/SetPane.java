@@ -1056,12 +1056,13 @@ public class SetPane {
     private void onSendRunLog() {
         String txt = gatherRunLog();
         sh.host().toast("运行日志发送中…");
-        L6Reporter.sendLogText("runlog", txt, code -> {
+        L6Reporter.sendLogText("runlog", txt, (code, detail) -> {
             String msg;
             if (code >= 200 && code < 300) {
                 msg = "✅ 运行日志发送成功（HTTP " + code + "）";
             } else {
-                msg = "❌ 发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code);
+                // -1 时 detail 含异常类名+信息（如 UnknownHostException / SocketTimeoutException / SSLHandshakeException），一眼看出断网点
+                msg = "❌ 发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
             }
             sh.host().toast(msg);
         });
