@@ -1000,12 +1000,17 @@ public class SetPane {
         U.gapV(card, 8);
 
         // ★ v2.0.17：日志上报到云端（手动）。点按把当前运行日志 POST 到远端事件接口，给出反馈。
+        // ★ v2.0.24：新增备用（内网）通道，仅地址不同、鉴权与载荷完全一致；两个按钮各自独立回显 HTTP 码。
         TextView sendLogBtn = U.btn(c, "📤 发送运行日志到云端");
         sendLogBtn.setOnClickListener(v -> onSendRunLog());
+        TextView sendLanBtn = U.btn(c, "📤 备用发送（内网）");
+        sendLanBtn.setOnClickListener(v -> onSendRunLogLan());
         LinearLayout sendRow = U.row(c);
         sendRow.addView(U.text(c, "日志上报", 12, U.TXT));
         U.gapH(sendRow, 8);
         sendRow.addView(sendLogBtn);
+        U.gapH(sendRow, 8);
+        sendRow.addView(sendLanBtn);
         card.addView(sendRow);
         U.gapV(card, 8);
         s.addView(card);
@@ -1063,6 +1068,24 @@ public class SetPane {
             } else {
                 // -1 时 detail 含异常类名+信息（如 UnknownHostException / SocketTimeoutException / SSLHandshakeException），一眼看出断网点
                 msg = "❌ 发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
+            }
+            sh.host().toast(msg);
+        });
+    }
+
+    /**
+     * v2.0.24：备用（内网）通道手动发送，目标 {@link L6Reporter#ENDPOINT_LAN}。
+     * 与云端通道仅地址不同，鉴权头与 JSON 载荷完全一致；同样回显 HTTP 返回码与 -1 异常详情。
+     */
+    private void onSendRunLogLan() {
+        String txt = gatherRunLog();
+        sh.host().toast("备用发送中（内网）…");
+        L6Reporter.sendLogTextTo(L6Reporter.ENDPOINT_LAN, "runlog", txt, (code, detail) -> {
+            String msg;
+            if (code >= 200 && code < 300) {
+                msg = "✅ 备用发送成功（HTTP " + code + "）";
+            } else {
+                msg = "❌ 备用发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
             }
             sh.host().toast(msg);
         });

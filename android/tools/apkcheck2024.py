@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.23 产物反查：手动发送 -1 异常详情细分（DNS/超时/TLS 一眼看出）+ token 统一 842989…—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.24 产物反查：手动发送 -1 异常详情细分（DNS/超时/TLS 一眼看出）+ token 统一 842989…—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -84,7 +84,7 @@ import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.23.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.24.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -201,6 +201,10 @@ POS = [
     # v2.0.21：-1 异常详情细分（DNS/超时/TLS 一眼看出）—— 证明 detail 透传 + codeMessage(int,String) 进包
     b"getLastError", b"ThreadLocal",
     b"\xe7\xbd\x91\xe7\xbb\x9c\xe5\xbc\x82\xe5\xb8\xb8\xef\xbc\x88",  # 网络异常（（codeMessage(int,String) 前缀，detail 嵌其后）
+    # v2.0.24：备用（内网）发送通道（仅地址不同，鉴权/载荷一致）
+    b"http://192.168.24.10/api/l6/event",
+    b"sendEventTo", b"sendLogTextTo",
+    "备用发送（内网）".encode(), "备用发送成功".encode(), "备用发送失败".encode(),
 ]
 NEG = [
     # v2.0.0 明确删掉的：HTML 页面 / SHIM 注入层 / WebView 桥注册

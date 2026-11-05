@@ -31,6 +31,9 @@ public final class L6Reporter {
     /** 远端事件接口。 */
     public static final String ENDPOINT = "https://yanzi-api.ziruxue.top/api/l6/event";
 
+    /** 备用（内网）事件接口：仅地址不同，鉴权头与 JSON 载荷与 {@link #ENDPOINT} 完全一致。 */
+    public static final String ENDPOINT_LAN = "http://192.168.24.10/api/l6/event";
+
     /** 共享 token：经自定义请求头 token: <TOKEN> 携带，服务端校验。 */
     public static final String TOKEN = "842989j15f5s15oo5ro237t20kjy2136vw3e17r703h9zg3tpf20sv03733725y8";
 
@@ -58,11 +61,16 @@ public final class L6Reporter {
      * 调用方需自行保证不在主线程调用（sendCrash / flushPendingCrash / sendLogText 已包线程）。
      */
     public static int sendEvent(JSONObject ev) {
+        return sendEventTo(ENDPOINT, ev);
+    }
+
+    /** 同 {@link #sendEvent}，但可指定目标地址（备用内网通道用）。 */
+    public static int sendEventTo(String endpoint, JSONObject ev) {
         HttpURLConnection c = null;
         java.io.OutputStream os = null;
         try {
             byte[] body = ev.toString().getBytes(StandardCharsets.UTF_8);
-            URL u = new URL(ENDPOINT);
+            URL u = new URL(endpoint);
             c = (HttpURLConnection) u.openConnection();
             c.setRequestMethod("POST");
             c.setConnectTimeout(10000);
@@ -183,6 +191,11 @@ public final class L6Reporter {
 
     /** 上报一段运行日志文本（手动按钮调用）。后台线程执行，结果经主线程回调。 */
     public static void sendLogText(final String title, final String text, final ResultCallback cb) {
+        sendLogTextTo(ENDPOINT, title, text, cb);
+    }
+
+    /** 同 {@link #sendLogText}，但发往指定地址（备用内网通道用）。 */
+    public static void sendLogTextTo(final String endpoint, final String title, final String text, final ResultCallback cb) {
         POOL.execute(() -> {
             int code = -1;
             try {
@@ -190,7 +203,7 @@ public final class L6Reporter {
                 o.put("kind", "log");
                 o.put("title", title == null ? "" : title);
                 o.put("msg", text == null ? "" : text);
-                code = sendEvent(o);
+                code = sendEventTo(endpoint, o);
             } catch (Throwable ignored) {
             }
             final int rc = code;
