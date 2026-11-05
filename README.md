@@ -3,7 +3,7 @@
 长安欧尚 Z6 车机媒体中控 APK。原生 Java 视图层，横屏单屏，替换车机原厂娱乐桌面。
 
 - **包名**：`com.l6.carmedia`
-- **当前版本**：v2.0.22（versionCode 20022）
+- **当前版本**：v2.0.23（versionCode 20023）
 - **平台**：Android 9（API 28），minSdk = targetSdk = 28，横屏 1920×720（2.667:1）
 - **OTA 主源**：GitHub Releases（`yanziruxue/Z6-central-control`），Gitea 分发站保底
 
@@ -69,6 +69,7 @@ git push gitzx vX.Y.Z     # Gitea（可选，Runner 构建/分发站）
 
 | 版本 | 主要内容 |
 |---|---|
+| v2.0.23 | **真正落实 token 统一（修复 v2.0.21/22 假绿）**：hex 裁决证实前两版 dex 内仍是旧 token；本版从会话原始记录提取用户指定值写入 `L6Reporter.TOKEN`，并以 `bytes.fromhex(hex)` 常量固化到 `apkcheck2023` 断言（独立于源码，避免「源码错、断言跟着错」）；`ENDPOINT` 经逐字符比对与用户新服务器地址一致，未改。双平台下载回比逐字节一致 |
 | v2.0.22 | **token 统一 + 重建修正（修复 v2.0.21 假绿）**：`L6Reporter.TOKEN` 统一为 `842989j15f5s15oo5ro…`（端侧共享 token，已与需求方确认）；v2.0.21 因「先构建后改源码」时序踩坑，发出去的包仍嵌旧 token `366577b64b2b76ac…`（apkcheck 旧断言 `366577…` 误判通过），本版干净重建烤入正确 token，apkcheck2022 断言同步修正为 `842989j15f5s15oo`；其余同 v2.0.21（手动发送 -1 异常详情细分）。双平台下载回比逐字节一致 |
 | v2.0.20 | **手动发送 -1 异常详情细分**：`L6Reporter.sendEvent` 的 catch 捕获异常类名+信息写入 `ThreadLocal`（`getLastError()` 读）；`codeMessage(int,String)` 新重载，当 `code==-1` 且带 detail 时回显「网络异常（`<类名>: <信息>`）」，一眼区分 `UnknownHostException`(DNS) / `SocketTimeoutException`(超时/被拦) / `SSLHandshakeException`(TLS 时钟/证书/代理拦截)；`ResultCallback.onResult(int,String)` 加 detail 参数，`sendLogText` 透传到主线程回调，`onSendRunLog` 用两参 lambda 调 `codeMessage(code, detail)`。仍走 HTTPS、无新依赖、不破静默策略 |
 | v2.0.19 | **手动发送增加 HTTP 返回码反馈**：`L6Reporter.sendEvent` 由返回 boolean 改为返回 HTTP 状态码（网络/解析异常统一 -1），新增 `codeMessage(code)` 翻译可读说明；`sendLogText` 增加 `ResultCallback`，后台拿到码后回主线程；`onSendRunLog` 先弹「发送中」，再弹「✅ 发送成功（HTTP 200）」或「❌ 发送失败：HTTP 404 — 接口不存在…」，让 404/400/401 等现形，杜绝假绿 |

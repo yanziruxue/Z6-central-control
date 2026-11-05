@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.22 产物反查：手动发送 -1 异常详情细分（DNS/超时/TLS 一眼看出）+ token 统一 842989…—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.23 产物反查：手动发送 -1 异常详情细分（DNS/超时/TLS 一眼看出）+ token 统一 842989…—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -84,7 +84,7 @@ import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.22.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.23.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -190,7 +190,7 @@ POS = [
     b"flushPendingCrash", b"sendLogText", b"sendCrash", b"sendEvent",
     b"l6/event", b"yanzi-api.ziruxue.top",
     b"token",  # 自定义请求头名 token: <共享token>（鉴权契约由服务端校验）
-    b"366577b64b2b76ac4dd318b99cff9745eb6c24f140a8da7fad43eb99546832c4",  # 共享 token 全文（由 L6Reporter.java 程序化生成，杜绝手敲偏差）
+    bytes.fromhex("3834323938396a313566357331356f6f35726f3233377432306b6a79323133367677336531377237303368397a67337470663230737630333733333732357938"),  # 共享 token 全文（由 L6Reporter.java 程序化生成，杜绝手敲偏差）
     b"\xe5\x8f\x91\xe9\x80\x81\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\x88\xb0\xe4\xba\x91\xe7\xab\xaf",  # 发送运行日志到云端
     b"\xe6\x97\xa5\xe5\xbf\x97\xe4\xb8\x8a\xe6\x8a\xa5",  # 日志上报
     # v2.0.19：手动发送回显 HTTP 返回码（404/400/401 等）—— 证明反馈逻辑进包
@@ -226,7 +226,7 @@ bad = 0
 # == token 唯一性裁决（防「旧 token 仍藏在 dex 里」的假绿）==
 import re as _re
 _longs = [m.group() for m in _re.finditer(rb'[A-Za-z0-9]{48,}', dex)]
-_want = b"366577b64b2b76ac4dd318b99cff9745eb6c24f140a8da7fad43eb99546832c4"
+_want = bytes.fromhex("3834323938396a313566357331356f6f35726f3233377432306b6a79323133367677336531377237303368397a67337470663230737630333733333732357938")
 _ok = (len(_longs) == 1 and _longs[0] == _want)
 print("\n== token 唯一性裁决 ==")
 print("   %s dex 中 >=48 位长串恰好 1 个且等于源码 TOKEN（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longs)))
