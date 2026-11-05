@@ -31,8 +31,8 @@ public final class L6Reporter {
     /** 远端事件接口。 */
     public static final String ENDPOINT = "https://yanzi-api.ziruxue.top/api/l6/event";
 
-    /** 备用（内网）事件接口：仅地址不同，鉴权头与 JSON 载荷与 {@link #ENDPOINT} 完全一致。 */
-    public static final String ENDPOINT_LAN = "http://192.168.24.10/api/l6/event";
+    /** 备用（内网）事件接口（30507 为服务端实际监听端口）：仅地址不同，鉴权头与 JSON 载荷与 {@link #ENDPOINT} 完全一致。 */
+    public static final String ENDPOINT_LAN = "http://192.168.24.10:30507/api/l6/event";
 
     /** 共享 token：经自定义请求头 token: <TOKEN> 携带，服务端校验。 */
     public static final String TOKEN = "842989j15f5s15oo5ro237t20kjy2136vw3e17r703h9zg3tpf20sv03733725y8";

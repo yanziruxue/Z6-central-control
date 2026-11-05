@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.24 产物反查：手动发送 -1 异常详情细分（DNS/超时/TLS 一眼看出）+ token 统一 842989…—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.25 产物反查：备用内网地址改到真实 API 端口 30507 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -78,13 +78,17 @@
                   ② 启动兜底补发（MainActivity 启动调 flushPendingCrash 扫残留 l6-crash-*.txt 上报并删）
                   ③ 设置页「📤 发送运行日志到云端」手动按钮（onSendRunLog → sendLogText）
            - 发送内容：kind(crash/log) + ver + os + model + time + msg（崩溃堆栈 / 运行日志全文）
+★ v2.0.25 备用内网地址修正：ENDPOINT_LAN 由 http://192.168.24.10/api/l6/event 改为
+           http://192.168.24.10:30507/api/l6/event。旧地址 80 端口是 fnOS nginx，302 → 5666
+           Web 管理页，HttpURLConnection 自动跟随使 POST 落到 HTML 404，App 误报「段名/路径错误」。
+           新地址实测为真实 API（JSON 401 TOKEN_INVALID），token 保持用户指定的统一值不变。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.24.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.25.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -201,12 +205,13 @@ POS = [
     # v2.0.21：-1 异常详情细分（DNS/超时/TLS 一眼看出）—— 证明 detail 透传 + codeMessage(int,String) 进包
     b"getLastError", b"ThreadLocal",
     b"\xe7\xbd\x91\xe7\xbb\x9c\xe5\xbc\x82\xe5\xb8\xb8\xef\xbc\x88",  # 网络异常（（codeMessage(int,String) 前缀，detail 嵌其后）
-    # v2.0.24：备用（内网）发送通道（仅地址不同，鉴权/载荷一致）
-    b"http://192.168.24.10/api/l6/event",
+    # v2.0.25：备用内网地址改到真实 API 端口 30507（旧 80 端口 302 到 fnOS Web 页，POST 被跟随成 HTML 404）
+    b"http://192.168.24.10:30507/api/l6/event",
     b"sendEventTo", b"sendLogTextTo",
     "备用发送（内网）".encode(), "备用发送成功".encode(), "备用发送失败".encode(),
 ]
 NEG = [
+    b"http://192.168.24.10/api/l6/event",  # v2.0.25：旧 80 端口地址不得残留（会 302 到 fnOS Web 页）
     # v2.0.0 明确删掉的：HTML 页面 / SHIM 注入层 / WebView 桥注册
     b"assets/index.html", b"file:///android_asset/index.html",
     b"L6NativeRaw", b"addJavascriptInterface", b"window.L6Native",

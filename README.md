@@ -3,7 +3,7 @@
 长安欧尚 Z6 车机媒体中控 APK。原生 Java 视图层，横屏单屏，替换车机原厂娱乐桌面。
 
 - **包名**：`com.l6.carmedia`
-- **当前版本**：v2.0.24（versionCode 20024）
+- **当前版本**：v2.0.25（versionCode 20025）
 - **平台**：Android 9（API 28），minSdk = targetSdk = 28，横屏 1920×720（2.667:1）
 - **OTA 主源**：GitHub Releases（`yanziruxue/Z6-central-control`），Gitea 分发站保底
 
@@ -69,6 +69,7 @@ git push gitzx vX.Y.Z     # Gitea（可选，Runner 构建/分发站）
 
 | 版本 | 主要内容 |
 |---|---|
+| v2.0.25 | **备用内网地址修正**：`ENDPOINT_LAN` 由 `http://192.168.24.10/api/l6/event` 改为 `http://192.168.24.10:30507/api/l6/event`。旧地址走 80 端口是 fnOS nginx，302 → `:5666` 飞牛 Web 管理页，`HttpURLConnection` 自动跟随使 POST 落到 HTML 404，App 误报「接口不存在（段名 / 路径错误）」——实为地址指错而非段名错；30507 实测是真实 API（用旧 token 探测返回 `200`，用统一 token 返回 `401 TOKEN_INVALID`，说明服务端仍配旧 token，需服务端同步）。`TOKEN` 保持用户指定统一值不变，云端 `ENDPOINT`、崩溃自动上报与启动兜底补发不受影响；`apkcheck2025` 增加新地址正向断言 + 旧地址负向断言。双平台下载回比逐字节一致 |
 | v2.0.24 | **新增备用（内网）发送通道**：设置页「日志上报」行增加「📤 备用发送（内网）」按钮，目标 `http://192.168.24.10/api/l6/event`；与云端通道**仅地址不同**，鉴权头 `token: <共享token>` 与 JSON 载荷完全一致。`L6Reporter` 抽出 `sendEventTo(endpoint, ev)` / `sendLogTextTo(endpoint, …)`，崩溃自动上报与启动兜底补发仍走公网不变；两个按钮各自独立回显 HTTP 返回码与 `-1` 异常详情。明文 HTTP 由 manifest 既有 `usesCleartextTraffic="true"` 放行。云端按钮保留不删（不误删功能）。双平台下载回比逐字节一致 |
 | v2.0.23 | **真正落实 token 统一（修复 v2.0.21/22 假绿）**：hex 裁决证实前两版 dex 内仍是旧 token；本版从会话原始记录提取用户指定值写入 `L6Reporter.TOKEN`，并以 `bytes.fromhex(hex)` 常量固化到 `apkcheck2023` 断言（独立于源码，避免「源码错、断言跟着错」）；`ENDPOINT` 经逐字符比对与用户新服务器地址一致，未改。双平台下载回比逐字节一致 |
 | v2.0.22 | **token 统一 + 重建修正（修复 v2.0.21 假绿）**：`L6Reporter.TOKEN` 统一为 `842989j15f5s15oo5ro…`（端侧共享 token，已与需求方确认）；v2.0.21 因「先构建后改源码」时序踩坑，发出去的包仍嵌旧 token `366577b64b2b76ac…`（apkcheck 旧断言 `366577…` 误判通过），本版干净重建烤入正确 token，apkcheck2022 断言同步修正为 `842989j15f5s15oo`；其余同 v2.0.21（手动发送 -1 异常详情细分）。双平台下载回比逐字节一致 |
