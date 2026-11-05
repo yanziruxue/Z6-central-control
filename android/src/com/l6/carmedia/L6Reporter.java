@@ -35,7 +35,7 @@ public final class L6Reporter {
     public static final String ENDPOINT_LAN = "http://192.168.24.10:30507/api/l6/event";
 
     /** 共享 token：经自定义请求头 token: <TOKEN> 携带，服务端校验。 */
-    public static final String TOKEN = "842989j15f5s15oo5ro237t20kjy2136vw3e17r703h9zg3tpf20sv03733725y8";
+    public static final String TOKEN = "366577b64b2b76ac4dd318b99cff9745eb6c24f140a8da7fad43eb99546832c4";
 
     /** 后台线程池（守护线程，不阻止进程退出）。 */
     private static final ExecutorService POOL = Executors.newCachedThreadPool(r -> {

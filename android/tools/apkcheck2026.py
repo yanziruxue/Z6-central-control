@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.25 产物反查：备用内网地址改到真实 API 端口 30507 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.26 产物反查：TOKEN 对齐用户真实输入（sensitiveProtection 修正）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -81,14 +81,18 @@
 ★ v2.0.25 备用内网地址修正：ENDPOINT_LAN 由 http://192.168.24.10/api/l6/event 改为
            http://192.168.24.10:30507/api/l6/event。旧地址 80 端口是 fnOS nginx，302 → 5666
            Web 管理页，HttpURLConnection 自动跟随使 POST 落到 HTML 404，App 误报「段名/路径错误」。
-           新地址实测为真实 API（JSON 401 TOKEN_INVALID），token 保持用户指定的统一值不变。
+           新地址实测为真实 API（JSON 401 TOKEN_INVALID）。
+★ v2.0.26 TOKEN 对齐真实值：会话 sensitiveProtection 把用户真实输入（plaintext，
+           sha256 11075c11…）在显示层换成 ciphertext（sha256 5a680a78…），v2.0.23 按
+           显示值写入源码 ⇒ 与服务端（按真实值配置）永远不一致，备用发送 401。
+           本版从原始 jsonl 的 plaintext 零手敲提取并写回，独立 hex 断言同步更新。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.25.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.26.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -194,7 +198,7 @@ POS = [
     b"flushPendingCrash", b"sendLogText", b"sendCrash", b"sendEvent",
     b"l6/event", b"yanzi-api.ziruxue.top",
     b"token",  # 自定义请求头名 token: <共享token>（鉴权契约由服务端校验）
-    bytes.fromhex("3834323938396a313566357331356f6f35726f3233377432306b6a79323133367677336531377237303368397a67337470663230737630333733333732357938"),  # 共享 token 全文（由 L6Reporter.java 程序化生成，杜绝手敲偏差）
+    bytes.fromhex("33363635373762363462326237366163346464333138623939636666393734356562366332346631343061386461376661643433656239393534363833326334"),  # 共享 token 全文（★独立 hex 常量，源自用户真实输入，禁止由源码派生）
     b"\xe5\x8f\x91\xe9\x80\x81\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\x88\xb0\xe4\xba\x91\xe7\xab\xaf",  # 发送运行日志到云端
     b"\xe6\x97\xa5\xe5\xbf\x97\xe4\xb8\x8a\xe6\x8a\xa5",  # 日志上报
     # v2.0.19：手动发送回显 HTTP 返回码（404/400/401 等）—— 证明反馈逻辑进包
@@ -235,10 +239,10 @@ bad = 0
 # == token 唯一性裁决（防「旧 token 仍藏在 dex 里」的假绿）==
 import re as _re
 _longs = [m.group() for m in _re.finditer(rb'[A-Za-z0-9]{48,}', dex)]
-_want = bytes.fromhex("3834323938396a313566357331356f6f35726f3233377432306b6a79323133367677336531377237303368397a67337470663230737630333733333732357938")
+_want = bytes.fromhex("33363635373762363462326237366163346464333138623939636666393734356562366332346631343061386461376661643433656239393534363833326334")
 _ok = (len(_longs) == 1 and _longs[0] == _want)
 print("\n== token 唯一性裁决 ==")
-print("   %s dex 中 >=48 位长串恰好 1 个且等于源码 TOKEN（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longs)))
+print("   %s dex 中 >=48 位长串恰好 1 个且等于独立 hex 常量（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longs)))
 bad += 0 if _ok else 1
 
 print("\n== 正向断言（dex 里必须存在）==")
