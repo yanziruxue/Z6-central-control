@@ -1013,6 +1013,20 @@ public class SetPane {
         sendRow.addView(sendLanBtn);
         card.addView(sendRow);
         U.gapV(card, 8);
+
+        // ★ v2.0.29：NAS 文件收集通道单独一行（第三个按钮塞进 sendRow 会挤爆 1920x720 横屏设置页）。
+        //   该链接是飞牛网页收集页而非 API，按钮语义是「生成待上传文件 + 打开官方页面」，不能写成「上传成功」。
+        TextView sendNasBtn = U.btn(c, "📤 上传到 NAS");
+        sendNasBtn.setOnClickListener(v -> onUploadRunLogToNas());
+        LinearLayout nasRow = U.row(c);
+        nasRow.addView(U.text(c, "NAS 收集", 12, U.TXT));
+        U.gapH(nasRow, 8);
+        nasRow.addView(sendNasBtn);
+        card.addView(nasRow);
+        U.gapV(card, 8);
+        card.addView(U.text(c, "「上传到 NAS」会生成 .txt 并打开飞牛收集页，请在页面中选择该文件；"
+                + "车机无浏览器时请把 Download/L6/upload/ 里的文件手动上传。", 12, U.SUB));
+        U.gapV(card, 8);
         s.addView(card);
         U.gapV(s, 8);
         return s;
@@ -1089,6 +1103,59 @@ public class SetPane {
             }
             sh.host().toast(msg);
         });
+    }
+
+    /**
+     * v2.0.29：上传到 NAS（飞牛「文件收集」任务 l6event收集任务）。
+     *
+     * <p>★ 为什么不是直接 HTTP POST：该链接实测返回 851B HTML SPA，POST JSON 只会拿到
+     * HTML 200 的假绿；真实上传要 fnOS 私有 authx 签名（MD5 + 前端内嵌常量）、密码/会话、
+     * 以及 /api/v1/fn/share 动态解析出的中继地址，硬编码进 APK 会随 fnOS 升级失效且无法真机验证。
+     * 因此这里只做两件 100% 可落地的事：① 生成 .txt ② 调起官方收集页，让浏览器走完整协议。
+     *
+     * <p>★ 全程不谎报「上传成功」：车机常无浏览器，此时降级为文本分享，并给出文件绝对路径。
+     * 分享走 EXTRA_TEXT 而不是 EXTRA_STREAM，避免 targetSdk 28 下 Uri.fromFile 触发
+     * FileUriExposedException（引入 FileProvider 会平白增加 manifest / xml 依赖）。
+     */
+    private void onUploadRunLogToNas() {
+        java.io.File f = L6Reporter.writeNasUploadFile(gatherRunLog());
+        if (f == null) {
+            sh.host().toast("❌ NAS 上传准备失败：无法写入日志文件");
+            L6Log.e("SetPane", "NAS 上传准备失败：日志文件写入返回 null");
+            return;
+        }
+        final String name = f.getName();
+        final String path = f.getAbsolutePath();
+        final String size = (f.length() / 1024) + " KB";
+        try {
+            android.content.Intent view = new android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(L6Reporter.NAS_COLLECT_URL));
+            view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            c.startActivity(view);
+            sh.host().toast("✅ 已生成 " + name + "（" + size + "）\n"
+                    + "已打开 NAS 收集页，请在页面中选择该文件上传");
+            return;
+        } catch (android.content.ActivityNotFoundException noBrowser) {
+            L6Log.w("SetPane", "设备无浏览器，NAS 收集页降级为文本分享");
+        } catch (Throwable t) {
+            L6Log.e("SetPane", "打开 NAS 收集页失败");
+        }
+        try {
+            String body = gatherRunLog();
+            if (body.length() > 30000) body = body.substring(0, 30000);
+            android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(android.content.Intent.EXTRA_SUBJECT, name);
+            send.putExtra(android.content.Intent.EXTRA_TEXT, body);
+            android.content.Intent chooser = android.content.Intent.createChooser(send, "分享运行日志");
+            chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            c.startActivity(chooser);
+            sh.host().toast("⚠️ 无浏览器：日志已存 " + path + "\n已打开分享，可手动发到 NAS");
+        } catch (Throwable t) {
+            sh.host().toast("⚠️ 日志已存 " + path + "\n请手动打开 "
+                    + L6Reporter.NAS_COLLECT_URL + " 上传");
+        }
     }
 
     /** 收集当前运行日志文本：优先读当天日志文件（截断 100KB），空则退回内存缓冲。 */

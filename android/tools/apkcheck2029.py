@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.28 产物反查：删除 TLS1.3 死代码，改 "TLS" context 运行时探测 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.29 产物反查：新增「上传到 NAS」按钮 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -97,6 +97,14 @@
            getInstance("TLS") + pickProtocols() 运行时探测 + setEnabledProtocols 尝试 1.3；
            ROM 不支持则回落 1.2。sTlsDiag 随 -1 回显 tls13Supported=..., 便于车机取证。
            token 断言 env 化（L6_EXPECTED_TOKEN / L6_FORBIDDEN_TOKEN），密钥不入库。
+★ v2.0.29 新增「📤 上传到 NAS」按钮（飞牛 l6event收集任务）：
+           实测 https://share.fnnas.net/s/988aed0f9fb54bc680 是 851B HTML SPA 而非 API，
+           真实上传走 /s/<id>/api/v1/upload/{precheck,file,status} + fnOS 私有 authx 签名
+           （MD5 + 前端内嵌常量 + apiKey）+ 密码/会话 + /api/v1/fn/share 动态中继解析；
+           端侧复刻会随 fnOS 升级失效且无法真机验证 ⇒ 不在 APK 里硬编码私有协议。
+           本版实现：writeNasUploadFile() 把运行日志写成 L6/upload/l6-log-*.txt，
+           再 ACTION_VIEW 调起官方收集页；无浏览器降级 ACTION_SEND(EXTRA_TEXT)。
+           ★ 防假绿铁律：任何分支都不得出现「NAS 上传成功」这类谎报文案（NEG 断言）。
 """
 import hashlib
 import io
@@ -104,7 +112,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.28.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.29.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -235,6 +243,13 @@ POS = [
     #   tlsCapableFactory / pickProtocols / 协议名 / 能力自报串为本版独有锚点。
     b"postByConnection", b"tlsCapableFactory", b"pickProtocols", b"TLSv1.3",
     b"tls13Supported=", b"getSupportedProtocols", b"setEnabledProtocols",
+    # v2.0.29：NAS 文件收集按钮（零私有协议依赖、绝不假绿）——URL 全文 + 方法名 + 文案锚点
+    b"https://share.fnnas.net/s/988aed0f9fb54bc680",
+    b"writeNasUploadFile", b"nasUploadDir", b"l6-log-", b"L6/upload/",
+    "上传到 NAS".encode("utf-8"), "NAS 收集".encode("utf-8"),
+    "已生成".encode("utf-8"), "已打开 NAS 收集页".encode("utf-8"),
+    "无浏览器".encode("utf-8"), "无法写入日志文件".encode("utf-8"),
+    "NAS 日志文件生成失败".encode("utf-8"), "分享运行日志".encode("utf-8"),
 ]
 # v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
 _expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
@@ -260,6 +275,8 @@ NEG = [
     # v2.0.5：手势分区的两行提示文字已全部移除（防回归）
     b"\xe9\x9c\x80\xe8\xa6\x81\xe4\xbb\x8e\xe5\xb1\x8f\xe5\xb9\x95\xe4\xb8\xad\xe5\xbf\x83\xe5\x8c\xba\xe5\x9f\x9f",  # 需从屏幕中心区域
     b"\xe7\xbb\xbc\xe9\x9a\x8f\xe3\x80\x8c\xe4\xb8\x8b\xe6\xbb\x91\xe8\xb7\x9f\xe8\xb8\xaf\xe5\x8c\xaf\xe6\xba\x90",  # 默认「下滑」跟随导航源
+    # v2.0.29 防假绿：HTML 200 不等于上传成功，任何分支不得谎报「NAS 上传成功」
+    "NAS 上传成功".encode("utf-8"), "上传到 NAS 成功".encode("utf-8"),
 ]
 
 bad = 0

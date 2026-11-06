@@ -43,6 +43,15 @@ public final class L6Reporter {
     /** 备用（内网）事件接口（30507 为服务端实际监听端口）：仅地址不同，鉴权头与 JSON 载荷与 {@link #ENDPOINT} 完全一致。 */
     public static final String ENDPOINT_LAN = "http://192.168.24.10:30507/api/l6/event";
 
+    /**
+     * v2.0.29：飞牛「文件收集」任务页面地址（任务名 l6event收集任务）。
+     * ★ 这是网页 SPA 而不是 API：对它直接 POST JSON 只会拿到 851B 的 HTML 200，是典型假绿。
+     *   真实上传走 /s/&lt;id&gt;/api/v1/upload/{precheck,file,status}，还要 fnOS 私有 authx 签名、
+     *   密码/会话与动态中继地址，端侧复刻会随 fnOS 升级失效且无法真机验证。
+     *   因此本端只负责生成待上传文件并调起官方页面，绝不谎报「上传成功」。
+     */
+    public static final String NAS_COLLECT_URL = "https://share.fnnas.net/s/988aed0f9fb54bc680";
+
     /** 共享 token：经自定义请求头 token: <TOKEN> 携带，服务端校验。 */
     public static final String TOKEN = "366577b64b2b76ac4dd318b99cff9745eb6c24f140a8da7fad43eb99546832c4";
 
@@ -300,6 +309,59 @@ public final class L6Reporter {
             } catch (Throwable ignored) {
             }
         });
+    }
+
+    /**
+     * v2.0.29：把运行日志写成一个可直接上传的 .txt，落在 L6/upload/ 下。
+     * 返回 null 表示写盘失败（存储不可用 / 权限不足），调用方必须如实报错，不能谎报上传成功。
+     */
+    public static java.io.File writeNasUploadFile(String text) {
+        try {
+            java.io.File dir = nasUploadDir();
+            if (dir == null) return null;
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
+                    .format(new java.util.Date());
+            java.io.File f = new java.io.File(dir, "l6-log-" + stamp + ".txt");
+            StringBuilder sb = new StringBuilder();
+            sb.append("老六中控 运行日志\n");
+            sb.append("version: ").append(L6Log.appVerPublic()).append('\n');
+            sb.append("time: ").append(stamp).append('\n');
+            sb.append("os: Android ").append(android.os.Build.VERSION.RELEASE)
+                    .append(" (API ").append(android.os.Build.VERSION.SDK_INT).append(")\n");
+            sb.append("model: ").append(android.os.Build.MODEL).append('\n');
+            sb.append("voltage: ").append(L6Log.batteryVoltageV()).append(" V\n");
+            sb.append("nas: ").append(NAS_COLLECT_URL).append('\n');
+            sb.append("----------------------------------------\n");
+            sb.append(text == null ? "(无日志)" : text);
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            try {
+                out.write(sb.toString().getBytes("UTF-8"));
+                out.flush();
+            } finally {
+                try { out.close(); } catch (Throwable ignored) { }
+            }
+            return f;
+        } catch (Throwable t) {
+            L6Log.e("L6Report", "NAS 日志文件生成失败");
+            return null;
+        }
+    }
+
+    /** L6/upload/：从当天日志路径反推 L6 根目录；公共目录不可用时自动沿用 L6Log 的私有回落。 */
+    private static java.io.File nasUploadDir() {
+        try {
+            java.io.File daily = L6Log.logFile();
+            if (daily == null) return null;
+            java.io.File appLog = daily.getParentFile();
+            if (appLog == null) return null;
+            java.io.File root = appLog.getParentFile();
+            if (root == null) return null;
+            java.io.File d = new java.io.File(root, "upload");
+            if (!d.exists() && !d.mkdirs()) return null;
+            return d;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     /** 上报一段运行日志文本（手动按钮调用）。后台线程执行，结果经主线程回调。 */
