@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.32 产物反查：修真根因 CapService 私有构造器 + 应用列表首字母排序 + 自建端点发日志 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.33 产物反查：上报字段可读化（服务端后台不返回 payload_json，靠 msg/title 呈现）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -130,7 +130,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.32.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.33.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -287,6 +287,12 @@ POS = [
     "按首字母排序".encode("utf-8"), "# 其他".encode("utf-8"),
     "发日志到 1443".encode("utf-8"), "自建端点".encode("utf-8"),
     "开始采集点击异常".encode("utf-8"),
+    # v2.0.33：字段可读化 —— 服务端 admin.js 只 SELECT 固定 9 列不返回 payload_json，
+    #          前端详情也不渲染 voltage/currentVersion，故端侧把字段写进 msg 头部 + title 摘要
+    b"attachReadableFields", b"compactTitle", b"fieldHeader", b"fieldLine",
+    "【上报字段】".encode("utf-8"), b" | ver=", b" | currentVersion=",
+    b" | voltage=", b" | os=", b" | model=",
+    b"yyyy-MM-dd HH:mm:ss", b"------------------------",
 ]
 # v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
 _expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()

@@ -269,6 +269,82 @@ public final class L6Reporter {
         return o;
     }
 
+    /**
+     * v2.0.33：把上报字段同时写成可读文本，挂到 msg 头部 + title 精简摘要。
+     *
+     * <p>★ 根因（只读核对 yanzi 服务端）：ingest.js 把整个 body 存进 crash_logs.payload_json，
+     * 字段其实在库里；但 admin.js 的列表 SQL 只 SELECT 固定 9 列、不返回 payload_json，
+     * 前端详情弹窗也只渲染 时间/类型/版本/系统/机型/标题/线程 + msg
+     * ⇒ voltage / currentVersion 等新增字段在后台永远看不到。
+     * 这里不改服务端、不改 JSON 契约（结构化字段原样保留），让字段随 msg 一起呈现。
+     */
+    private static void attachReadableFields(JSONObject o, String title, String text) {
+        try {
+            o.put("title", compactTitle(o, title));
+            o.put("msg", fieldHeader(o) + (text == null ? "" : text));
+        } catch (Throwable ignored) {
+            // 写字段失败也要保证原事件能发出：退回原始 title / msg
+            try {
+                o.put("title", title == null ? "" : title);
+                o.put("msg", text == null ? "" : text);
+            } catch (Throwable ignored2) {
+            }
+        }
+    }
+
+    /** title 精简摘要：后台列表「标题 / 线程」列与详情「标题」行都能直接看到关键字段。 */
+    private static String compactTitle(JSONObject o, String title) {
+        try {
+            return (title == null ? "" : title)
+                    + " | ver=" + o.opt("ver")
+                    + " | currentVersion=" + o.opt("currentVersion")
+                    + " | voltage=" + o.opt("voltage") + "V"
+                    + " | os=" + o.opt("os")
+                    + " | model=" + o.opt("model");
+        } catch (Throwable ignored) {
+            return title == null ? "" : title;
+        }
+    }
+
+    /** msg 头部完整字段清单：后台详情弹窗的 msg 预览区原样展示，无需服务端改动。 */
+    private static String fieldHeader(JSONObject o) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【上报字段】\n");
+        fieldLine(sb, o, "kind");
+        fieldLine(sb, o, "title");
+        fieldLine(sb, o, "thread");
+        fieldLine(sb, o, "ver");
+        fieldLine(sb, o, "currentVersion");
+        fieldLine(sb, o, "voltage");
+        fieldLine(sb, o, "os");
+        fieldLine(sb, o, "model");
+        fieldLine(sb, o, "time");
+        sb.append("------------------------\n");
+        return sb.toString();
+    }
+
+    /** 单个字段行；time 额外格式化成可读时间，voltage 带单位 V。 */
+    private static void fieldLine(StringBuilder sb, JSONObject o, String k) {
+        try {
+            Object v = o.opt(k);
+            if (v == null) return;
+            if ("time".equals(k)) {
+                try {
+                    long ms = Long.parseLong(String.valueOf(v));
+                    String human = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+                            .format(new java.util.Date(ms));
+                    sb.append(k).append(" = ").append(human).append(" (").append(v).append(")\n");
+                    return;
+                } catch (Throwable ignored) {
+                }
+            }
+            sb.append(k).append(" = ").append(v);
+            if ("voltage".equals(k)) sb.append(" V");
+            sb.append('\n');
+        } catch (Throwable ignored) {
+        }
+    }
+
     /** 崩溃自动上报：后台线程 POST 崩溃堆栈（fire-and-forget，最佳努力）。 */
     public static void sendCrash(final String threadName, final String stackText) {
         POOL.execute(() -> {
@@ -276,7 +352,7 @@ public final class L6Reporter {
                 JSONObject o = baseEvent();
                 o.put("kind", "crash");
                 o.put("thread", threadName == null ? "?" : threadName);
-                o.put("msg", stackText == null ? "" : stackText);
+                attachReadableFields(o, "", stackText);
                 sendEvent(o);
             } catch (Throwable ignored) {
             }
@@ -300,7 +376,7 @@ public final class L6Reporter {
                     JSONObject o = baseEvent();
                     o.put("kind", "crash");
                     o.put("thread", "pending:" + f.getName());
-                    o.put("msg", text);
+                    attachReadableFields(o, "", text);
                     int code = sendEvent(o);
                     if (code >= 200 && code < 300) {
                         f.delete();
@@ -430,8 +506,7 @@ public final class L6Reporter {
             try {
                 JSONObject o = baseEvent();
                 o.put("kind", "log");
-                o.put("title", title == null ? "" : title);
-                o.put("msg", text == null ? "" : text);
+                attachReadableFields(o, title, text);
                 code = sendEventTo(endpoint, o);
             } catch (Throwable ignored) {
             }
