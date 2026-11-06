@@ -23,15 +23,17 @@ import java.util.List;
 /**
  * 应用抽屉（原型 #appScrim + #appList）。
  *
- * 结构：遮罩 + 底部面板（手柄 / 头部 / 网格），入场 translationY 300ms。
+ * <p>v2.0.32：右下角 📋 由「图标网格」改为「纵向列表 + 首字母分组」。
+ * 排序与分组由纯逻辑类 {@link AppSorter} 完成（中文按拼音首字母，英文 A–Z，其余归 #）。
+ * 每行 = 真实图标（或 emoji 回落）+ 应用名 + 包名小字 + 可选「已钉」角标，
+ * 1920x720 横屏下比网格更易读、长应用名不再被压成两行。
+ *
+ * <p>结构：遮罩 + 底部面板（手柄 / 头部 / 列表），入场 translationY 300ms。
  * 两种用法：
  * ① pick != null —— 选择模式（音乐源 / 导航源），点一项回调并关闭；
  * ② pick == null —— 纯浏览模式（dock 的 📋）：单击直接拉起，长按钉入 / 移除 dock 快捷方式。
  *
- * 数值全部照抄原型 CSS：
- *   面板 max-height 605u、顶角半径 24u、底 rgba(16,20,30,.98)；
- *   手柄 42x5u 半径 3u；头部内边距 6/18/12u、标题 15u；关闭按钮 34u 圆形；
- *   网格内边距 16u、gap 12u、每格固定宽 92u；图标 34u 圆角 9u；名称 11u 两行。
+ * <p>交互一律保留：长按后的单击必须被吃掉、钉住状态实时刷新底栏、限高 605u 滚动。
  */
 public class AppDrawer {
 
@@ -48,7 +50,8 @@ public class AppDrawer {
     private FrameLayout scrim;
     private LinearLayout panel;
     private MaxScroll scroll;
-    private LinearLayout grid;
+    /** v2.0.32：纵向列表容器（原网格容器，交互不变，仅布局从「每行 N 格」改为「每行 1 项」）。 */
+    private LinearLayout listBox;
     private String curType;
     private Shell.DrawerPick pick;
     private boolean open;
@@ -105,26 +108,30 @@ public class AppDrawer {
         TextView titleTv = U.text(c, tt, 15, U.TXT);
         U.bold(titleTv);
         head.addView(titleTv, new LinearLayout.LayoutParams(0, U.WC, 1f));
+        TextView hint = U.text(c, "按首字母排序", 11, U.SUB);
+        head.addView(hint, new LinearLayout.LayoutParams(U.WC, U.WC));
         TextView closeBtn = U.text(c, "✕", 16, U.SUB);
         closeBtn.setGravity(Gravity.CENTER);
         closeBtn.setBackground(U.bg(Color.TRANSPARENT, 17, U.LINE, 1));
         closeBtn.setClickable(true);
         U.rippleCircle(closeBtn);
         closeBtn.setOnClickListener(v -> close());
-        head.addView(closeBtn, new LinearLayout.LayoutParams(U.px(34), U.px(34)));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(U.px(34), U.px(34));
+        clp.leftMargin = U.px(10);
+        head.addView(closeBtn, clp);
         panel.addView(head, new LinearLayout.LayoutParams(U.MP, U.WC));
         View headLine = new View(c);
         headLine.setBackgroundColor(U.LINE);
         panel.addView(headLine, new LinearLayout.LayoutParams(U.MP, Math.max(1, U.px(1))));
 
-        // 网格（放进可限高的 ScrollView）
+        // 列表（放进可限高的 ScrollView）
         scroll = new MaxScroll(c, U.px(605));
-        grid = U.col(c);
-        U.pad(grid, 16, 16, 16, 16);
-        scroll.addView(grid, new FrameLayout.LayoutParams(U.MP, U.WC));
+        listBox = U.col(c);
+        U.pad(listBox, 16, 12, 16, 16);
+        scroll.addView(listBox, new FrameLayout.LayoutParams(U.MP, U.WC));
         panel.addView(scroll, new LinearLayout.LayoutParams(U.MP, U.WC));
 
-        fillGrid();
+        fillList();
         final LinearLayout pnl = panel;
         final MaxScroll sc = scroll;
         final View gripV = grip;
@@ -148,7 +155,7 @@ public class AppDrawer {
         panel = null;
         scrim = null;
         scroll = null;
-        grid = null;
+        listBox = null;
         pick = null;
         if (ov == null || pnl == null) return;
         if (scr != null) scr.animate().alpha(0f).setDuration(250).start();
@@ -160,64 +167,60 @@ public class AppDrawer {
                 }).start();
     }
 
-    /** 外部改动了 dock 钉住状态后调用：按当前数据重建网格 */
+    /** 外部改动了 dock 钉住状态后调用：按当前数据重建列表 */
     public void refresh() {
-        if (panel != null && grid != null) fillGrid();
+        if (panel != null && listBox != null) fillList();
     }
 
     // ------------------------------------------------------------------ 构建
 
-    private void fillGrid() {
-        if (grid == null) return;
+    /** v2.0.32：按首字母分组的纵向列表，排序不修改 Host 的应用缓存。 */
+    private void fillList() {
+        if (listBox == null) return;
         Context c = sh.ctx();
-        grid.removeAllViews();
-        List<Def.App> list = curType == null ? sh.host().allApps() : sh.host().appsOfType(curType);
-        if (list == null || list.isEmpty()) {
+        listBox.removeAllViews();
+        List<Def.App> src = curType == null ? sh.host().allApps() : sh.host().appsOfType(curType);
+        List<Def.App> list = AppSorter.sort(src);
+        if (list.isEmpty()) {
             TextView e = U.text(c, "未读到已安装的应用", 13, U.SUB);
             e.setGravity(Gravity.CENTER);
             U.pad(e, 30, 30, 30, 30);
-            grid.addView(e, new LinearLayout.LayoutParams(U.MP, U.WC));
+            listBox.addView(e, new LinearLayout.LayoutParams(U.MP, U.WC));
             return;
         }
-        int W = sh.overlay() != null && sh.overlay().getWidth() > 0
-                ? sh.overlay().getWidth() : U.screenW;
-        int cols = Math.max(1, (int) Math.floor((W - 20 * U.u) / (104 * U.u)));
-        LinearLayout row = newRow(c);
-        int inRow = 0;
+        String last = null;
         for (Def.App a : list) {
-            row.addView(makeCell(a));
-            if (++inRow == cols) {
-                flushRow(row);
-                row = newRow(c);
-                inRow = 0;
+            String ini = AppSorter.initialOf(AppSorter.label(a));
+            if (!ini.equals(last)) {
+                listBox.addView(makeGroup(c, ini));
+                last = ini;
             }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(U.MP, U.WC);
+            lp.topMargin = U.px(4);
+            listBox.addView(makeRow(a), lp);
         }
-        if (inRow > 0) flushRow(row);
     }
 
-    private LinearLayout newRow(Context c) {
-        LinearLayout r = U.row(c);
-        r.setGravity(Gravity.TOP);
-        return r;
-    }
-
-    private void flushRow(LinearLayout row) {
-        U.gapH(row, 12);
+    /** 分组标题行：A / B / … / Z / # 其他。 */
+    private View makeGroup(Context c, String letter) {
+        TextView t = U.text(c, AppSorter.OTHER.equals(letter) ? "# 其他" : letter, 12, U.ACC);
+        U.bold(t);
+        U.pad(t, 6, 10, 6, 2);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(U.MP, U.WC);
-        if (grid.getChildCount() > 0) lp.topMargin = U.px(12);
-        grid.addView(row, lp);
+        lp.topMargin = U.px(8);
+        t.setLayoutParams(lp);
+        return t;
     }
 
-    /** 一格：图标（真实图标 / emoji 回落）+ 名称 + 可选「已钉」角标 */
-    private View makeCell(final Def.App a) {
+    /** 列表一行：图标 + 应用名/包名 + 可选「已钉」角标。交互与旧网格格一致。 */
+    private View makeRow(final Def.App a) {
         final Context c = sh.ctx();
         final boolean browse = pick == null;
-        final FrameLayout box = new FrameLayout(c);
-        box.setLayoutParams(new LinearLayout.LayoutParams(U.px(92), U.WC));
-        U.pad(box, 6, 10, 6, 10);
-
-        LinearLayout col = U.col(c);
-        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        final LinearLayout row = U.row(c);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setMinimumHeight(U.px(52));
+        U.pad(row, 10, 6, 10, 6);
+        row.setLayoutParams(new LinearLayout.LayoutParams(U.MP, U.WC));
 
         Bitmap bm = sh.host().icon(a.pkg);
         if (bm != null) {
@@ -231,48 +234,51 @@ public class AppDrawer {
                     o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), U.px(9));
                 }
             });
-            col.addView(iv, new LinearLayout.LayoutParams(U.px(34), U.px(34)));
+            row.addView(iv, new LinearLayout.LayoutParams(U.px(34), U.px(34)));
         } else {
             String em = a.emoji == null || a.emoji.isEmpty() ? Def.typeEmoji(a.type) : a.emoji;
-            TextView ic = U.text(c, em, 26, U.TXT);
+            TextView ic = U.text(c, em, 24, U.TXT);
             ic.setGravity(Gravity.CENTER);
-            col.addView(ic, new LinearLayout.LayoutParams(U.px(34), U.px(34)));
+            row.addView(ic, new LinearLayout.LayoutParams(U.px(34), U.px(34)));
         }
 
-        String nm = "nav".equals(curType) ? Def.navLabelOf(a.pkg, a.name) : a.name;
-        TextView t = U.text(c, nm == null ? "" : nm, 11, U.SUB);
-        t.setGravity(Gravity.CENTER);
-        t.setMaxLines(2);
-        t.setLineSpacing(U.px(11 * 0.3f), 1f);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(U.MP, U.WC);
-        tlp.topMargin = U.px(6);
-        col.addView(t, tlp);
-        box.addView(col, new FrameLayout.LayoutParams(U.MP, U.WC));
+        LinearLayout txt = U.col(c);
+        String nm = "nav".equals(curType) ? Def.navLabelOf(a.pkg, a.name) : AppSorter.label(a);
+        TextView t = U.text(c, nm, 14, U.TXT);
+        U.bold(t);
+        t.setSingleLine(true);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        txt.addView(t);
+        TextView sub = U.text(c, a.pkg == null ? "" : a.pkg, 10, U.SUB);
+        sub.setSingleLine(true);
+        sub.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        txt.addView(sub);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, U.WC, 1f);
+        tlp.leftMargin = U.px(10);
+        row.addView(txt, tlp);
 
         final TextView badge = U.text(c, "已钉", 9, U.ON_ACC_TXT);
         badge.setBackground(U.bg(U.ACC, 8));
         U.pad(badge, 5, 1, 5, 1);
-        FrameLayout.LayoutParams blp = new FrameLayout.LayoutParams(U.WC, U.WC, Gravity.TOP | Gravity.END);
-        blp.rightMargin = U.px(2);
-        box.addView(badge, blp);
+        row.addView(badge, new LinearLayout.LayoutParams(U.WC, U.WC));
 
         final Runnable paint = () -> {
             boolean p = browse && sh.prefs().isDockPinned(a.pkg);
-            box.setBackground(U.bg(p ? PIN_FILL : U.PANEL2, 14, p ? U.ACC : Color.TRANSPARENT, 1));
+            row.setBackground(U.bg(p ? PIN_FILL : U.PANEL2, 10, p ? U.ACC : Color.TRANSPARENT, 1));
             U.visible(badge, p);
-            U.ripple(box, 0x33FFFFFF, 14);
+            U.ripple(row, 0x33FFFFFF, 10);
         };
         paint.run();
 
         if (browse) {
             // 长按一旦触发过，随后的单击必须被吃掉（下一次按下时复位）
             final boolean[] fired = {false};
-            box.setOnTouchListener((v, e) -> {
+            row.setOnTouchListener((v, e) -> {
                 if (e.getActionMasked() == MotionEvent.ACTION_DOWN) fired[0] = false;
                 return false;
             });
-            box.setLongClickable(true);
-            box.setOnLongClickListener(v -> {
+            row.setLongClickable(true);
+            row.setOnLongClickListener(v -> {
                 fired[0] = true;
                 boolean was = sh.prefs().isDockPinned(a.pkg);
                 boolean now = sh.prefs().toggleDockPin(a.pkg);
@@ -285,18 +291,18 @@ public class AppDrawer {
                 sh.refreshDock();          // ★ 不通知的话，底栏要重启 App 才会更新
                 return true;
             });
-            box.setOnClickListener(v -> {
+            row.setOnClickListener(v -> {
                 if (fired[0]) { fired[0] = false; return; }
                 sh.host().launchPkg(a.pkg);
                 close();
             });
         } else {
-            box.setOnClickListener(v -> {
+            row.setOnClickListener(v -> {
                 if (pick != null) pick.onPick(a);
                 close();
             });
         }
-        return box;
+        return row;
     }
 
     private Drawable panelBg() {

@@ -50,7 +50,16 @@ public final class CapService extends Service {
     /** v2.0.16：startForeground 专用的最小通知（仅 icon+标题+渠道，无 action/PendingIntent）。 */
     private static volatile Notification.Builder minBuilder;
 
-    private CapService() {
+    /**
+     * ★★★ v2.0.32 P0 真根因：必须是 public 且无参。
+     * Android 框架通过 AppComponentFactory.instantiateService() → Class.newInstance()
+     * 实例化 Service，私有构造器必然抛 IllegalAccessException ⇒
+     * ActivityThread.handleCreateService 抛 RuntimeException ⇒ AMS 直接杀进程，
+     * 表现为「每次点击开始采集就闪退」。此异常发生在异步 binder 回调里，
+     * 调用侧 CapService.start() 的 try-catch 与 Service.onCreate() 的 try-catch 都拦不住。
+     * 该私有构造器自 v2.0.13 引入起就存在，此前被 FOREGROUND_SERVICE 权限缺失等表象掩盖。
+     */
+    public CapService() {
     }
 
     /* ==================== 采集侧调用入口 ==================== */

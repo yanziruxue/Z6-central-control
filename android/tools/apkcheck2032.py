@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.31 产物反查：修复「点开始采集闪退」+ 根治日志全线不可写 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.32 产物反查：修真根因 CapService 私有构造器 + 应用列表首字母排序 + 自建端点发日志 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -112,6 +112,17 @@
            逐个真实 FileOutputStream 试写并校验 f.length()==data.length，
            lastNasError() 回显每个候选的类名+message；SetPane 失败 toast 带真实原因、成功 toast 带绝对路径。
            ★ 仍不谎报「已上传到 NAS」：写盘成功只是生成待上传文件（NEG 断言）。
+★ v2.0.32 三项：
+           ① P0 真根因：CapService 构造器 private → public。Android 框架用
+              Class.newInstance() 实例化 Service，私有构造器抛 IllegalAccessException
+              ⇒ ActivityThread.handleCreateService ⇒ AMS 杀进程；异步 binder 回调里的
+              异常，app 侧 CapService.start() / onCreate() 的 try-catch 全部拦不住，
+              这就是「每次点击开始采集就闪退」而 v2.0.31 一众防线无效的原因。
+              构造器访问标志由构建后 javap 单独硬验证（产物级证据）。
+           ② 右下角 📋 应用抽屉改纵向列表 + 首字母分组（AppSorter，中文拼音首字母
+              用 Collator(Locale.CHINA) + 23 个边界字二分，零第三方依赖）。
+           ③ 新增第 4 个日志按钮 POST http://172.17.117.232:1443，
+              复用 token 头 + JSON 事件载荷，回显真实 HTTP 码 / -1 异常，绝不假绿。
 """
 import hashlib
 import io
@@ -119,7 +130,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.31.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.32.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -269,6 +280,13 @@ POS = [
     "崩溃堆栈已落盘".encode("utf-8"), "崩溃堆栈落盘失败".encode("utf-8"),
     "采集线程未捕获异常".encode("utf-8"),
     "前台服务创建异常".encode("utf-8"), "前台服务启动异常".encode("utf-8"),
+    # v2.0.32：真根因修复的 UI 兜底 + 应用首字母排序 + 自建端点发日志
+    b"com/l6/carmedia/nat/AppSorter", b"java/text/Collator",
+    b"initialOf", b"hanInitial", b"rank", b"onSendRunLog1443",
+    b"http://172.17.117.232:1443",
+    "按首字母排序".encode("utf-8"), "# 其他".encode("utf-8"),
+    "发日志到 1443".encode("utf-8"), "自建端点".encode("utf-8"),
+    "开始采集点击异常".encode("utf-8"),
 ]
 # v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
 _expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()

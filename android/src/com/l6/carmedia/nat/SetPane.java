@@ -970,9 +970,17 @@ public class SetPane {
         sigState = U.bold(U.text(c, "未采集", 12, U.TXT));
         sigBtn = U.btn(c, "▶ 开始采集");
         sigBtn.setOnClickListener(v -> {
-            if (sh.host().isSignalCapturing()) sh.host().stopSignal();
-            else sh.host().startSignal();
-            refreshSignal();
+            // v2.0.32 P0：UI 线程兜底。Service 实例化异常发生在异步 binder 回调，这里拦不住；
+            // 但 startSignal()/refreshSignal() 的任何同步异常必须吃掉，否则点一下就崩主线程。
+            // 真正的根因是 CapService 私有构造器（已改 public）。
+            try {
+                if (sh.host().isSignalCapturing()) sh.host().stopSignal();
+                else sh.host().startSignal();
+                refreshSignal();
+            } catch (Throwable t) {
+                try { L6Log.e("SetPane", "开始采集点击异常（已兜住）：" + t); } catch (Throwable ignored) { }
+                sh.host().toast("❌ 开始采集失败：" + t.getClass().getSimpleName());
+            }
         });
         // ★ v2.0.3：清空按钮放在「开始采集」左边
         sigClear = U.btn(c, "🗑 清空采集日志");
@@ -1023,6 +1031,21 @@ public class SetPane {
         U.gapH(nasRow, 8);
         nasRow.addView(sendNasBtn);
         card.addView(nasRow);
+        U.gapV(card, 8);
+
+        // ★ v2.0.32：第四个日志通道——用户自建的免私有签名接收端点。
+        //   与公网/内网两条按钮同构：sendLogTextTo(endpoint, ...) 复用 token 头与 JSON 载荷，仅地址不同。
+        //   本机探测该地址超时（不在本机网段），按钮必须回显真实 HTTP 码 / -1 异常，绝不假绿。
+        TextView send1443Btn = U.btn(c, "📤 发日志到 1443");
+        send1443Btn.setOnClickListener(v -> onSendRunLog1443());
+        LinearLayout log1443Row = U.row(c);
+        log1443Row.addView(U.text(c, "自建端点", 12, U.TXT));
+        U.gapH(log1443Row, 8);
+        log1443Row.addView(send1443Btn);
+        card.addView(log1443Row);
+        U.gapV(card, 8);
+        card.addView(U.text(c, "「发日志到 1443」POST 到 http://172.17.117.232:1443 ，"
+                + "与云端/内网按钮同用 token 头和 JSON 载荷；返回码或 -1 异常会直接显示。", 12, U.SUB));
         U.gapV(card, 8);
         card.addView(U.text(c, "「上传到 NAS」会生成 .txt 并打开飞牛收集页，请在页面中选择该文件；"
                 + "优先存 Download/L6/upload/，公共目录不可写时自动回落到应用私有目录，"
@@ -1101,6 +1124,28 @@ public class SetPane {
                 msg = "✅ 备用发送成功（HTTP " + code + "）";
             } else {
                 msg = "❌ 备用发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
+            }
+            sh.host().toast(msg);
+        });
+    }
+
+    /** v2.0.32：用户自建的免私有签名接收端点（明文 HTTP 由 manifest usesCleartextTraffic 放行）。 */
+    private static final String LOG_ENDPOINT_1443 = "http://172.17.117.232:1443";
+
+    /**
+     * v2.0.32：自建端点发送运行日志。与 {@link #onSendRunLogLan()} 完全同构
+     * （token 头 + JSON 事件载荷），仅目标地址不同；HTTP 2xx 才算成功，
+     * -1 时把异常类名与 message 一起回显，便于定位断网点。
+     */
+    private void onSendRunLog1443() {
+        String txt = gatherRunLog();
+        sh.host().toast("发送中（自建端点 1443）…");
+        L6Reporter.sendLogTextTo(LOG_ENDPOINT_1443, "runlog", txt, (code, detail) -> {
+            String msg;
+            if (code >= 200 && code < 300) {
+                msg = "✅ 自建端点发送成功（HTTP " + code + "）";
+            } else {
+                msg = "❌ 自建端点发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
             }
             sh.host().toast(msg);
         });
