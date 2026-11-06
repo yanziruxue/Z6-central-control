@@ -118,6 +118,81 @@ public final class L6Log {
         return ctx;
     }
 
+    /**
+     * v2.0.31：目录可写性解析结果（进程内缓存一次）。
+     * ★ 修复「公共 Download 不可写 ⇒ 运行日志 / 崩溃日志 / 采集产物 / NAS 待上传文件全线丢失」的根因：
+     *   旧 logFile() 只 new File 不校验，publicBase() 恒非 null，私有回落永远不会触发。
+     */
+    private static volatile File chosenBase;
+    private static volatile boolean baseResolved;
+
+    private static synchronized File writableBase() {
+        if (baseResolved) return chosenBase;
+        baseResolved = true;
+        File[] list = baseCandidates();
+        for (File b : list) {
+            if (b != null && probeWritable(b)) {
+                chosenBase = b;
+                return chosenBase;
+            }
+        }
+        chosenBase = list.length > 0 ? list[0] : null;
+        return chosenBase;
+    }
+
+    /** 候选基址按「可见性 / 权限成本」排序：公共 Download/L6 → 外部私有 → 内部私有 → cache。 */
+    private static File[] baseCandidates() {
+        java.util.List<File> l = new java.util.ArrayList<File>();
+        File p = publicBase();
+        if (p != null) l.add(p);
+        File q = privateBase();
+        if (q != null) l.add(q);
+        try {
+            if (ctx != null && ctx.getFilesDir() != null) l.add(new File(ctx.getFilesDir(), "L6"));
+        } catch (Throwable ignored) { }
+        try {
+            if (ctx != null && ctx.getCacheDir() != null) l.add(new File(ctx.getCacheDir(), "L6"));
+        } catch (Throwable ignored) { }
+        return l.toArray(new File[0]);
+    }
+
+    /** 真实试写一个探针文件；mkdirs / FileOutputStream 任一失败即判该基址不可用。 */
+    private static boolean probeWritable(File base) {
+        File probe = null;
+        try {
+            File d = new File(base, "app-log");
+            if (!d.isDirectory() && !d.mkdirs()) return false;
+            probe = new File(d, ".wtest");
+            java.io.FileOutputStream o = new java.io.FileOutputStream(probe, false);
+            try {
+                o.write(1);
+                o.flush();
+            } finally {
+                try { o.close(); } catch (Throwable ignored) { }
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        } finally {
+            if (probe != null) {
+                try { probe.delete(); } catch (Throwable ignored) { }
+            }
+        }
+    }
+
+    /** 可写的 app-log 目录；运行日志、崩溃日志、启动补发统一走这里，避免各自落在不同目录。 */
+    public static File logDir() {
+        try {
+            File base = writableBase();
+            if (base == null) return null;
+            File d = new File(base, "app-log");
+            if (!d.isDirectory() && !d.mkdirs()) return null;
+            return d.isDirectory() ? d : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     /** 公共目录基址：Download/L6（运行日志与采集产物都挂它下面的子目录）。 */
     private static File publicBase() {
         try {
@@ -136,20 +211,11 @@ public final class L6Log {
         return null;
     }
 
-    /** 当天运行日志文件：Download/L6/app-log/l6-YYYY-MM-DD.log（取不到公共目录时回落 L6/app-log）。 */
+    /** 当天运行日志文件：落在 {@link #logDir()}（公共目录不可写时自动回落到应用私有目录）。 */
     public static File logFile() {
         try {
-            File base = publicBase();
-            if (base != null) {
-                return new File(base, "app-log/l6-" + DATE.format(new Date()) + ".log");
-            }
-        } catch (Throwable ignored) {
-        }
-        try {
-            File base = privateBase();
-            if (base != null) {
-                return new File(base, "app-log/l6-" + DATE.format(new Date()) + ".log");
-            }
+            File d = logDir();
+            if (d != null) return new File(d, "l6-" + DATE.format(new Date()) + ".log");
         } catch (Throwable ignored) {
         }
         return null;
@@ -174,19 +240,11 @@ public final class L6Log {
      */
     public static File artifactDir() {
         try {
-            File base = publicBase();
+            File base = writableBase();
             if (base != null) {
                 File d = new File(base, "caiji");
-                if (!d.exists()) d.mkdirs();
-                if (d.exists()) return d;
-            }
-        } catch (Throwable ignored) { }
-        try {
-            File base = privateBase();
-            if (base != null) {
-                File d = new File(base, "caiji");
-                if (!d.exists()) d.mkdirs();
-                if (d.exists()) return d;
+                if (!d.isDirectory()) d.mkdirs();
+                if (d.isDirectory()) return d;
             }
         } catch (Throwable ignored) { }
         return null;

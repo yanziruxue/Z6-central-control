@@ -443,14 +443,13 @@ public final class L6Reporter {
         });
     }
 
-    /** l6-crash-*.txt 所在目录（与 L6Log 运行日志同目录 app-log/）。 */
+    /** v2.0.31：l6-crash-*.txt 目录统一取 {@link L6Log#logDir()}（可写基址已做多级回落），启动补发才扫得到。 */
     private static File crashDir() {
         try {
-            File daily = L6Log.logFile();
-            if (daily != null && daily.getParentFile() != null) return daily.getParentFile();
+            return L6Log.logDir();
         } catch (Throwable ignored) {
+            return null;
         }
-        return null;
     }
 
     private static String readFile(File f) {

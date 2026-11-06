@@ -97,7 +97,19 @@ public final class SignalCapture {
         startedIso = iso();
         worker = new Thread(new Runnable() {
             public void run() {
-                loop();
+                // v2.0.31 P0：采集线程最外层防线。子线程未捕获异常会被 Android 直接杀进程
+                // （表现为「每次点开始采集就闪退」），loop() 内部分段 catch 有漏网区间，
+                // 这里必须无条件兜住并复位状态，绝不让异常冒泡到默认 UncaughtExceptionHandler。
+                try {
+                    loop();
+                } catch (Throwable t) {
+                    try { L6Log.e(TAG, "采集线程未捕获异常（已强制复位，绝不带崩进程）：" + t); }
+                    catch (Throwable ignored) { }
+                    running = false;
+                    stopReq = false;
+                    worker = null;
+                    try { CapService.stop(appCtx); } catch (Throwable ignored) { }
+                }
             }
         }, "l6-signal");
         worker.setDaemon(true);

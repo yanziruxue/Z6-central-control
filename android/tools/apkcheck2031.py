@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.30 产物反查：修复「上传到 NAS」报「无法写入日志文件」—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.31 产物反查：修复「点开始采集闪退」+ 根治日志全线不可写 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -119,7 +119,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.30.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.31.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -263,6 +263,12 @@ POS = [
     b"mkdirs=false", b"expect=", b"size=",
     "无可用存储目录".encode("utf-8"), "路径：".encode("utf-8"),
     "以点按钮后提示里的实际路径为准".encode("utf-8"),
+    # v2.0.31：L6Log 可写基址探测 + 崩溃证据链 + 采集/服务进程级防线
+    b"writableBase", b"baseCandidates", b"probeWritable", b"logDir", b".wtest",
+    b"crashDirs",
+    "崩溃堆栈已落盘".encode("utf-8"), "崩溃堆栈落盘失败".encode("utf-8"),
+    "采集线程未捕获异常".encode("utf-8"),
+    "前台服务创建异常".encode("utf-8"), "前台服务启动异常".encode("utf-8"),
 ]
 # v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
 _expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()

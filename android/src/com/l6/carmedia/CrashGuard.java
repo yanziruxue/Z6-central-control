@@ -61,25 +61,16 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
         }
     }
 
-    /** 崩溃堆栈落盘：写到运行日志同目录（app-log/l6-crash-<ts>.txt），失败静默；返回崩溃文本供上报。 */
+    /**
+     * v2.0.31：崩溃堆栈落盘。
+     * ★ 先无条件生成完整崩溃文本，再逐级尝试目录；★ 目录全不可写也照样把文本交给
+     * {@code sendCrash} 上报 —— 旧实现「目录 mkdirs 失败就 return 空串」正是车机上
+     * 「闪退了却拿不到任何证据、云端也没收到」的原因。
+     */
     private String writeCrash(Thread t, Throwable e) {
         StringBuilder sb = new StringBuilder();
-        FileWriter w = null;
         try {
-            File dir = null;
-            File daily = L6Log.logFile();
-            if (daily != null && daily.getParentFile() != null) {
-                dir = daily.getParentFile();
-                if (!dir.exists() && !dir.mkdirs()) {
-                    return "";
-                }
-            }
-            if (dir == null || !dir.isDirectory()) {
-                return "";
-            }
-            File f = new File(dir, "l6-crash-"
-                    + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date())
-                    + ".txt");
+            Throwable ex = e == null ? new Throwable("(null throwable)") : e;
             sb.append("time=").append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.ROOT)
                     .format(new Date())).append('\n');
             sb.append("thread=").append(t == null ? "?" : t.getName()).append('\n');
@@ -87,28 +78,68 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
             sb.append("os=Android ").append(android.os.Build.VERSION.RELEASE)
                     .append(" (API ").append(android.os.Build.VERSION.SDK_INT).append(")\n");
             sb.append("model=").append(android.os.Build.MODEL).append('\n');
-            stackTrace(e, sb);
-            // 原因链（Caused by）
-            Throwable cause = e.getCause();
-            while (cause != null && cause != e) {
+            stackTrace(ex, sb);
+            Throwable cause = ex.getCause();
+            while (cause != null && cause != ex) {
                 sb.append('\n');
                 stackTrace(cause, sb);
                 cause = cause.getCause();
             }
-            w = new FileWriter(f, false);
-            w.write(sb.toString());
-            w.close();
-            w = null;
         } catch (Throwable ignored) {
-        } finally {
-            if (w != null) {
-                try {
-                    w.close();
-                } catch (Throwable ignored) {
+            sb.append("崩溃文本生成异常（已尽力保留上述内容）\n");
+        }
+        final String text = sb.toString();
+        final String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date());
+        for (File dir : crashDirs()) {
+            if (dir == null) continue;
+            FileWriter w = null;
+            try {
+                if (!dir.isDirectory() && !dir.mkdirs()) continue;
+                File f = new File(dir, "l6-crash-" + stamp + ".txt");
+                w = new FileWriter(f, false);
+                w.write(text);
+                w.flush();
+                w.close();
+                w = null;
+                if (f.length() > 0) {
+                    try { L6Log.i("L6Crash", "崩溃堆栈已落盘 " + f.getAbsolutePath()); }
+                    catch (Throwable ignored) { }
+                    return text;
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (w != null) {
+                    try { w.close(); } catch (Throwable ignored) { }
                 }
             }
         }
-        return sb.toString();
+        try { L6Log.e("L6Crash", "崩溃堆栈落盘失败（多级目录均不可写），改为仅云端上报"); }
+        catch (Throwable ignored) { }
+        return text;
+    }
+
+    /** 崩溃日志目录候选：统一 {@link L6Log#logDir()} 优先，其余按无权限成本逐级兜底。 */
+    private File[] crashDirs() {
+        java.util.List<File> out = new java.util.ArrayList<File>();
+        try {
+            File d = L6Log.logDir();
+            if (d != null) out.add(d);
+        } catch (Throwable ignored) { }
+        android.content.Context c = L6Log.appContext();
+        if (c == null) return out.toArray(new File[0]);
+        try {
+            File e = c.getExternalFilesDir(null);
+            if (e != null) out.add(new File(e, "L6/app-log"));
+        } catch (Throwable ignored) { }
+        try {
+            File f = c.getFilesDir();
+            if (f != null) out.add(new File(f, "L6/app-log"));
+        } catch (Throwable ignored) { }
+        try {
+            File k = c.getCacheDir();
+            if (k != null) out.add(new File(k, "L6/app-log"));
+        } catch (Throwable ignored) { }
+        return out.toArray(new File[0]);
     }
 
     /** 一个 Throwable 的 toString + 堆栈行（Caused by 复用）。 */

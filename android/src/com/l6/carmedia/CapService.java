@@ -109,45 +109,66 @@ public final class CapService extends Service {
     public void onCreate() {
         super.onCreate();
         self = this;
-        nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) {
-            NotificationChannel ch = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_LOW);
-            ch.setShowBadge(false);
-            ch.setDescription("采集期间常驻，显示进度，可一键结束");
-            nm.createNotificationChannel(ch);
+        // v2.0.31 P0：Service.onCreate 抛异常 ⇒ 系统直接杀进程（点开始采集闪退）。
+        // 定制 ROM 上 createNotificationChannel / Notification.Builder / PendingIntent 都可能抛，
+        // 全量兜住：通知挂不上只损失通知栏，采集线程照跑。
+        try {
+            nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                try {
+                    NotificationChannel ch = new NotificationChannel(CHANNEL_ID, CHANNEL_NAME,
+                            NotificationManager.IMPORTANCE_LOW);
+                    ch.setShowBadge(false);
+                    ch.setDescription("采集期间常驻，显示进度，可一键结束");
+                    nm.createNotificationChannel(ch);
+                } catch (Throwable t) {
+                    L6Log.e("L6Signal", "前台服务创建异常（通知渠道）：" + t);
+                }
+            }
+            // 通知小图标：运行时按名找 ic_launcher（构建链不生成 R.java，不能用 R.mipmap）；
+            // 找不到就退平台图标，保证通知一定能出。
+            int icon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
+            if (icon == 0) {
+                icon = android.R.drawable.ic_dialog_info;
+            }
+            // v2.0.16 P0：最小通知——startForeground 时只挂它。system_server 会对
+            // startForeground 提交的通知做严格校验，复杂通知（addAction/contentIntent）在
+            // 定制 ROM 上可能被判 Bad notification ⇒ AMS 直接杀进程（app 侧 try-catch 拦不住）。
+            try {
+                minBuilder = new Notification.Builder(this, CHANNEL_ID)
+                        .setSmallIcon(icon)
+                        .setContentTitle("老六 · 信号采集中")
+                        .setOngoing(true);
+            } catch (Throwable t) {
+                L6Log.e("L6Signal", "前台服务创建异常（最小通知）：" + t);
+            }
+            try {
+                // ★ v2.0.31：action 图标改用真实 smallIcon，不再传 0（部分 ROM 判 Bad notification）
+                builder = new Notification.Builder(this, CHANNEL_ID)
+                        .setSmallIcon(icon)
+                        .setContentTitle("老六 · 信号采集中")
+                        .setContentText(fmt(0, 0))
+                        .setOngoing(true)
+                        .setOnlyAlertOnce(true)
+                        .setContentIntent(PendingIntent.getActivity(this, 0,
+                                new Intent(this, MainActivity.class),
+                                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE))
+                        .addAction(icon, "结束采集",
+                                PendingIntent.getService(this, 1,
+                                        new Intent(this, CapService.class).setAction(ACTION_STOP),
+                                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+            } catch (Throwable t) {
+                L6Log.e("L6Signal", "前台服务创建异常（完整通知）：" + t);
+            }
+        } catch (Throwable t) {
+            L6Log.e("L6Signal", "前台服务创建异常（已兜住，不影响采集）：" + t);
         }
-        // 通知小图标：运行时按名找 ic_launcher（构建链不生成 R.java，不能用 R.mipmap）；
-        // 找不到就退平台图标，保证通知一定能出。
-        int icon = getResources().getIdentifier("ic_launcher", "mipmap", getPackageName());
-        if (icon == 0) {
-            icon = android.R.drawable.ic_dialog_info;
-        }
-        // v2.0.16 P0：最小通知——startForeground 时只挂它。system_server 会对
-        // startForeground 提交的通知做严格校验，复杂通知（addAction/contentIntent）在
-        // 定制 ROM 上可能被判 Bad notification ⇒ AMS 直接杀进程（app 侧 try-catch 拦不住）。
-        // 最小通知通过校验概率最高；保活挂稳后再 notify 完整版（失败只损失按钮/进度）。
-        minBuilder = new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(icon)
-                .setContentTitle("老六 · 信号采集中")
-                .setOngoing(true);
-        builder = new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(icon)
-                .setContentTitle("老六 · 信号采集中")
-                .setContentText(fmt(0, 0))
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setContentIntent(PendingIntent.getActivity(this, 0,
-                        new Intent(this, MainActivity.class),
-                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE))
-                .addAction(0, "结束采集",
-                        PendingIntent.getService(this, 1,
-                                new Intent(this, CapService.class).setAction(ACTION_STOP),
-                                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // v2.0.31 P0：Service 生命周期回调绝不让异常冒泡（冒泡 = 进程被杀 = 点采集闪退）
+        try {
         // ★ startForeground 必须在 onCreate 后尽早调；★ 必须 try-catch——
         //   API 28 起缺 FOREGROUND_SERVICE 权限（v2.0.14 及之前漏声明）或 ROM 拦截时
         //   这里会抛异常，服务崩溃=整个进程闪退（点开始采集直接退回桌面）。
@@ -183,6 +204,11 @@ public final class CapService extends Service {
             }
         }
         return START_NOT_STICKY;
+        } catch (Throwable t) {
+            L6Log.e("L6Signal", "前台服务启动异常（已兜住，不影响采集）：" + t);
+            try { stopSelf(); } catch (Throwable ignored) { }
+            return START_NOT_STICKY;
+        }
     }
 
     @Override
