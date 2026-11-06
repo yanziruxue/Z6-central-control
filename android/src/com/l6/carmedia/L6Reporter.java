@@ -311,17 +311,28 @@ public final class L6Reporter {
         });
     }
 
+    /** v2.0.30：最后一次 NAS 文件写入的失败明细（逐候选目录的真实异常），供 UI 如实回显。 */
+    private static volatile String sNasError = "";
+
+    /** 返回上一次写盘失败的明细；无失败时为空串。 */
+    public static String lastNasError() {
+        String s = sNasError;
+        return s == null ? "" : s;
+    }
+
     /**
-     * v2.0.29：把运行日志写成一个可直接上传的 .txt，落在 L6/upload/ 下。
-     * 返回 null 表示写盘失败（存储不可用 / 权限不足），调用方必须如实报错，不能谎报上传成功。
+     * v2.0.30：把运行日志写成一个可直接上传的 .txt。
+     *
+     * <p>★ 修复 v2.0.29「无法写入日志文件」：车机上公共 Download 常因危险权限未授予 / 只读而 mkdirs 失败，
+     * 旧实现只认这一个目录且不做真实试写。现在按「公共 Download/L6/upload → 应用外部私有 →
+     * 内部私有 → cache」逐级真实写入并校验字节数，任一成功即返回；全失败则记录每个候选的具体原因，
+     * 由 {@link #lastNasError()} 回显，绝不谎报成功。
      */
     public static java.io.File writeNasUploadFile(String text) {
+        sNasError = "";
         try {
-            java.io.File dir = nasUploadDir();
-            if (dir == null) return null;
             String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US)
                     .format(new java.util.Date());
-            java.io.File f = new java.io.File(dir, "l6-log-" + stamp + ".txt");
             StringBuilder sb = new StringBuilder();
             sb.append("老六中控 运行日志\n");
             sb.append("version: ").append(L6Log.appVerPublic()).append('\n');
@@ -333,35 +344,78 @@ public final class L6Reporter {
             sb.append("nas: ").append(NAS_COLLECT_URL).append('\n');
             sb.append("----------------------------------------\n");
             sb.append(text == null ? "(无日志)" : text);
-            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
-            try {
-                out.write(sb.toString().getBytes("UTF-8"));
-                out.flush();
-            } finally {
-                try { out.close(); } catch (Throwable ignored) { }
+            byte[] data = sb.toString().getBytes("UTF-8");
+
+            StringBuilder err = new StringBuilder();
+            java.io.File[] dirs = nasUploadDirs();
+            for (java.io.File dir : dirs) {
+                if (dir == null) continue;
+                try {
+                    if (!dir.isDirectory() && !dir.mkdirs()) {
+                        err.append(dir.getAbsolutePath()).append(": mkdirs=false; ");
+                        continue;
+                    }
+                    java.io.File f = new java.io.File(dir, "l6-log-" + stamp + ".txt");
+                    java.io.FileOutputStream out = new java.io.FileOutputStream(f, false);
+                    try {
+                        out.write(data);
+                        out.flush();
+                    } finally {
+                        try { out.close(); } catch (Throwable ignored) { }
+                    }
+                    // 硬证据：落盘字节数必须与待写字节数一致，杜绝「文件建了但没内容」的假成功
+                    if (f.length() != data.length) {
+                        err.append(f.getAbsolutePath()).append(": size=").append(f.length())
+                                .append(" expect=").append(data.length).append("; ");
+                        try { f.delete(); } catch (Throwable ignored) { }
+                        continue;
+                    }
+                    return f;
+                } catch (Throwable t) {
+                    err.append(dir.getAbsolutePath()).append(": ")
+                            .append(t.getClass().getSimpleName()).append(' ')
+                            .append(String.valueOf(t.getMessage())).append("; ");
+                }
             }
-            return f;
+            sNasError = err.length() == 0 ? "无可用存储目录" : err.toString();
         } catch (Throwable t) {
-            L6Log.e("L6Report", "NAS 日志文件生成失败");
-            return null;
+            sNasError = "unexpected " + t.getClass().getSimpleName() + ": " + t.getMessage();
         }
+        L6Log.e("L6Report", "NAS 日志文件生成失败：" + sNasError);
+        return null;
     }
 
-    /** L6/upload/：从当天日志路径反推 L6 根目录；公共目录不可用时自动沿用 L6Log 的私有回落。 */
-    private static java.io.File nasUploadDir() {
+    /**
+     * NAS 待上传目录候选（按可见性 / 权限成本排序）：
+     * ① 公共 Download/L6/upload（文件管理器可见，需 WRITE_EXTERNAL_STORAGE）
+     * ② 应用外部私有 externalFiles/L6/upload（无需权限，文件管理器可见）
+     * ③ 内部私有 files/upload（无需权限、100% 可写，但仅 adb / 应用自身可见）
+     * ④ cache/upload（极端兜底）
+     */
+    private static java.io.File[] nasUploadDirs() {
+        java.util.List<java.io.File> out = new java.util.ArrayList<java.io.File>();
         try {
             java.io.File daily = L6Log.logFile();
-            if (daily == null) return null;
-            java.io.File appLog = daily.getParentFile();
-            if (appLog == null) return null;
-            java.io.File root = appLog.getParentFile();
-            if (root == null) return null;
-            java.io.File d = new java.io.File(root, "upload");
-            if (!d.exists() && !d.mkdirs()) return null;
-            return d;
-        } catch (Throwable ignored) {
-            return null;
-        }
+            if (daily != null && daily.getParentFile() != null
+                    && daily.getParentFile().getParentFile() != null) {
+                out.add(new java.io.File(daily.getParentFile().getParentFile(), "upload"));
+            }
+        } catch (Throwable ignored) { }
+        android.content.Context c = L6Log.appContext();
+        if (c == null) return out.toArray(new java.io.File[0]);
+        try {
+            java.io.File ext = c.getExternalFilesDir(null);
+            if (ext != null) out.add(new java.io.File(ext, "L6/upload"));
+        } catch (Throwable ignored) { }
+        try {
+            java.io.File files = c.getFilesDir();
+            if (files != null) out.add(new java.io.File(files, "upload"));
+        } catch (Throwable ignored) { }
+        try {
+            java.io.File cache = c.getCacheDir();
+            if (cache != null) out.add(new java.io.File(cache, "upload"));
+        } catch (Throwable ignored) { }
+        return out.toArray(new java.io.File[0]);
     }
 
     /** 上报一段运行日志文本（手动按钮调用）。后台线程执行，结果经主线程回调。 */

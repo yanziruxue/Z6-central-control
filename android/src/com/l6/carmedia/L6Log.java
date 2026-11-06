@@ -113,6 +113,11 @@ public final class L6Log {
         }
     }
 
+    /** v2.0.30：供上报器取应用上下文，组装无需存储权限的私有目录候选；只读 getter，不改日志逻辑。 */
+    public static Context appContext() {
+        return ctx;
+    }
+
     /** 公共目录基址：Download/L6（运行日志与采集产物都挂它下面的子目录）。 */
     private static File publicBase() {
         try {

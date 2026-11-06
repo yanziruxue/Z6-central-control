@@ -1025,7 +1025,8 @@ public class SetPane {
         card.addView(nasRow);
         U.gapV(card, 8);
         card.addView(U.text(c, "「上传到 NAS」会生成 .txt 并打开飞牛收集页，请在页面中选择该文件；"
-                + "车机无浏览器时请把 Download/L6/upload/ 里的文件手动上传。", 12, U.SUB));
+                + "优先存 Download/L6/upload/，公共目录不可写时自动回落到应用私有目录，"
+                + "以点按钮后提示里的实际路径为准。", 12, U.SUB));
         U.gapV(card, 8);
         s.addView(card);
         U.gapV(s, 8);
@@ -1120,8 +1121,11 @@ public class SetPane {
     private void onUploadRunLogToNas() {
         java.io.File f = L6Reporter.writeNasUploadFile(gatherRunLog());
         if (f == null) {
-            sh.host().toast("❌ NAS 上传准备失败：无法写入日志文件");
-            L6Log.e("SetPane", "NAS 上传准备失败：日志文件写入返回 null");
+            // v2.0.30：失败必须带真实原因（哪个目录、哪种异常），否则车机上无法定位第二次
+            String why = L6Reporter.lastNasError();
+            if (why.length() > 260) why = why.substring(0, 260) + "…";
+            sh.host().toast("❌ NAS 上传准备失败：无法写入日志文件\n" + why);
+            L6Log.e("SetPane", "NAS 上传准备失败：" + why);
             return;
         }
         final String name = f.getName();
@@ -1134,6 +1138,7 @@ public class SetPane {
             view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             c.startActivity(view);
             sh.host().toast("✅ 已生成 " + name + "（" + size + "）\n"
+                    + "路径：" + path + "\n"
                     + "已打开 NAS 收集页，请在页面中选择该文件上传");
             return;
         } catch (android.content.ActivityNotFoundException noBrowser) {

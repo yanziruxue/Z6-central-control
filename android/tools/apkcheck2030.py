@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.29 产物反查：新增「上传到 NAS」按钮 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.30 产物反查：修复「上传到 NAS」报「无法写入日志文件」—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -105,6 +105,13 @@
            本版实现：writeNasUploadFile() 把运行日志写成 L6/upload/l6-log-*.txt，
            再 ACTION_VIEW 调起官方收集页；无浏览器降级 ACTION_SEND(EXTRA_TEXT)。
            ★ 防假绿铁律：任何分支都不得出现「NAS 上传成功」这类谎报文案（NEG 断言）。
+★ v2.0.30 修复「上传 NAS 失败：无法写入日志文件」：
+           根因 nasUploadDir() 只认公共 Download/L6/upload，mkdirs 失败即返回 null；
+           而 L6Log.logFile() 只 new File 不校验可写性，私有回落恒不触发。
+           本版改为 nasUploadDirs() 四级候选（公共 / 外部私有 / 内部私有 / cache），
+           逐个真实 FileOutputStream 试写并校验 f.length()==data.length，
+           lastNasError() 回显每个候选的类名+message；SetPane 失败 toast 带真实原因、成功 toast 带绝对路径。
+           ★ 仍不谎报「已上传到 NAS」：写盘成功只是生成待上传文件（NEG 断言）。
 """
 import hashlib
 import io
@@ -112,7 +119,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.29.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.30.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -250,6 +257,12 @@ POS = [
     "已生成".encode("utf-8"), "已打开 NAS 收集页".encode("utf-8"),
     "无浏览器".encode("utf-8"), "无法写入日志文件".encode("utf-8"),
     "NAS 日志文件生成失败".encode("utf-8"), "分享运行日志".encode("utf-8"),
+    # v2.0.30：修复写盘失败 —— 多候选目录 + 真实试写 + 字节数校验 + 失败原因可回显
+    b"lastNasError", b"nasUploadDirs", b"appContext",
+    b"getExternalFilesDir", b"getFilesDir", b"getCacheDir",
+    b"mkdirs=false", b"expect=", b"size=",
+    "无可用存储目录".encode("utf-8"), "路径：".encode("utf-8"),
+    "以点按钮后提示里的实际路径为准".encode("utf-8"),
 ]
 # v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
 _expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
@@ -277,6 +290,8 @@ NEG = [
     b"\xe7\xbb\xbc\xe9\x9a\x8f\xe3\x80\x8c\xe4\xb8\x8b\xe6\xbb\x91\xe8\xb7\x9f\xe8\xb8\xaf\xe5\x8c\xaf\xe6\xba\x90",  # 默认「下滑」跟随导航源
     # v2.0.29 防假绿：HTML 200 不等于上传成功，任何分支不得谎报「NAS 上传成功」
     "NAS 上传成功".encode("utf-8"), "上传到 NAS 成功".encode("utf-8"),
+    # v2.0.30 防假绿：写盘成功 != 上传成功，不得因为多目录回落就谎报已上传
+    "已上传到 NAS".encode("utf-8"), "文件上传成功".encode("utf-8"),
 ]
 
 bad = 0
