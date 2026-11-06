@@ -5,18 +5,18 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
-import java.io.InputStreamReader;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import android.os.Handler;
@@ -59,9 +59,14 @@ public final class L6Reporter {
     /** 线程局部：记录当前线程最后一次网络异常的「类名: 信息」，用于 -1 时细分 DNS/超时/TLS（不跨线程污染）。 */
     private static final ThreadLocal<String> sLastErr = new ThreadLocal<>();
 
-    /** 取当前线程最后一次网络异常详情（sendEvent 捕获后写入；非 -1 时为 null）。 */
+    /** v2.0.28：运行时探测到的 ROM TLS 能力，随 -1 诊断回显，车机点一次按钮即可取证。 */
+    private static volatile String sTlsDiag = "";
+
+    /** 取当前线程最后一次网络异常详情（-1 时附带 TLS 能力诊断；非 -1 时为 null）。 */
     public static String getLastError() {
-        return sLastErr.get();
+        String d = sLastErr.get();
+        if (d == null) return null;
+        return sTlsDiag.isEmpty() ? d : d + " | " + sTlsDiag;
     }
 
     /**
@@ -76,42 +81,89 @@ public final class L6Reporter {
     /**
      * 同 {@link #sendEvent}，但可指定目标地址（备用内网通道用）。
      *
-     * <p>★ v2.0.27：公网事件接口只接受 TLS 1.3，而 Android 9 (API 28) 的
-     * HttpsURLConnection 默认发 TLS 1.2 ⇒ ClientHello 被服务端 TCP RST ⇒ 拿到 -1。
-     * 对策：https 显式挂 TLS 1.3 的 SSLSocketFactory；仍失败则用裸 SSLSocket 绕过
-     * 连接层协议协商再手写一次 POST。两条路径全量 try-catch，ROM 不支持 TLS 1.3 时
-     * 静默回落原行为（仍 -1），绝不带崩进程；内网 http 通道完全不进这两条路径。
+     * <p>★ v2.0.28：删除 v2.0.27 的 TLS1.3 双路径死代码。根因收敛为「公网 443 只接受
+     * TLS 1.3，而车机 API 28 默认只发 TLS 1.2」；Android 官方 {@code SSLContext.getInstance("TLSv1.3")}
+     * 要到 API 29 才存在，API 28 真机实测抛 NoSuchAlgorithmException 且被 catch 吞掉 ⇒
+     * v2.0.27 那两条路径一次都没运行过。本版改用 API 28 一定拿得到的 {@code "TLS"} context +
+     * 运行时探测 + 显式 setEnabledProtocols 尝试协商 1.3；ROM 不支持则静默回落 1.2。
+     * 内网 http 通道完全不进 TLS 逻辑（与之前一致）。
      */
     public static int sendEventTo(String endpoint, JSONObject ev) {
-        byte[] body;
+        sLastErr.remove();      // ★ 修诊断残留：线程池复用会带出上次的异常详情
+        sTlsDiag = "";
         try {
-            body = ev.toString().getBytes(StandardCharsets.UTF_8);
+            return postByConnection(endpoint, ev.toString().getBytes(StandardCharsets.UTF_8));
         } catch (Throwable t) {
+            String m = t.getMessage();
+            sLastErr.set(t.getClass().getSimpleName() + (m != null ? ": " + m : ""));
             return -1;
         }
-        int code = postByConnection(endpoint, body);
-        if (code == -1 && endpoint != null && endpoint.startsWith("https://")) {
-            int retry = postByTls13Socket(endpoint, body);
-            if (retry > 0) {
-                sLastErr.remove();
-                return retry;
-            }
-        }
-        return code;
     }
 
-    /** 构造 TLS 1.3 的 SSLSocketFactory；ROM 不支持时返回 null，调用方回落默认行为。 */
-    private static SSLSocketFactory tls13Factory() {
+    /**
+     * 构造「尽量协商 TLS 1.3」的 SSLSocketFactory（零第三方依赖）。
+     *
+     * <p>AOSP Conscrypt CAPABILITIES.md：{@code SSLContext.getInstance("TLS")} 在支持 1.3 的实现上
+     * 会启用 TLSv1.0-1.3；配合 setEnabledProtocols 显式开启 1.3。车机 MTK 定制 ROM 的 Conscrypt
+     * 版本未知，故由 pickProtocols() 运行时探测，不支持就只留 1.2 —— 全量 try-catch，绝不抛。
+     */
+    private static SSLSocketFactory tlsCapableFactory() {
         try {
-            SSLContext ctx = SSLContext.getInstance("TLSv1.3");
+            final SSLContext ctx = SSLContext.getInstance("TLS");   // ★ 不是 "TLSv1.3"
             ctx.init(null, null, null);
-            return ctx.getSocketFactory();
-        } catch (Throwable ignored) {
+            final SSLSocketFactory base = ctx.getSocketFactory();
+            final String[] protocols = pickProtocols(base);
+            return new SSLSocketFactory() {
+                private Socket wrap(Socket s) {
+                    if (s instanceof SSLSocket) {
+                        try {
+                            ((SSLSocket) s).setEnabledProtocols(protocols);
+                        } catch (Throwable ignored) {
+                            // ROM 不认该协议名就保持默认，绝不因尝试带崩上报
+                        }
+                    }
+                    return s;
+                }
+
+                @Override public String[] getDefaultCipherSuites() { return base.getDefaultCipherSuites(); }
+                @Override public String[] getSupportedCipherSuites() { return base.getSupportedCipherSuites(); }
+                @Override public Socket createSocket() throws IOException { return wrap(base.createSocket()); }
+                @Override public Socket createSocket(String h, int p) throws IOException { return wrap(base.createSocket(h, p)); }
+                @Override public Socket createSocket(String h, int p, InetAddress lh, int lp) throws IOException {
+                    return wrap(base.createSocket(h, p, lh, lp));
+                }
+                @Override public Socket createSocket(InetAddress h, int p) throws IOException { return wrap(base.createSocket(h, p)); }
+                @Override public Socket createSocket(InetAddress a, int p, InetAddress la, int lp) throws IOException {
+                    return wrap(base.createSocket(a, p, la, lp));
+                }
+                @Override public Socket createSocket(Socket s, String h, int p, boolean ac) throws IOException {
+                    return wrap(base.createSocket(s, h, p, ac));
+                }
+            };
+        } catch (Throwable t) {
+            sTlsDiag = "tlsFactoryFailed=" + t.getClass().getSimpleName();
             return null;
         }
     }
 
-    /** 常规 HttpURLConnection 路径（v2.0.26 原逻辑，仅对 https 追加 TLS 1.3 socket factory）。 */
+    /** 运行时探测 ROM 支持的协议；支持 1.3 则放首位，否则只留 1.2。结果写入 sTlsDiag 供 -1 诊断回显。 */
+    private static String[] pickProtocols(SSLSocketFactory base) {
+        String[] supported = new String[0];
+        try {
+            SSLSocket probe = (SSLSocket) base.createSocket();
+            supported = probe.getSupportedProtocols();
+            probe.close();
+        } catch (Throwable ignored) {
+        }
+        boolean has13 = false;
+        for (String p : supported) {
+            if ("TLSv1.3".equals(p)) has13 = true;
+        }
+        sTlsDiag = "tls13Supported=" + has13 + " " + Arrays.toString(supported);
+        return has13 ? new String[]{"TLSv1.3", "TLSv1.2"} : new String[]{"TLSv1.2"};
+    }
+
+    /** 常规 HttpURLConnection 路径：https 挂 tlsCapableFactory，http（内网）原样直连。 */
     private static int postByConnection(String endpoint, byte[] body) {
         HttpURLConnection c = null;
         OutputStream os = null;
@@ -119,7 +171,7 @@ public final class L6Reporter {
             URL u = new URL(endpoint);
             c = (HttpURLConnection) u.openConnection();
             if (c instanceof HttpsURLConnection) {
-                SSLSocketFactory f = tls13Factory();
+                SSLSocketFactory f = tlsCapableFactory();
                 if (f != null) ((HttpsURLConnection) c).setSSLSocketFactory(f);
             }
             c.setRequestMethod("POST");
@@ -147,71 +199,6 @@ public final class L6Reporter {
             }
             if (c != null) try {
                 c.disconnect();
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-
-    /**
-     * v2.0.27 兜底：绕过 HttpURLConnection 的协议协商，用 TLS 1.3 的 SSLSocket
-     * 手写一次 HTTP/1.1 POST，只解析状态行取 HTTP 码。不走重定向、不读响应体。
-     */
-    private static int postByTls13Socket(String endpoint, byte[] body) {
-        SSLSocket s = null;
-        try {
-            SSLSocketFactory f = tls13Factory();
-            if (f == null) return -1;
-            URL u = new URL(endpoint);
-            String host = u.getHost();
-            int port = u.getPort() > 0 ? u.getPort() : 443;
-            String path = u.getFile();
-            if (path == null || path.isEmpty()) path = "/";
-            java.net.Socket plain = new java.net.Socket();
-            plain.connect(new java.net.InetSocketAddress(host, port), 10000);
-            s = (SSLSocket) f.createSocket(plain, host, port, true);
-            s.setSoTimeout(15000);
-            // 显式 SNI：单 IP 多站点时服务端据此选证书（API 24+；失败不阻断，Conscrypt 会自动带）
-            try {
-                SSLParameters params = s.getSSLParameters();
-                java.util.List<javax.net.ssl.SNIServerName> names = new java.util.ArrayList<>();
-                names.add(new SNIHostName(host));
-                params.setServerNames(names);
-                s.setSSLParameters(params);
-            } catch (Throwable ignored) {
-            }
-            s.startHandshake();
-            // 裸 SSLSocket 只校验证书链，不校验主机名，这里手动补上
-            HostnameVerifier hv = HttpsURLConnection.getDefaultHostnameVerifier();
-            if (hv != null && !hv.verify(host, s.getSession())) {
-                throw new java.io.IOException("hostname verify failed: " + host);
-            }
-            StringBuilder req = new StringBuilder();
-            req.append("POST ").append(path).append(" HTTP/1.1\r\n");
-            req.append("Host: ").append(host).append("\r\n");
-            req.append("Content-Type: application/json; charset=utf-8\r\n");
-            req.append("Accept: application/json, */*;q=0.5\r\n");
-            req.append("User-Agent: L6CarMedia-Reporter/1.0\r\n");
-            req.append("token: ").append(TOKEN).append("\r\n");
-            req.append("Content-Length: ").append(body.length).append("\r\n");
-            req.append("Connection: close\r\n\r\n");
-            OutputStream out = s.getOutputStream();
-            out.write(req.toString().getBytes(StandardCharsets.US_ASCII));
-            out.write(body);
-            out.flush();
-            BufferedReader r = new BufferedReader(
-                    new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
-            String status = r.readLine();
-            if (status == null) return -1;
-            String[] parts = status.trim().split("\\s+");
-            if (parts.length < 2) return -1;
-            return Integer.parseInt(parts[1]);
-        } catch (Throwable t) {
-            String m = t.getMessage();
-            sLastErr.set(t.getClass().getSimpleName() + (m != null ? ": " + m : ""));
-            return -1;
-        } finally {
-            if (s != null) try {
-                s.close();
             } catch (Throwable ignored) {
             }
         }

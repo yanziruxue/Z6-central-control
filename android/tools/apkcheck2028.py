@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.27 产物反查：事件新增 voltage + currentVersion 字段 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.28 产物反查：删除 TLS1.3 死代码，改 "TLS" context 运行时探测 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -91,6 +91,12 @@
            （= appVerPublic()），原 ver 保留；覆盖 crash / pending / 手动云端 / 手动内网。
            ⚠️ 车机实采电池读数全 0 ⇒ 该字段很可能恒为 -1，服务端需容忍。
            同时保留 TLS1.3 双路径（postByConnection / postByTls13Socket / tls13Factory）。
+★ v2.0.28 根因收敛：服务端 443 只收 TLS1.3（强制 1.2 被 RST、1.3 返 200），
+           API 28 默认只发 1.2。v2.0.27 的 SSLContext.getInstance("TLSv1.3") 在 API 28
+           抛 NoSuchAlgorithmException 被吞 ⇒ 双路径全是死代码。本版删除并改用
+           getInstance("TLS") + pickProtocols() 运行时探测 + setEnabledProtocols 尝试 1.3；
+           ROM 不支持则回落 1.2。sTlsDiag 随 -1 回显 tls13Supported=..., 便于车机取证。
+           token 断言 env 化（L6_EXPECTED_TOKEN / L6_FORBIDDEN_TOKEN），密钥不入库。
 """
 import hashlib
 import io
@@ -98,7 +104,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.27.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.28.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -225,15 +231,17 @@ POS = [
     #   voltage / currentVersion 是字段契约断言（字符串池全局存在，配合 javap 硬证据裁决调用点）。
     b"batteryVoltageV", "电瓶电压读取失败".encode("utf-8"),
     b"currentVersion", b"voltage",
-    # v2.0.27：随版保留的 TLS1.3 双路径（本机 Java 实测被 443 前置按 ClientHello 指纹拒绝，
-    #   但对车机 Conscrypt 未必无效；try-catch 全兜底，不改变其它链路行为）。
-    b"postByConnection", b"postByTls13Socket", b"tls13Factory", b"TLSv1.3",
+    # v2.0.28：删掉 API 28 上恒不执行的 TLS1.3 死代码，改 "TLS" context + 运行时探测。
+    #   tlsCapableFactory / pickProtocols / 协议名 / 能力自报串为本版独有锚点。
+    b"postByConnection", b"tlsCapableFactory", b"pickProtocols", b"TLSv1.3",
+    b"tls13Supported=", b"getSupportedProtocols", b"setEnabledProtocols",
 ]
 # v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
 _expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
 if _expect_token:
     POS.append(_expect_token)  # 共享 token 全文必须在 dex 中（证明进包且与部署值一致）
 NEG = [
+    b"postByTls13Socket", b"tls13Factory",  # v2.0.28：API 28 死代码，防回归
     b"http://192.168.24.10/api/l6/event",  # v2.0.25：旧 80 端口地址不得残留（会 302 到 fnOS Web 页）
     # v2.0.0 明确删掉的：HTML 页面 / SHIM 注入层 / WebView 桥注册
     b"assets/index.html", b"file:///android_asset/index.html",
@@ -264,9 +272,8 @@ import re as _re
 _longstrs = [m.group() for m in _re.finditer(rb'[A-Za-z0-9]{48,}', dex)]
 _want = (_os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
 _forbid = (_os.environ.get("L6_FORBIDDEN_TOKEN") or "").encode()
-# ★ v2.0.27：保留 TLS1.3 裸 SSLSocket 兜底路径后，源码里 TOKEN 被 javac 内联到两处
-#   （postByConnection 的 setRequestProperty + postByTls13Socket 的 req.append），
-#   dex 里出现 2 份**相同且正确**的 64 位串。裁决口径为「>=1 且全部等于 L6_EXPECTED_TOKEN」。
+# ★ v2.0.28 删掉裸 SSLSocket 路径后 TOKEN 内联回 1 处，裁决口径仍保持
+#   「>=1 且全部等于 L6_EXPECTED_TOKEN」：既容纳 javac 内联多份，也挡住混入旧 token。
 print("\n== token 唯一性裁决 ==")
 if not _want:
     print("   SKIP 未设 L6_EXPECTED_TOKEN，跳过 dex token 裁决（长串数=%d）" % len(_longstrs))
