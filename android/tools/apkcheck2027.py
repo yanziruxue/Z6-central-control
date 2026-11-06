@@ -94,6 +94,7 @@
 """
 import hashlib
 import io
+import os
 import sys
 import zipfile
 
@@ -203,7 +204,8 @@ POS = [
     b"flushPendingCrash", b"sendLogText", b"sendCrash", b"sendEvent",
     b"l6/event", b"yanzi-api.ziruxue.top",
     b"token",  # 自定义请求头名 token: <共享token>（鉴权契约由服务端校验）
-    bytes.fromhex("33363635373762363462326237366163346464333138623939636666393734356562366332346631343061386461376661643433656239393534363833326334"),  # 共享 token 全文（★独立 hex 常量，源自用户真实输入，禁止由源码派生）
+    # v2.0.28：共享 token 全文断言不再固化进脚本（密钥不入库）——
+    #   POS 列表闭合后由环境变量 L6_EXPECTED_TOKEN 动态 append，未设置则跳过该项。
     b"\xe5\x8f\x91\xe9\x80\x81\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\x88\xb0\xe4\xba\x91\xe7\xab\xaf",  # 发送运行日志到云端
     b"\xe6\x97\xa5\xe5\xbf\x97\xe4\xb8\x8a\xe6\x8a\xa5",  # 日志上报
     # v2.0.19：手动发送回显 HTTP 返回码（404/400/401 等）—— 证明反馈逻辑进包
@@ -227,6 +229,10 @@ POS = [
     #   但对车机 Conscrypt 未必无效；try-catch 全兜底，不改变其它链路行为）。
     b"postByConnection", b"postByTls13Socket", b"tls13Factory", b"TLSv1.3",
 ]
+# v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
+_expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
+if _expect_token:
+    POS.append(_expect_token)  # 共享 token 全文必须在 dex 中（证明进包且与部署值一致）
 NEG = [
     b"http://192.168.24.10/api/l6/event",  # v2.0.25：旧 80 端口地址不得残留（会 302 到 fnOS Web 页）
     # v2.0.0 明确删掉的：HTML 页面 / SHIM 注入层 / WebView 桥注册
@@ -250,21 +256,28 @@ NEG = [
 
 bad = 0
 # == token 唯一性裁决（防「旧 token 仍藏在 dex 里」的假绿）==
+# v2.0.28：token 明文不再固化进本脚本（清除密钥入库面）——改由环境变量提供：
+#   L6_EXPECTED_TOKEN  = 当前生效 token（dex 内长串必须全部等于它）
+#   L6_FORBIDDEN_TOKEN = 禁止残留的旧 token（可选，出现即 FAIL）
+import os as _os
 import re as _re
-_longs = [m.group() for m in _re.finditer(rb'[A-Za-z0-9]{48,}', dex)]
-_want = bytes.fromhex("33363635373762363462326237366163346464333138623939636666393734356562366332346631343061386461376661643433656239393534363833326334")
+_longstrs = [m.group() for m in _re.finditer(rb'[A-Za-z0-9]{48,}', dex)]
+_want = (_os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
+_forbid = (_os.environ.get("L6_FORBIDDEN_TOKEN") or "").encode()
 # ★ v2.0.27：保留 TLS1.3 裸 SSLSocket 兜底路径后，源码里 TOKEN 被 javac 内联到两处
 #   （postByConnection 的 setRequestProperty + postByTls13Socket 的 req.append），
-#   dex 里出现 2 份**相同且正确**的 64 位串。裁决口径相应收紧为「>=1 且全部等于
-#   独立 hex 常量」，再叠加「旧显示值零残留」，杜绝「混入旧 token 也判过」的假绿。
-_ok = (len(_longs) >= 1 and all(x == _want for x in _longs))
+#   dex 里出现 2 份**相同且正确**的 64 位串。裁决口径为「>=1 且全部等于 L6_EXPECTED_TOKEN」。
 print("\n== token 唯一性裁决 ==")
-print("   %s dex 中 >=48 位长串全部等于独立 hex 常量（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longs)))
-bad += 0 if _ok else 1
-_old = bytes.fromhex("3834323938396a313566357331356f6f35726f3233377432306b6a79323133367677336531377237303368397a67337470663230737630333733333732357938")
-_old_n = dex.count(_old)
-print("   %s 旧显示值 token 零残留（x%d）" % ("ok  " if _old_n == 0 else "FAIL", _old_n))
-bad += 0 if _old_n == 0 else 1
+if not _want:
+    print("   SKIP 未设 L6_EXPECTED_TOKEN，跳过 dex token 裁决（长串数=%d）" % len(_longstrs))
+else:
+    _ok = (len(_longstrs) >= 1 and all(x == _want for x in _longstrs))
+    print("   %s dex 中 >=48 位长串全部等于 L6_EXPECTED_TOKEN（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longstrs)))
+    bad += 0 if _ok else 1
+if _forbid:
+    _old_n = dex.count(_forbid)
+    print("   %s L6_FORBIDDEN_TOKEN 零残留（x%d）" % ("ok  " if _old_n == 0 else "FAIL", _old_n))
+    bad += 0 if _old_n == 0 else 1
 
 print("\n== 正向断言（dex 里必须存在）==")
 for t in POS:
