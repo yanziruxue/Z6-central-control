@@ -3,7 +3,7 @@
 长安欧尚 Z6 车机媒体中控 APK。原生 Java 视图层，横屏单屏，替换车机原厂娱乐桌面。
 
 - **包名**：`com.l6.carmedia`
-- **当前版本**：v2.0.26（versionCode 20026）
+- **当前版本**：v2.0.27（versionCode 20027）
 - **平台**：Android 9（API 28），minSdk = targetSdk = 28，横屏 1920×720（2.667:1）
 - **OTA 主源**：GitHub Releases（`yanziruxue/Z6-central-control`），Gitea 分发站保底
 
@@ -69,6 +69,7 @@ git push gitzx vX.Y.Z     # Gitea（可选，Runner 构建/分发站）
 
 | 版本 | 主要内容 |
 |---|---|
+| v2.0.27 | **事件上报新增电压与当前版本字段**：`L6Log.batteryVoltageV()` 读 `BATTERY_CHANGED` 的 `EXTRA_VOLTAGE`（mV→V 保留两位，取不到返回 `-1`）；`L6Reporter.baseEvent()` 增加 `voltage` + `currentVersion`（= 版本名），**原 `ver` 保留不动**（只增不改，老服务端解析不受影响），覆盖崩溃自动上报 / 启动兜底补发 / 手动云端 / 手动内网四类事件。⚠️ 车机实采电池读数全 0，该字段可能恒为 `-1`，需服务端容忍；主页「电瓶」卡的 `veh.batt` 目前只有 demo 下发，非实时源。同时**保留**工作树里 v2.0.27 的 TLS 1.3 双路径（`postByConnection` / `postByTls13Socket` / `tls13Factory`）——本机 JDK 实测 443 前置按 ClientHello 指纹拒绝 Java 类客户端，该路径对车机 Conscrypt 未必有效，但全量 try-catch 不影响其它链路。`apkcheck2027` 新增字段与 TLS 路径断言；token 独立 hex 常量保持不变。双平台下载回比逐字节一致 |
 | v2.0.26 | **真正落实 token 统一（修复 v2.0.23~25 假绿根因）**：会话记录的 `sensitiveProtection` 把你真实输入的 64 位 token（plaintext，sha256 `11075c11…`）在显示层替换成另一个值（ciphertext，sha256 `5a680a78…`）；v2.0.23 按显示值写入 `TOKEN` ⇒ 客户端与按真实值配置的服务端永远不一致，v2.0.25 备用通道因此报 `401 token 不匹配`。本版从原始 jsonl 的 `plaintext` 零手敲提取真实值写回并即时 hex 复核，`apkcheck2026` 两处独立 `bytes.fromhex(hex)` 断言同步更新（不派生自源码）；发布前三方裁决：源码 hex == dex 唯一长串 hex == 用户真实输入 hex。地址 / 载荷 / 上报链路全部不变。双平台下载回比逐字节一致 |
 | v2.0.25 | **备用内网地址修正**：`ENDPOINT_LAN` 由 `http://192.168.24.10/api/l6/event` 改为 `http://192.168.24.10:30507/api/l6/event`。旧地址走 80 端口是 fnOS nginx，302 → `:5666` 飞牛 Web 管理页，`HttpURLConnection` 自动跟随使 POST 落到 HTML 404，App 误报「接口不存在（段名 / 路径错误）」——实为地址指错而非段名错；30507 实测是真实 API（用旧 token 探测返回 `200`，用统一 token 返回 `401 TOKEN_INVALID`，说明服务端仍配旧 token，需服务端同步）。`TOKEN` 保持用户指定统一值不变，云端 `ENDPOINT`、崩溃自动上报与启动兜底补发不受影响；`apkcheck2025` 增加新地址正向断言 + 旧地址负向断言。双平台下载回比逐字节一致 |
 | v2.0.24 | **新增备用（内网）发送通道**：设置页「日志上报」行增加「📤 备用发送（内网）」按钮，目标 `http://192.168.24.10/api/l6/event`；与云端通道**仅地址不同**，鉴权头 `token: <共享token>` 与 JSON 载荷完全一致。`L6Reporter` 抽出 `sendEventTo(endpoint, ev)` / `sendLogTextTo(endpoint, …)`，崩溃自动上报与启动兜底补发仍走公网不变；两个按钮各自独立回显 HTTP 返回码与 `-1` 异常详情。明文 HTTP 由 manifest 既有 `usesCleartextTraffic="true"` 放行。云端按钮保留不删（不误删功能）。双平台下载回比逐字节一致 |

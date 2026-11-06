@@ -5,11 +5,20 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 import android.os.Handler;
 import android.os.Looper;
 
@@ -64,14 +73,55 @@ public final class L6Reporter {
         return sendEventTo(ENDPOINT, ev);
     }
 
-    /** 同 {@link #sendEvent}，但可指定目标地址（备用内网通道用）。 */
+    /**
+     * 同 {@link #sendEvent}，但可指定目标地址（备用内网通道用）。
+     *
+     * <p>★ v2.0.27：公网事件接口只接受 TLS 1.3，而 Android 9 (API 28) 的
+     * HttpsURLConnection 默认发 TLS 1.2 ⇒ ClientHello 被服务端 TCP RST ⇒ 拿到 -1。
+     * 对策：https 显式挂 TLS 1.3 的 SSLSocketFactory；仍失败则用裸 SSLSocket 绕过
+     * 连接层协议协商再手写一次 POST。两条路径全量 try-catch，ROM 不支持 TLS 1.3 时
+     * 静默回落原行为（仍 -1），绝不带崩进程；内网 http 通道完全不进这两条路径。
+     */
     public static int sendEventTo(String endpoint, JSONObject ev) {
-        HttpURLConnection c = null;
-        java.io.OutputStream os = null;
+        byte[] body;
         try {
-            byte[] body = ev.toString().getBytes(StandardCharsets.UTF_8);
+            body = ev.toString().getBytes(StandardCharsets.UTF_8);
+        } catch (Throwable t) {
+            return -1;
+        }
+        int code = postByConnection(endpoint, body);
+        if (code == -1 && endpoint != null && endpoint.startsWith("https://")) {
+            int retry = postByTls13Socket(endpoint, body);
+            if (retry > 0) {
+                sLastErr.remove();
+                return retry;
+            }
+        }
+        return code;
+    }
+
+    /** 构造 TLS 1.3 的 SSLSocketFactory；ROM 不支持时返回 null，调用方回落默认行为。 */
+    private static SSLSocketFactory tls13Factory() {
+        try {
+            SSLContext ctx = SSLContext.getInstance("TLSv1.3");
+            ctx.init(null, null, null);
+            return ctx.getSocketFactory();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    /** 常规 HttpURLConnection 路径（v2.0.26 原逻辑，仅对 https 追加 TLS 1.3 socket factory）。 */
+    private static int postByConnection(String endpoint, byte[] body) {
+        HttpURLConnection c = null;
+        OutputStream os = null;
+        try {
             URL u = new URL(endpoint);
             c = (HttpURLConnection) u.openConnection();
+            if (c instanceof HttpsURLConnection) {
+                SSLSocketFactory f = tls13Factory();
+                if (f != null) ((HttpsURLConnection) c).setSSLSocketFactory(f);
+            }
             c.setRequestMethod("POST");
             c.setConnectTimeout(10000);
             c.setReadTimeout(15000);
@@ -83,7 +133,9 @@ public final class L6Reporter {
             os = c.getOutputStream();
             os.write(body);
             os.flush();
-            return c.getResponseCode();
+            int code = c.getResponseCode();
+            sLastErr.remove();
+            return code;
         } catch (Throwable t) {
             String m = t.getMessage();
             sLastErr.set(t.getClass().getSimpleName() + (m != null ? ": " + m : ""));
@@ -95,6 +147,71 @@ public final class L6Reporter {
             }
             if (c != null) try {
                 c.disconnect();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * v2.0.27 兜底：绕过 HttpURLConnection 的协议协商，用 TLS 1.3 的 SSLSocket
+     * 手写一次 HTTP/1.1 POST，只解析状态行取 HTTP 码。不走重定向、不读响应体。
+     */
+    private static int postByTls13Socket(String endpoint, byte[] body) {
+        SSLSocket s = null;
+        try {
+            SSLSocketFactory f = tls13Factory();
+            if (f == null) return -1;
+            URL u = new URL(endpoint);
+            String host = u.getHost();
+            int port = u.getPort() > 0 ? u.getPort() : 443;
+            String path = u.getFile();
+            if (path == null || path.isEmpty()) path = "/";
+            java.net.Socket plain = new java.net.Socket();
+            plain.connect(new java.net.InetSocketAddress(host, port), 10000);
+            s = (SSLSocket) f.createSocket(plain, host, port, true);
+            s.setSoTimeout(15000);
+            // 显式 SNI：单 IP 多站点时服务端据此选证书（API 24+；失败不阻断，Conscrypt 会自动带）
+            try {
+                SSLParameters params = s.getSSLParameters();
+                java.util.List<javax.net.ssl.SNIServerName> names = new java.util.ArrayList<>();
+                names.add(new SNIHostName(host));
+                params.setServerNames(names);
+                s.setSSLParameters(params);
+            } catch (Throwable ignored) {
+            }
+            s.startHandshake();
+            // 裸 SSLSocket 只校验证书链，不校验主机名，这里手动补上
+            HostnameVerifier hv = HttpsURLConnection.getDefaultHostnameVerifier();
+            if (hv != null && !hv.verify(host, s.getSession())) {
+                throw new java.io.IOException("hostname verify failed: " + host);
+            }
+            StringBuilder req = new StringBuilder();
+            req.append("POST ").append(path).append(" HTTP/1.1\r\n");
+            req.append("Host: ").append(host).append("\r\n");
+            req.append("Content-Type: application/json; charset=utf-8\r\n");
+            req.append("Accept: application/json, */*;q=0.5\r\n");
+            req.append("User-Agent: L6CarMedia-Reporter/1.0\r\n");
+            req.append("token: ").append(TOKEN).append("\r\n");
+            req.append("Content-Length: ").append(body.length).append("\r\n");
+            req.append("Connection: close\r\n\r\n");
+            OutputStream out = s.getOutputStream();
+            out.write(req.toString().getBytes(StandardCharsets.US_ASCII));
+            out.write(body);
+            out.flush();
+            BufferedReader r = new BufferedReader(
+                    new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
+            String status = r.readLine();
+            if (status == null) return -1;
+            String[] parts = status.trim().split("\\s+");
+            if (parts.length < 2) return -1;
+            return Integer.parseInt(parts[1]);
+        } catch (Throwable t) {
+            String m = t.getMessage();
+            sLastErr.set(t.getClass().getSimpleName() + (m != null ? ": " + m : ""));
+            return -1;
+        } finally {
+            if (s != null) try {
+                s.close();
             } catch (Throwable ignored) {
             }
         }
@@ -133,11 +250,20 @@ public final class L6Reporter {
         return codeMessage(code, "");
     }
 
-    /** 构造事件外壳（带设备 / 版本信息）。 */
+    /**
+     * 构造事件外壳（带设备 / 版本信息）。
+     *
+     * <p>★ v2.0.27：新增 voltage（12V 电瓶电压，单位 V，取不到为 -1）与
+     * currentVersion（当前应用版本名）。原 ver 字段保留不动 —— 只增不改，
+     * 老服务端解析不受影响；崩溃 / 启动补发 / 手动云端 / 手动内网四类事件全部覆盖。
+     */
     private static JSONObject baseEvent() {
         JSONObject o = new JSONObject();
         try {
-            o.put("ver", L6Log.appVerPublic());
+            String ver = L6Log.appVerPublic();
+            o.put("ver", ver);
+            o.put("currentVersion", ver);
+            o.put("voltage", L6Log.batteryVoltageV());
             o.put("os", "Android " + android.os.Build.VERSION.RELEASE
                     + " (API " + android.os.Build.VERSION.SDK_INT + ")");
             o.put("model", android.os.Build.MODEL);

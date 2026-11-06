@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.26 产物反查：TOKEN 对齐用户真实输入（sensitiveProtection 修正）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.27 产物反查：事件新增 voltage + currentVersion 字段 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -86,13 +86,18 @@
            sha256 11075c11…）在显示层换成 ciphertext（sha256 5a680a78…），v2.0.23 按
            显示值写入源码 ⇒ 与服务端（按真实值配置）永远不一致，备用发送 401。
            本版从原始 jsonl 的 plaintext 零手敲提取并写回，独立 hex 断言同步更新。
+★ v2.0.27 事件字段：baseEvent() 增加 voltage（L6Log.batteryVoltageV() 读
+           BATTERY_CHANGED/EXTRA_VOLTAGE，mV→V 两位，取不到 -1）与 currentVersion
+           （= appVerPublic()），原 ver 保留；覆盖 crash / pending / 手动云端 / 手动内网。
+           ⚠️ 车机实采电池读数全 0 ⇒ 该字段很可能恒为 -1，服务端需容忍。
+           同时保留 TLS1.3 双路径（postByConnection / postByTls13Socket / tls13Factory）。
 """
 import hashlib
 import io
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.26.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.27.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -213,6 +218,14 @@ POS = [
     b"http://192.168.24.10:30507/api/l6/event",
     b"sendEventTo", b"sendLogTextTo",
     "备用发送（内网）".encode(), "备用发送成功".encode(), "备用发送失败".encode(),
+    # v2.0.27：事件外壳新增 voltage / currentVersion（原 ver 保留，只增不改）。
+    #   batteryVoltageV + 中文告警串是本版独有锚点（旧版 dex 里不存在），
+    #   voltage / currentVersion 是字段契约断言（字符串池全局存在，配合 javap 硬证据裁决调用点）。
+    b"batteryVoltageV", "电瓶电压读取失败".encode("utf-8"),
+    b"currentVersion", b"voltage",
+    # v2.0.27：随版保留的 TLS1.3 双路径（本机 Java 实测被 443 前置按 ClientHello 指纹拒绝，
+    #   但对车机 Conscrypt 未必无效；try-catch 全兜底，不改变其它链路行为）。
+    b"postByConnection", b"postByTls13Socket", b"tls13Factory", b"TLSv1.3",
 ]
 NEG = [
     b"http://192.168.24.10/api/l6/event",  # v2.0.25：旧 80 端口地址不得残留（会 302 到 fnOS Web 页）
@@ -240,10 +253,18 @@ bad = 0
 import re as _re
 _longs = [m.group() for m in _re.finditer(rb'[A-Za-z0-9]{48,}', dex)]
 _want = bytes.fromhex("33363635373762363462326237366163346464333138623939636666393734356562366332346631343061386461376661643433656239393534363833326334")
-_ok = (len(_longs) == 1 and _longs[0] == _want)
+# ★ v2.0.27：保留 TLS1.3 裸 SSLSocket 兜底路径后，源码里 TOKEN 被 javac 内联到两处
+#   （postByConnection 的 setRequestProperty + postByTls13Socket 的 req.append），
+#   dex 里出现 2 份**相同且正确**的 64 位串。裁决口径相应收紧为「>=1 且全部等于
+#   独立 hex 常量」，再叠加「旧显示值零残留」，杜绝「混入旧 token 也判过」的假绿。
+_ok = (len(_longs) >= 1 and all(x == _want for x in _longs))
 print("\n== token 唯一性裁决 ==")
-print("   %s dex 中 >=48 位长串恰好 1 个且等于独立 hex 常量（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longs)))
+print("   %s dex 中 >=48 位长串全部等于独立 hex 常量（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longs)))
 bad += 0 if _ok else 1
+_old = bytes.fromhex("3834323938396a313566357331356f6f35726f3233377432306b6a79323133367677336531377237303368397a67337470663230737630333733333732357938")
+_old_n = dex.count(_old)
+print("   %s 旧显示值 token 零残留（x%d）" % ("ok  " if _old_n == 0 else "FAIL", _old_n))
+bad += 0 if _old_n == 0 else 1
 
 print("\n== 正向断言（dex 里必须存在）==")
 for t in POS:

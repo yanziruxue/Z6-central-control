@@ -2,6 +2,8 @@ package com.l6.carmedia;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.BatteryManager;
 import android.os.Environment;
 
 import org.json.JSONArray;
@@ -281,6 +283,25 @@ public final class L6Log {
                 json.getBytes(StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
         return "(window." + fn + "?window." + fn + "(JSON.parse((window.L6B64||atob)('"
                 + b64 + "'))):null)";
+    }
+
+    /**
+     * 12V 电瓶电压（V，保留两位）：读 BATTERY_CHANGED sticky 的 EXTRA_VOLTAGE（mV）。
+     * 车机 ROM 若不提供该值（实采曾出现电池读数全 0）返回 -1，供上报字段兜底；
+     * 全量 try-catch，绝不因读电压带崩日志 / 上报链路。
+     */
+    public static double batteryVoltageV() {
+        if (ctx == null) return -1;
+        try {
+            Intent bat = ctx.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            if (bat == null) return -1;
+            int mv = bat.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1);
+            if (mv <= 0) return -1;
+            return Math.round(mv / 10.0) / 100.0;   // mV -> V，保留 2 位
+        } catch (Throwable ignored) {
+            w("L6Report", "电瓶电压读取失败");
+            return -1;
+        }
     }
 
     /** 当前应用版本名（供采集产物记录来源版本）。 */
