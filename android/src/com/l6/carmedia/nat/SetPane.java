@@ -1007,22 +1007,8 @@ public class SetPane {
                 12, U.SUB));
         U.gapV(card, 8);
 
-        // ★ v2.0.17：日志上报到云端（手动）。点按把当前运行日志 POST 到远端事件接口，给出反馈。
-        // ★ v2.0.24：新增备用（内网）通道，仅地址不同、鉴权与载荷完全一致；两个按钮各自独立回显 HTTP 码。
-        TextView sendLogBtn = U.btn(c, "📤 发送运行日志到云端");
-        sendLogBtn.setOnClickListener(v -> onSendRunLog());
-        TextView sendLanBtn = U.btn(c, "📤 备用发送（内网）");
-        sendLanBtn.setOnClickListener(v -> onSendRunLogLan());
-        LinearLayout sendRow = U.row(c);
-        sendRow.addView(U.text(c, "日志上报", 12, U.TXT));
-        U.gapH(sendRow, 8);
-        sendRow.addView(sendLogBtn);
-        U.gapH(sendRow, 8);
-        sendRow.addView(sendLanBtn);
-        card.addView(sendRow);
-        U.gapV(card, 8);
-
-        // ★ v2.0.29：NAS 文件收集通道单独一行（第三个按钮塞进 sendRow 会挤爆 1920x720 横屏设置页）。
+        // ★ v2.0.35：日志区只保留「上传到 NAS」一条通道；公网云端 / 备用内网 / 自建 1443
+        //   三个按钮连同其回调、常量、说明文字全部移除（App 不再主动 POST 日志）。
         //   该链接是飞牛网页收集页而非 API，按钮语义是「生成待上传文件 + 打开官方页面」，不能写成「上传成功」。
         TextView sendNasBtn = U.btn(c, "📤 上传到 NAS");
         sendNasBtn.setOnClickListener(v -> onUploadRunLogToNas());
@@ -1031,21 +1017,6 @@ public class SetPane {
         U.gapH(nasRow, 8);
         nasRow.addView(sendNasBtn);
         card.addView(nasRow);
-        U.gapV(card, 8);
-
-        // ★ v2.0.32：第四个日志通道——用户自建的免私有签名接收端点。
-        //   与公网/内网两条按钮同构：sendLogTextTo(endpoint, ...) 复用 token 头与 JSON 载荷，仅地址不同。
-        //   本机探测该地址超时（不在本机网段），按钮必须回显真实 HTTP 码 / -1 异常，绝不假绿。
-        TextView send1443Btn = U.btn(c, "📤 发日志到 1443");
-        send1443Btn.setOnClickListener(v -> onSendRunLog1443());
-        LinearLayout log1443Row = U.row(c);
-        log1443Row.addView(U.text(c, "自建端点", 12, U.TXT));
-        U.gapH(log1443Row, 8);
-        log1443Row.addView(send1443Btn);
-        card.addView(log1443Row);
-        U.gapV(card, 8);
-        card.addView(U.text(c, "「发日志到 1443」POST 到 http://60.205.251.18:1443 ，"
-                + "与云端/内网按钮同用 token 头和 JSON 载荷；返回码或 -1 异常会直接显示。", 12, U.SUB));
         U.gapV(card, 8);
         card.addView(U.text(c, "「上传到 NAS」会生成 .txt 并打开飞牛收集页，请在页面中选择该文件；"
                 + "优先存 Download/L6/upload/，公共目录不可写时自动回落到应用私有目录，"
@@ -1089,66 +1060,6 @@ public class SetPane {
                     refreshSignal();
                 })
                 .show();
-    }
-
-    /**
-     * v2.0.19：手动把当前运行日志发到云端事件接口，并回显 HTTP 返回码（404/400/401 等）。
-     * 先弹「发送中」，后台线程拿到真实状态码后回主线程弹结果；崩溃日志不在此处发——
-     * 它走 CrashGuard 实时上报 + MainActivity 启动兜底补发。
-     */
-    private void onSendRunLog() {
-        String txt = gatherRunLog();
-        sh.host().toast("运行日志发送中…");
-        L6Reporter.sendLogText("runlog", txt, (code, detail) -> {
-            String msg;
-            if (code >= 200 && code < 300) {
-                msg = "✅ 运行日志发送成功（HTTP " + code + "）";
-            } else {
-                // -1 时 detail 含异常类名+信息（如 UnknownHostException / SocketTimeoutException / SSLHandshakeException），一眼看出断网点
-                msg = "❌ 发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
-            }
-            sh.host().toast(msg);
-        });
-    }
-
-    /**
-     * v2.0.24：备用（内网）通道手动发送，目标 {@link L6Reporter#ENDPOINT_LAN}。
-     * 与云端通道仅地址不同，鉴权头与 JSON 载荷完全一致；同样回显 HTTP 返回码与 -1 异常详情。
-     */
-    private void onSendRunLogLan() {
-        String txt = gatherRunLog();
-        sh.host().toast("备用发送中（内网）…");
-        L6Reporter.sendLogTextTo(L6Reporter.ENDPOINT_LAN, "runlog", txt, (code, detail) -> {
-            String msg;
-            if (code >= 200 && code < 300) {
-                msg = "✅ 备用发送成功（HTTP " + code + "）";
-            } else {
-                msg = "❌ 备用发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
-            }
-            sh.host().toast(msg);
-        });
-    }
-
-    /** v2.0.34：用户自建的免私有签名接收端点（公网 ECS1，明文 HTTP 由 manifest usesCleartextTraffic 放行）。 */
-    private static final String LOG_ENDPOINT_1443 = "http://60.205.251.18:1443";
-
-    /**
-     * v2.0.32：自建端点发送运行日志。与 {@link #onSendRunLogLan()} 完全同构
-     * （token 头 + JSON 事件载荷），仅目标地址不同；HTTP 2xx 才算成功，
-     * -1 时把异常类名与 message 一起回显，便于定位断网点。
-     */
-    private void onSendRunLog1443() {
-        String txt = gatherRunLog();
-        sh.host().toast("发送中（自建端点 1443）…");
-        L6Reporter.sendLogTextTo(LOG_ENDPOINT_1443, "runlog", txt, (code, detail) -> {
-            String msg;
-            if (code >= 200 && code < 300) {
-                msg = "✅ 自建端点发送成功（HTTP " + code + "）";
-            } else {
-                msg = "❌ 自建端点发送失败：HTTP " + code + " — " + L6Reporter.codeMessage(code, detail);
-            }
-            sh.host().toast(msg);
-        });
     }
 
     /**

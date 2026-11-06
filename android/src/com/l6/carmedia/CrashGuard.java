@@ -45,15 +45,18 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
     @Override
     public void uncaughtException(Thread t, Throwable e) {
         // ★ 先同步落盘——交回系统后进程随时可能被回收，必须赶在那之前写完
+        // ★ v2.0.35：网络上报能力已整体下线，崩溃证据只落本地。
+        //   需要外发时由用户在设置页点「上传到 NAS」生成 .txt 后手动上传。
         String text = writeCrash(t, e);
         try {
             L6Log.e("L6Crash", "未捕获异常 线程=" + t.getName() + "：" + e);
         } catch (Throwable ignored) {
         }
-        // ★ v2.0.17：崩溃堆栈同时上报到云端（后台线程，fire-and-forget；崩溃瞬间可能没网，
-        //   真正兜底靠 MainActivity 启动时 flushPendingCrash 扫描残留文件补发）。
-        if (text != null && !text.isEmpty()) {
-            L6Reporter.sendCrash(t == null ? "?" : t.getName(), text);
+        try {
+            if (text != null && !text.isEmpty()) {
+                L6Log.e("L6Crash", "崩溃堆栈（本地留证，未外发）：\n" + text);
+            }
+        } catch (Throwable ignored) {
         }
         Thread.UncaughtExceptionHandler p = prev;
         if (p != null) {
@@ -63,9 +66,9 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
 
     /**
      * v2.0.31：崩溃堆栈落盘。
-     * ★ 先无条件生成完整崩溃文本，再逐级尝试目录；★ 目录全不可写也照样把文本交给
-     * {@code sendCrash} 上报 —— 旧实现「目录 mkdirs 失败就 return 空串」正是车机上
-     * 「闪退了却拿不到任何证据、云端也没收到」的原因。
+     * ★ 先无条件生成完整崩溃文本，再逐级尝试目录；旧实现「目录 mkdirs 失败就 return 空串」
+     *   正是车机上「闪退了却拿不到任何证据」的原因。
+     * ★ v2.0.35：不再自动外发。目录全不可写时仍返回完整文本，由调用方写进运行日志留证。
      */
     private String writeCrash(Thread t, Throwable e) {
         StringBuilder sb = new StringBuilder();
@@ -113,7 +116,7 @@ public final class CrashGuard implements Thread.UncaughtExceptionHandler {
                 }
             }
         }
-        try { L6Log.e("L6Crash", "崩溃堆栈落盘失败（多级目录均不可写），改为仅云端上报"); }
+        try { L6Log.e("L6Crash", "崩溃堆栈落盘失败（多级目录均不可写），文本保留在运行日志"); }
         catch (Throwable ignored) { }
         return text;
     }

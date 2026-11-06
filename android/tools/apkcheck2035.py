@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""v2.0.34 产物反查：自建端点改公网 ECS1 地址 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.35 产物反查：只保留 NAS 收集按钮、App 主动网络上报能力整体下线 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+
+★ v2.0.35 断言口径（防假绿铁律）：三个被删按钮 + L6Reporter 网络上报代码的所有端点 /
+  token / 方法名 / 文案一律改为 **NEG 零残留**，不再作为 POS。注意若干短串在别的模块里
+  仍然存在（OTA 的 currentVersion、网易云的 csrf_token、CrashGuard 的日期格式、
+  NAS 文件头的 voltage / 分隔线），这些既不能当 POS 证据，也不能误列进 NEG。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -124,6 +129,19 @@
            ③ 新增第 4 个日志按钮（v2.0.34 起 POST http://60.205.251.18:1443，
               旧地址 http://172.17.117.232:1443 已废弃并列入 NEG 零残留断言），
               复用 token 头 + JSON 事件载荷，回显真实 HTTP 码 / -1 异常，绝不假绿。
+★ v2.0.35 设置页日志区只保留「📤 上传到 NAS」一个按钮，移除「发送运行日志到云端」
+           /「备用发送（内网）」/「发日志到 1443」三个按钮及其 SetPane 回调、1443 常量、
+           说明文字；L6Reporter 网络上报能力整体裁掉（ENDPOINT / ENDPOINT_LAN / TOKEN /
+           TLS 协商 / sendEvent* / sendLogText* / sendCrash / flushPendingCrash /
+           字段可读化全部删除），仅保留 NAS_COLLECT_URL + writeNasUploadFile() +
+           nasUploadDirs() + lastNasError() 本地导出；CrashGuard 崩溃堆栈仍落盘但不再外发
+           （写进运行日志留证），MainActivity 不再做启动兜底补发。OTA 在线更新与其它
+           联网功能不受影响（INTERNET / usesCleartextTraffic 保留）。
+           产物级硬证据：dex 中 >=48 位长串为 0（token 彻底不在包里）、全部上报端点
+           与方法名零残留、三个按钮文案零残留；NAS 全部锚点仍为 POS。
+           注意若干短串在别的模块里仍存在（OTA 的 currentVersion、网易云的 csrf_token、
+           CrashGuard 的日期格式、NAS 文件头的 voltage / 分隔线），既不能当 POS 证据，
+           也不能误列进 NEG。
 """
 import hashlib
 import io
@@ -131,7 +149,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.34.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.35.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -232,36 +250,13 @@ POS = [
     b"\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe6\x9c\xaa\xe5\x8a\xa8",  # 运行日志未动
     # 业务
     b"com/l6/carmedia/Ota", b"L6Apps", b"L6Demo",
-    # v2.0.17：日志发送功能 L6Reporter（崩溃自动 + 启动兜底 + 手动按钮）
+    # v2.0.17~2.0.34：日志主动上报功能（崩溃自动 / 启动补发 / 云端 / 内网 / 1443）
+    #   ★ v2.0.35 已整体下线：类名 L6Reporter 保留但只做本地 NAS 文件导出。
+    #     端点 / token / sendEvent* / TLS / 字段可读化一律改为下方 NEG 零残留，
+    #     不再作为 POS（避免「别的模块碰巧命中同名字串」的假绿）。
     b"com/l6/carmedia/L6Reporter",
-    b"flushPendingCrash", b"sendLogText", b"sendCrash", b"sendEvent",
-    b"l6/event", b"yanzi-api.ziruxue.top",
-    b"token",  # 自定义请求头名 token: <共享token>（鉴权契约由服务端校验）
-    # v2.0.28：共享 token 全文断言不再固化进脚本（密钥不入库）——
-    #   POS 列表闭合后由环境变量 L6_EXPECTED_TOKEN 动态 append，未设置则跳过该项。
-    b"\xe5\x8f\x91\xe9\x80\x81\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\x88\xb0\xe4\xba\x91\xe7\xab\xaf",  # 发送运行日志到云端
-    b"\xe6\x97\xa5\xe5\xbf\x97\xe4\xb8\x8a\xe6\x8a\xa5",  # 日志上报
-    # v2.0.19：手动发送回显 HTTP 返回码（404/400/401 等）—— 证明反馈逻辑进包
-    b"codeMessage", b"ResultCallback",
-    b"HTTP ",
-    b"\xe8\xbf\x90\xe8\xa1\x8c\xe6\x97\xa5\xe5\xbf\x97\xe5\x8f\x91\xe9\x80\x81\xe6\x88\x90\xe5\x8a\x9f",  # 运行日志发送成功
-    b"\xe5\x8f\x91\xe9\x80\x81\xe5\xa4\xb1\xe8\xb4\xa5",  # 发送失败
-    # v2.0.21：-1 异常详情细分（DNS/超时/TLS 一眼看出）—— 证明 detail 透传 + codeMessage(int,String) 进包
-    b"getLastError", b"ThreadLocal",
-    b"\xe7\xbd\x91\xe7\xbb\x9c\xe5\xbc\x82\xe5\xb8\xb8\xef\xbc\x88",  # 网络异常（（codeMessage(int,String) 前缀，detail 嵌其后）
-    # v2.0.25：备用内网地址改到真实 API 端口 30507（旧 80 端口 302 到 fnOS Web 页，POST 被跟随成 HTML 404）
-    b"http://192.168.24.10:30507/api/l6/event",
-    b"sendEventTo", b"sendLogTextTo",
-    "备用发送（内网）".encode(), "备用发送成功".encode(), "备用发送失败".encode(),
-    # v2.0.27：事件外壳新增 voltage / currentVersion（原 ver 保留，只增不改）。
-    #   batteryVoltageV + 中文告警串是本版独有锚点（旧版 dex 里不存在），
-    #   voltage / currentVersion 是字段契约断言（字符串池全局存在，配合 javap 硬证据裁决调用点）。
+    # L6Log 的电压读取仍在（NAS 导出文件头要写 voltage 行），保留 POS
     b"batteryVoltageV", "电瓶电压读取失败".encode("utf-8"),
-    b"currentVersion", b"voltage",
-    # v2.0.28：删掉 API 28 上恒不执行的 TLS1.3 死代码，改 "TLS" context + 运行时探测。
-    #   tlsCapableFactory / pickProtocols / 协议名 / 能力自报串为本版独有锚点。
-    b"postByConnection", b"tlsCapableFactory", b"pickProtocols", b"TLSv1.3",
-    b"tls13Supported=", b"getSupportedProtocols", b"setEnabledProtocols",
     # v2.0.29：NAS 文件收集按钮（零私有协议依赖、绝不假绿）——URL 全文 + 方法名 + 文案锚点
     b"https://share.fnnas.net/s/988aed0f9fb54bc680",
     b"writeNasUploadFile", b"nasUploadDir", b"l6-log-", b"L6/upload/",
@@ -281,25 +276,19 @@ POS = [
     "崩溃堆栈已落盘".encode("utf-8"), "崩溃堆栈落盘失败".encode("utf-8"),
     "采集线程未捕获异常".encode("utf-8"),
     "前台服务创建异常".encode("utf-8"), "前台服务启动异常".encode("utf-8"),
-    # v2.0.32：真根因修复的 UI 兜底 + 应用首字母排序 + 自建端点发日志
+    # v2.0.32：真根因修复的 UI 兜底 + 应用首字母排序（自建端点按钮 v2.0.35 已移除）
     b"com/l6/carmedia/nat/AppSorter", b"java/text/Collator",
-    b"initialOf", b"hanInitial", b"rank", b"onSendRunLog1443",
-    # v2.0.34：自建端点改公网 ECS1，地址全文必须在 dex 中
-    b"http://60.205.251.18:1443",
+    b"initialOf", b"hanInitial", b"rank",
     "按首字母排序".encode("utf-8"), "# 其他".encode("utf-8"),
-    "发日志到 1443".encode("utf-8"), "自建端点".encode("utf-8"),
     "开始采集点击异常".encode("utf-8"),
-    # v2.0.33：字段可读化 —— 服务端 admin.js 只 SELECT 固定 9 列不返回 payload_json，
-    #          前端详情也不渲染 voltage/currentVersion，故端侧把字段写进 msg 头部 + title 摘要
-    b"attachReadableFields", b"compactTitle", b"fieldHeader", b"fieldLine",
-    "【上报字段】".encode("utf-8"), b" | ver=", b" | currentVersion=",
-    b" | voltage=", b" | os=", b" | model=",
-    b"yyyy-MM-dd HH:mm:ss", b"------------------------",
+    # ★ v2.0.35：v2.0.33 字段可读化与 v2.0.34 自建端点相关 POS 全部删除 ——
+    #   被删代码改由下方 NEG 裁决；日期格式 / 分隔线在 CrashGuard 与 NAS 文件头里
+    #   仍会命中（别的模块），留在 POS 只会造成假绿，故不列入。
+    # v2.0.35 新代码锚点：崩溃堆栈只留本地、不外发（CrashGuard 新增运行日志留证分支）
+    "崩溃堆栈（本地留证，未外发）".encode("utf-8"),
+    "崩溃堆栈落盘失败（多级目录均不可写），文本保留在运行日志".encode("utf-8"),
 ]
-# v2.0.28：token 全文必含断言动态注入（环境变量 L6_EXPECTED_TOKEN，未设置则跳过）
-_expect_token = (os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
-if _expect_token:
-    POS.append(_expect_token)  # 共享 token 全文必须在 dex 中（证明进包且与部署值一致）
+# ★ v2.0.35：token 不再作为 POS 注入（App 已无凭据）；改为下方 NEG 零残留裁决。
 NEG = [
     b"postByTls13Socket", b"tls13Factory",  # v2.0.28：API 28 死代码，防回归
     b"http://192.168.24.10/api/l6/event",  # v2.0.25：旧 80 端口地址不得残留（会 302 到 fnOS Web 页）
@@ -326,27 +315,57 @@ NEG = [
     "已上传到 NAS".encode("utf-8"), "文件上传成功".encode("utf-8"),
     # v2.0.34：旧内网地址必须零残留（防 sed 派生时漏改、防把包发错端点）
     b"http://172.17.117.232:1443", b"172.17.117.232",
+    # ===== v2.0.35：App 主动网络上报能力整体下线，全部改判零残留 =====
+    # ① 上报端点 / 主机（一个都不能留在 dex 里）
+    b"yanzi-api.ziruxue.top", b"l6/event", b"/api/l6/event",
+    b"http://192.168.24.10:30507/api/l6/event", b"192.168.24.10:30507",
+    b"http://60.205.251.18:1443", b"60.205.251.18",
+    # ② 上报方法 / 回调 / 契约类
+    b"sendEvent", b"sendEventTo", b"sendLogText", b"sendLogTextTo",
+    b"sendCrash", b"flushPendingCrash", b"codeMessage", b"ResultCallback",
+    b"getLastError", b"ThreadLocal",
+    b"onSendRunLog", b"onSendRunLogLan", b"onSendRunLog1443",
+    b"postByConnection", b"tlsCapableFactory", b"pickProtocols", b"TLSv1.3",
+    b"tls13Supported=", b"getSupportedProtocols", b"setEnabledProtocols",
+    b"attachReadableFields", b"compactTitle", b"fieldHeader", b"fieldLine",
+    # ③ 三个被删按钮的文案 / 说明文字
+    "发送运行日志到云端".encode("utf-8"), "日志上报".encode("utf-8"),
+    "运行日志发送中".encode("utf-8"), "运行日志发送成功".encode("utf-8"),
+    "发送失败".encode("utf-8"), "网络异常（".encode("utf-8"),
+    "备用发送（内网）".encode("utf-8"), "备用发送中（内网）".encode("utf-8"),
+    "备用发送成功".encode("utf-8"), "备用发送失败".encode("utf-8"),
+    "发日志到 1443".encode("utf-8"), "自建端点".encode("utf-8"),
+    "发送中（自建端点 1443）".encode("utf-8"),
+    "【上报字段】".encode("utf-8"), b" | ver=", b" | currentVersion=",
+    b" | voltage=", b" | os=", b" | model=",
+    # ④ 防假绿：网络能力下线后不得再出现任何「发送成功 / 上报成功」类反馈
+    "云端上报成功".encode("utf-8"), "上报成功".encode("utf-8"),
 ]
 
 bad = 0
-# == token 唯一性裁决（防「旧 token 仍藏在 dex 里」的假绿）==
-# v2.0.28：token 明文不再固化进本脚本（清除密钥入库面）——改由环境变量提供：
-#   L6_EXPECTED_TOKEN  = 当前生效 token（dex 内长串必须全部等于它）
-#   L6_FORBIDDEN_TOKEN = 禁止残留的旧 token（可选，出现即 FAIL）
+# == v2.0.35 凭据零残留裁决 ==
+# ★ 口径反转：v2.0.28~34 要求「dex 内长串全部 == L6_EXPECTED_TOKEN」；
+#   v2.0.35 起 App 不再持有任何凭据，正确判据是「dex 中 >=48 位长串一个都没有」，
+#   且旧 token（L6_EXPECTED_TOKEN / L6_FORBIDDEN_TOKEN）均零残留。
+#   密钥仍走环境变量，不固化进脚本。
 import os as _os
 import re as _re
 _longstrs = [m.group() for m in _re.finditer(rb'[A-Za-z0-9]{48,}', dex)]
 _want = (_os.environ.get("L6_EXPECTED_TOKEN") or "").encode()
 _forbid = (_os.environ.get("L6_FORBIDDEN_TOKEN") or "").encode()
-# ★ v2.0.28 删掉裸 SSLSocket 路径后 TOKEN 内联回 1 处，裁决口径仍保持
-#   「>=1 且全部等于 L6_EXPECTED_TOKEN」：既容纳 javac 内联多份，也挡住混入旧 token。
-print("\n== token 唯一性裁决 ==")
-if not _want:
-    print("   SKIP 未设 L6_EXPECTED_TOKEN，跳过 dex token 裁决（长串数=%d）" % len(_longstrs))
+print("\n== 凭据零残留裁决（v2.0.35）==")
+_clean = (len(_longstrs) == 0)
+print("   %s dex 中 >=48 位长串数为 0（实际 %d），App 不再内嵌共享 token" % ("ok  " if _clean else "FAIL", len(_longstrs)))
+bad += 0 if _clean else 1
+if _longstrs:
+    for s in _longstrs[:5]:
+        print("      残留长串: %s" % s.decode("ascii", "replace")[:80])
+if _want:
+    _n = dex.count(_want)
+    print("   %s 旧共享 token（L6_EXPECTED_TOKEN）零残留（x%d）" % ("ok  " if _n == 0 else "FAIL", _n))
+    bad += 0 if _n == 0 else 1
 else:
-    _ok = (len(_longstrs) >= 1 and all(x == _want for x in _longstrs))
-    print("   %s dex 中 >=48 位长串全部等于 L6_EXPECTED_TOKEN（长串数=%d）" % ("ok  " if _ok else "FAIL", len(_longstrs)))
-    bad += 0 if _ok else 1
+    print("   SKIP 未设 L6_EXPECTED_TOKEN，仅以长串数=0 裁决")
 if _forbid:
     _old_n = dex.count(_forbid)
     print("   %s L6_FORBIDDEN_TOKEN 零残留（x%d）" % ("ok  " if _old_n == 0 else "FAIL", _old_n))
