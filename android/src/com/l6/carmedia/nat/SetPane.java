@@ -1044,7 +1044,7 @@ public class SetPane {
         log1443Row.addView(send1443Btn);
         card.addView(log1443Row);
         U.gapV(card, 8);
-        card.addView(U.text(c, "「发日志到 1443」POST 到 http://172.17.117.232:1443 ，"
+        card.addView(U.text(c, "「发日志到 1443」POST 到 http://60.205.251.18:1443 ，"
                 + "与云端/内网按钮同用 token 头和 JSON 载荷；返回码或 -1 异常会直接显示。", 12, U.SUB));
         U.gapV(card, 8);
         card.addView(U.text(c, "「上传到 NAS」会生成 .txt 并打开飞牛收集页，请在页面中选择该文件；"
@@ -1129,8 +1129,8 @@ public class SetPane {
         });
     }
 
-    /** v2.0.32：用户自建的免私有签名接收端点（明文 HTTP 由 manifest usesCleartextTraffic 放行）。 */
-    private static final String LOG_ENDPOINT_1443 = "http://172.17.117.232:1443";
+    /** v2.0.34：用户自建的免私有签名接收端点（公网 ECS1，明文 HTTP 由 manifest usesCleartextTraffic 放行）。 */
+    private static final String LOG_ENDPOINT_1443 = "http://60.205.251.18:1443";
 
     /**
      * v2.0.32：自建端点发送运行日志。与 {@link #onSendRunLogLan()} 完全同构

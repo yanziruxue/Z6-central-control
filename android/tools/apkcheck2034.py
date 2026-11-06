@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.33 产物反查：上报字段可读化（服务端后台不返回 payload_json，靠 msg/title 呈现）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.34 产物反查：自建端点改公网 ECS1 地址 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
 
 ★ 判据全部落在 dex 的**字符串池与类名**上（局部变量名不进 dex，别拿它断言）。
 ★ v2.0.2 新增悬浮返回按钮的纯逻辑判定类 TapJudge（手机高密度屏点不动的修复）。
@@ -121,7 +121,8 @@
               构造器访问标志由构建后 javap 单独硬验证（产物级证据）。
            ② 右下角 📋 应用抽屉改纵向列表 + 首字母分组（AppSorter，中文拼音首字母
               用 Collator(Locale.CHINA) + 23 个边界字二分，零第三方依赖）。
-           ③ 新增第 4 个日志按钮 POST http://172.17.117.232:1443，
+           ③ 新增第 4 个日志按钮（v2.0.34 起 POST http://60.205.251.18:1443，
+              旧地址 http://172.17.117.232:1443 已废弃并列入 NEG 零残留断言），
               复用 token 头 + JSON 事件载荷，回显真实 HTTP 码 / -1 异常，绝不假绿。
 """
 import hashlib
@@ -130,7 +131,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.33.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.34.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -283,7 +284,8 @@ POS = [
     # v2.0.32：真根因修复的 UI 兜底 + 应用首字母排序 + 自建端点发日志
     b"com/l6/carmedia/nat/AppSorter", b"java/text/Collator",
     b"initialOf", b"hanInitial", b"rank", b"onSendRunLog1443",
-    b"http://172.17.117.232:1443",
+    # v2.0.34：自建端点改公网 ECS1，地址全文必须在 dex 中
+    b"http://60.205.251.18:1443",
     "按首字母排序".encode("utf-8"), "# 其他".encode("utf-8"),
     "发日志到 1443".encode("utf-8"), "自建端点".encode("utf-8"),
     "开始采集点击异常".encode("utf-8"),
@@ -322,6 +324,8 @@ NEG = [
     "NAS 上传成功".encode("utf-8"), "上传到 NAS 成功".encode("utf-8"),
     # v2.0.30 防假绿：写盘成功 != 上传成功，不得因为多目录回落就谎报已上传
     "已上传到 NAS".encode("utf-8"), "文件上传成功".encode("utf-8"),
+    # v2.0.34：旧内网地址必须零残留（防 sed 派生时漏改、防把包发错端点）
+    b"http://172.17.117.232:1443", b"172.17.117.232",
 ]
 
 bad = 0
