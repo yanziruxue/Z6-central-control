@@ -171,7 +171,9 @@ public class BrowserActivity extends Activity {
             s.setUseWideViewPort(true);
             s.setLoadWithOverviewMode(true);
             s.setSupportZoom(false);
-            v.setBackgroundColor(Color.BLACK);
+            // ★ v2.0.41：背景必须白 —— 飞牛浅色页面只画内容卡片，页面没画到的区域会透出
+            //   WebView 背景色；黑底会表现为「内容下方一大块黑屏」（真机实测），白底与浏览器默认一致。
+            v.setBackgroundColor(Color.WHITE);
 
             v.setWebViewClient(new WebViewClient() {
                 @Override

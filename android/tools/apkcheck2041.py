@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""v2.0.40 产物反查：弹窗滑动锁 + 应用列表右侧抽屉 + 内嵌浏览器 + 软件仓库/NAS 用回飞牛链接。
+"""v2.0.41 产物反查：弹窗滑动锁 + 应用列表右侧抽屉 + 内嵌浏览器 + 软件仓库/NAS 用回飞牛链接。
 
 ★ v2.0.40 断言口径：
   ① BrowserActivity（内嵌浏览器）类名、getCurrentWebViewPackage、onShowFileChooser、
@@ -201,7 +201,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.40.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.41.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
