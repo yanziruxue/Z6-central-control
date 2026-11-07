@@ -82,6 +82,7 @@ public class ForceUpdate {
         FrameLayout ov = sh.overlay();
         if (ov == null) return;
         Context c = sh.ctx();
+        sh.setSwipeLocked(true);                   // v2.0.40：弹窗打开期间禁主页滑动手势
         optional = optionalMode;
         onLater = onLaterCb;
         onSkip = onSkipCb;
@@ -235,6 +236,7 @@ public class ForceUpdate {
 
     public void hide() {
         if (root == null) return;
+        sh.setSwipeLocked(false);                  // v2.0.40：与 build 对称解锁
         FrameLayout ov = sh.overlay();
         if (ov != null) ov.removeView(root);
         root = null;

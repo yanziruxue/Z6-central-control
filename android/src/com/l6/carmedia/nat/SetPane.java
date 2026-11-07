@@ -1018,9 +1018,9 @@ public class SetPane {
         nasRow.addView(sendNasBtn);
         card.addView(nasRow);
         U.gapV(card, 8);
-        card.addView(U.text(c, "「上传到 NAS」会生成日志 .txt 到本地；车机无浏览器，"
-                + "请到其他设备打开该文件并上传到飞牛收集页；"
-                + "优先存 Download/L6/upload/，公共目录不可写时自动回落到应用私有目录，"
+        card.addView(U.text(c, "「上传到 NAS」会生成日志 .txt 并用内嵌浏览器打开飞牛收集页，"
+                + "在页面中点上传、选择提示路径里的文件即可；车机无 WebView 组件时只生成文件并提示路径，"
+                + "请到其他设备上传。优先存 Download/L6/upload/，公共目录不可写时自动回落到应用私有目录，"
                 + "以提示里的实际路径为准。", 12, U.SUB));
         U.gapV(card, 8);
         s.addView(card);
@@ -1071,9 +1071,9 @@ public class SetPane {
      * 以及 /api/v1/fn/share 动态解析出的中继地址，硬编码进 APK 会随 fnOS 升级失效且无法真机验证。
      * 因此这里只做两件 100% 可落地的事：① 生成 .txt ② 调起官方收集页，让浏览器走完整协议。
      *
-     * <p>★ 全程不谎报「上传成功」：车机常无浏览器，此时降级为文本分享，并给出文件绝对路径。
-     * 分享走 EXTRA_TEXT 而不是 EXTRA_STREAM，避免 targetSdk 28 下 Uri.fromFile 触发
-     * FileUriExposedException（引入 FileProvider 会平白增加 manifest / xml 依赖）。
+     * <p>★ v2.0.40 起优先用<b>内嵌浏览器</b>（{@code BrowserActivity}）打开官方收集页，
+     * 车机没有浏览器 App 也能传；WebView 组件缺失时回落为「生成文件 + 诚实告知路径」。
+     * 分享/剪贴板等伪降级（v2.0.38 及更早）已全部移除。
      */
     private void onUploadRunLogToNas() {
         java.io.File f = L6Reporter.writeNasUploadFile(gatherRunLog());
@@ -1088,35 +1088,30 @@ public class SetPane {
         final String name = f.getName();
         final String path = f.getAbsolutePath();
         final String size = (f.length() / 1024) + " KB";
-        // v2.0.39：飞牛收集页是网页 SPA，车机常无浏览器。先探明设备是否有能处理该 URL 的浏览器，
-        // 有则打开页面（诚实「已生成 + 已打开页面，请在页面选文件」）；无浏览器则只诚实告知
-        // 文件已生成在 XX 路径、请到其他设备上传——绝不谎报「已复制 / 已分享 / 已上传」。
-        boolean hasBrowser = false;
-        try {
-            android.content.Intent probe = new android.content.Intent(
-                    android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse(L6Reporter.NAS_COLLECT_URL));
-            hasBrowser = !c.getPackageManager().queryIntentActivities(probe, 0).isEmpty();
-        } catch (Throwable ignored) {
-        }
-        if (hasBrowser) {
+        // v2.0.40：车机常没有浏览器 App → 优先用**内嵌浏览器**（BrowserActivity）打开
+        // 飞牛收集页，页面里的 <input type=file> 由 WebChromeClient 弹系统选择器上传，
+        // 底部提示条直接展示日志文件绝对路径，方便在系统选择器里定位。
+        // WebView 组件缺失时回落诚实提示：文件已生成在 XX 路径，请到其他设备上传 ——
+        // 绝不谎报「已复制 / 已分享 / 已上传」。
+        if (com.l6.carmedia.BrowserActivity.webViewAvailable(c)) {
             try {
-                android.content.Intent view = new android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse(L6Reporter.NAS_COLLECT_URL));
-                view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                c.startActivity(view);
-                sh.host().toast("✅ 已生成 " + name + "（" + size + "）\n"
-                        + "路径：" + path + "\n"
-                        + "已打开 NAS 收集页，请在页面中选择该文件上传");
+                android.content.Intent bi = new android.content.Intent(
+                        c, com.l6.carmedia.BrowserActivity.class);
+                bi.putExtra(com.l6.carmedia.BrowserActivity.EXTRA_URL, L6Reporter.NAS_COLLECT_URL);
+                bi.putExtra(com.l6.carmedia.BrowserActivity.EXTRA_TITLE, "📤 上传到 NAS");
+                bi.putExtra(com.l6.carmedia.BrowserActivity.EXTRA_HINT,
+                        "日志已生成：" + path + "\n请在页面中点击上传，选择上面的文件");
+                bi.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                c.startActivity(bi);
+                sh.host().toast("✅ 已生成 " + name + "（" + size + "）\n已在内嵌浏览器打开 NAS 收集页");
                 return;
             } catch (Throwable t) {
-                L6Log.e("SetPane", "打开 NAS 收集页失败：" + t);
+                L6Log.e("SetPane", "打开内嵌浏览器失败：" + t);
             }
         }
-        // 无浏览器（或打开失败）：诚实告知文件已生成、请到其他设备上传，不假报任何成功。
+        // 无 WebView 组件（或打开失败）：诚实告知文件已生成、请到其他设备上传，不假报任何成功。
         sh.host().toast("📤 日志文件已生成\n" + name + "（" + size + "）\n路径：" + path
-                + "\n车机无浏览器，请到其他设备打开该文件并上传到 NAS");
+                + "\n车机无浏览器组件，请到其他设备打开该文件并上传到 NAS");
     }
 
     /** 收集当前运行日志文本：优先读当天日志文件（截断 100KB），空则退回内存缓冲。 */

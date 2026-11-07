@@ -70,6 +70,16 @@
             </intent-filter>
         </activity>
 
+        <!-- v2.0.40 内嵌浏览器：软件仓库（飞牛分享页）与日志 NAS 上传（飞牛收集页）的
+             应用内 WebView 容器。exported=false（仅本应用内部拉起）。 -->
+        <activity
+            android:name="com.l6.carmedia.BrowserActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density"
+            android:exported="false"
+            android:resizeableActivity="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/AppTheme" />
+
         <!-- OTA 安装用的 ContentProvider（不依赖 support / androidx） -->
         <provider
             android:name="com.l6.carmedia.OtaFileProvider"

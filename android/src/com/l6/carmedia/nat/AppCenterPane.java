@@ -115,6 +115,7 @@ public class AppCenterPane {
         listBox.addView(loading, new LinearLayout.LayoutParams(U.MP, U.WC));
 
         open = true;
+        sh.setSwipeLocked(true);                   // v2.0.40：弹窗打开期间禁主页滑动手势
         scrim.animate().alpha(1f).setDuration(250).start();
         panel.animate().translationY(0f).setDuration(300).setInterpolator(EASE).start();
 
@@ -124,6 +125,7 @@ public class AppCenterPane {
     public void close() {
         if (!open) return;
         open = false;
+        sh.setSwipeLocked(false);                  // v2.0.40：与 open 对称解锁
         final FrameLayout ov = sh.overlay();
         final LinearLayout pnl = panel;
         final FrameLayout scr = scrim;

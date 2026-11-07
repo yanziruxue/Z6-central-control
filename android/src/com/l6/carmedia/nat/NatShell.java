@@ -84,6 +84,9 @@ public class NatShell implements Shell {
     private float dnX, dnY;
     private boolean dnHot;
 
+    /** 弹窗滑动锁计数（v2.0.40）：任意浮层打开期间 >0，observe() 直接短路不触发手势 */
+    private int swipeLockCount;
+
     /** 应用图标缓存：Icon 解码不便宜，抽屉/dock/设置页来回切会反复要 */
     private final LruCache<String, Bitmap> icons = new LruCache<>(64);
 
@@ -408,6 +411,17 @@ public class NatShell implements Shell {
         forceUpdate.showOptional(version, changelog, onInstall, onLater, onSkip);
     }
 
+    @Override
+    public void setSwipeLocked(boolean on) {
+        swipeLockCount += on ? 1 : -1;
+        if (swipeLockCount < 0) swipeLockCount = 0;   // 防御：异常路径多解锁不至于永久失效
+    }
+
+    @Override
+    public boolean isSwipeLocked() {
+        return swipeLockCount > 0;
+    }
+
     // ================================================================== Toast
 
     /** 页面内轻提示（对应原型 .l6-toast：底部居中、圆角药丸、深底描边） */
@@ -474,6 +488,16 @@ public class NatShell implements Shell {
     }
 
     private void observe(MotionEvent e) {
+        // v2.0.40：弹窗（抽屉 / 软件仓库 / 更新蒙层）打开期间，上下左右滑一律不触发 ——
+        // 防止在弹窗里滚动列表被误判成主页手势（上滑回桌面 / 左右切应用 / 翻页）。
+        // ACTION_DOWN 仍要刷新基准坐标：锁解除后的第一个手势才有正确起点。
+        if (isSwipeLocked()) {
+            if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                dnX = e.getRawX();
+                dnY = e.getRawY();
+            }
+            return;
+        }
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 dnX = e.getRawX();

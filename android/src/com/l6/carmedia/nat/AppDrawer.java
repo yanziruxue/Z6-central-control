@@ -28,7 +28,10 @@ import java.util.List;
  * 每行 = 真实图标（或 emoji 回落）+ 应用名 + 包名小字 + 可选「已钉」角标，
  * 1920x720 横屏下比网格更易读、长应用名不再被压成两行。
  *
- * <p>结构：遮罩 + 底部面板（手柄 / 头部 / 列表），入场 translationY 300ms。
+ * <p>v2.0.40：弹出方式改为<b>右侧抽屉</b> —— 遮罩 + 右缘面板（高满屏、宽 min(560u, 屏宽*0.46)、
+ * 左缘圆角），入场 translationX 300ms 从右滑入，一列显示（音乐/导航选择模式同样生效）。
+ *
+ * <p>结构：遮罩 + 右侧面板（手柄 / 头部 / 列表）。
  * 两种用法：
  * ① pick != null —— 选择模式（音乐源 / 导航源），点一项回调并关闭；
  * ② pick == null —— 纯浏览模式（dock 的 📋）：单击直接拉起，长按钉入 / 移除 dock 快捷方式。
@@ -50,6 +53,8 @@ public class AppDrawer {
     private FrameLayout scrim;
     private LinearLayout panel;
     private MaxScroll scroll;
+    /** v2.0.40：右侧抽屉面板宽（open 时按屏宽算，close 收场动画复用） */
+    private int panelW;
     /** v2.0.32：纵向列表容器（原网格容器，交互不变，仅布局从「每行 N 格」改为「每行 1 项」）。 */
     private LinearLayout listBox;
     private String curType;
@@ -83,14 +88,17 @@ public class AppDrawer {
         });
         ov.addView(scrim, new FrameLayout.LayoutParams(U.MP, U.MP));
 
-        // 面板：固定底部、顶角圆角、上边框
+        // 面板：v2.0.40 由「底部面板」改为「右侧抽屉」—— 固定右缘、高满屏、左缘圆角，
+        // 入场 translationX 从 +面板宽 → 0 滑入（类似从右侧弹出的一列）。
+        // ★ 宽度取 min(560u, 屏宽*0.46)：1920×720 下是 560u，窄屏也不会顶满整屏。
+        panelW = Math.min(U.px(560), Math.round(U.screenW * 0.46f));
         panel = new LinearLayout(c);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setBackground(panelBg());
         panel.setClickable(true);
         panel.setElevation(U.px(12));
-        panel.setTranslationY(U.px(720));
-        ov.addView(panel, new FrameLayout.LayoutParams(U.MP, U.WC, Gravity.BOTTOM));
+        panel.setTranslationX(panelW);
+        ov.addView(panel, new FrameLayout.LayoutParams(panelW, U.MP, Gravity.RIGHT));
 
         // 手柄
         View grip = new View(c);
@@ -135,20 +143,22 @@ public class AppDrawer {
         final LinearLayout pnl = panel;
         final MaxScroll sc = scroll;
         final View gripV = grip;
-        panel.post(() -> {                          // 面板 max-height 605u：扣除手柄 + 头部占高
-            int cap = U.px(605) - gripV.getHeight() - head.getHeight() - Math.max(1, U.px(1));
+        panel.post(() -> {                          // v2.0.40 右侧抽屉高满屏：列表限高 = 屏高 − 手柄 − 头部
+            int cap = U.screenH - gripV.getHeight() - head.getHeight() - Math.max(1, U.px(1));
             if (cap > 0) sc.setMaxH(cap);
             pnl.requestLayout();
         });
 
         open = true;
+        sh.setSwipeLocked(true);                   // v2.0.40：弹窗打开期间禁主页滑动手势
         scrim.animate().alpha(1f).setDuration(250).start();
-        panel.animate().translationY(0f).setDuration(300).setInterpolator(EASE).start();
+        panel.animate().translationX(0f).setDuration(300).setInterpolator(EASE).start();
     }
 
     public void close() {
         if (!open) return;
         open = false;
+        sh.setSwipeLocked(false);                  // v2.0.40：与 open 对称解锁
         final FrameLayout ov = sh.overlay();
         final LinearLayout pnl = panel;
         final FrameLayout scr = scrim;
@@ -159,7 +169,8 @@ public class AppDrawer {
         pick = null;
         if (ov == null || pnl == null) return;
         if (scr != null) scr.animate().alpha(0f).setDuration(250).start();
-        pnl.animate().translationY(pnl.getHeight() > 0 ? pnl.getHeight() : U.px(720))
+        // v2.0.40：右侧抽屉 → 向右滑出（宽度优先用实测值，fallback 到计算值）
+        pnl.animate().translationX(pnl.getWidth() > 0 ? pnl.getWidth() : panelW)
                 .setDuration(300).setInterpolator(EASE)
                 .withEndAction(() -> {
                     ov.removeView(pnl);
@@ -310,8 +321,9 @@ public class AppDrawer {
         g.setShape(GradientDrawable.RECTANGLE);
         g.setColor(PANEL_FILL);
         float r = U.px(24);
-        g.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});   // 仅顶角圆角 24u
-        g.setStroke(Math.max(1, U.px(1)), U.LINE);               // 上边框 U.LINE
+        // v2.0.40：右侧抽屉 → 仅左上/左下圆角 24u（radii 顺序 TL,TR,BR,BL）
+        g.setCornerRadii(new float[]{r, r, 0, 0, 0, 0, r, r});
+        g.setStroke(Math.max(1, U.px(1)), U.LINE);               // 边框 U.LINE
         return g;
     }
 

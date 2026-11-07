@@ -1,13 +1,24 @@
 # -*- coding: utf-8 -*-
-"""v2.0.39 产物反查：应用中心改为应用内软件仓库（脱离浏览器，复用本 App GitHub Release）+ NAS 无浏览器诚实文案。
+"""v2.0.40 产物反查：弹窗滑动锁 + 应用列表右侧抽屉 + 内嵌浏览器 + 软件仓库/NAS 用回飞牛链接。
 
-★ v2.0.39 断言口径：AppCenterPane 类 / listReleases / /releases?per_page=20 / published_at /
+★ v2.0.40 断言口径：
+  ① BrowserActivity（内嵌浏览器）类名、getCurrentWebViewPackage、onShowFileChooser、
+     shouldOverrideUrlLoading、installLocalApk 列 POS —— 注意后两个方法名在 v2.0.0~v2.0.39
+     曾因「WebView 桥已删」被列 NEG，本版内嵌浏览器合法使用它们，必须从 NEG 移出（防假 FAIL）。
+  ② 软件仓库分享页 URL（9d57d97236a04890bf）从 NEG 移回 POS（用户指定的数据源，内嵌浏览器打开）；
+     NAS 收集页 URL（988aed0f9fb54bc680）维持 POS。
+  ③ 滑动锁 setSwipeLocked / isSwipeLocked（Shell 接口方法名，dex string pool 可见）列 POS。
+  ④ AppCenterPane / listReleases / /releases?per_page=20 保留 POS —— v2.0.40 起降级为
+     「WebView 缺失时的兜底面板」，代码仍在包里。
+  ⑤ NAS 新文案：已在内嵌浏览器打开 NAS 收集页 / 日志已生成： / 车机无浏览器组件…。
+
+★ v2.0.39 断言口径（历史）：AppCenterPane 类 / listReleases / /releases?per_page=20 / published_at /
    面板文案（软件仓库 / 读取软件仓库中… / 下载安装）/ NAS 诚实文案（请到其他设备打开该文件并上传到 NAS）
-   列为 POS；旧「飞牛网页 SPA 应用中心 + 无浏览器三级降级」的全部锚点（飞牛分享 URL+ID、
-   ClipboardManager / setPrimaryClip / newPlainText / ActivityNotFoundException / 旧结果文案）改 NEG 零残留。
+   列为 POS；旧「飞牛网页 SPA 应用中心 + 无浏览器三级降级」的全部锚点（ClipboardManager /
+   setPrimaryClip / newPlainText / ActivityNotFoundException / 旧结果文案）保持 NEG 零残留。
    ★ 注意 createChooser 仍在 MainActivity（壁纸/日志分享）使用，dex 里仍存在，不可列 NEG。
    ★ URL 常量被 javac 内联多份，只断言「全文存在」，不断言出现次数。
-   ★ 同尺寸包（451958B，与 v2.0.32~.34 同字节数）判版本唯一看 sha256，不靠大小。
+   ★ 同尺寸包判版本唯一看 sha256，不靠大小。
 
 ★ v2.0.38 断言口径：7 张卡文案（车速/胎压/门窗/转速/温度/空调/挡位）、6 个灯状态名、
   行车信号 sectionLabel、SystemProperties 反射与 door_state 属性名、setLamp/setNumCard/
@@ -190,7 +201,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.39.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.40.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -302,7 +313,7 @@ POS = [
     b"https://share.fnnas.net/s/988aed0f9fb54bc680",
     b"writeNasUploadFile", b"nasUploadDir", b"l6-log-", b"L6/upload/",
     "上传到 NAS".encode("utf-8"), "NAS 收集".encode("utf-8"),
-    "已生成".encode("utf-8"), "已打开 NAS 收集页".encode("utf-8"),
+    "已生成".encode("utf-8"),
     "无浏览器".encode("utf-8"), "无法写入日志文件".encode("utf-8"),
     "NAS 日志文件生成失败".encode("utf-8"),
     # v2.0.30：修复写盘失败 —— 多候选目录 + 真实试写 + 字节数校验 + 失败原因可回显
@@ -348,8 +359,29 @@ POS = [
     "软件仓库".encode("utf-8"), "读取软件仓库中…".encode("utf-8"),
     "下载安装".encode("utf-8"),
     "应用中心".encode("utf-8"), "打开应用列表".encode("utf-8"),
-    # ③ NAS 无浏览器诚实文案（不谎报复制/分享/上传成功）
+    # ③ NAS 诚实文案（不谎报复制/分享/上传成功）
     "请到其他设备打开该文件并上传到 NAS".encode("utf-8"),
+    # ===== v2.0.40：内嵌浏览器 + 软件仓库/NAS 用回飞牛链接 + 滑动锁 =====
+    # ① 内嵌浏览器类 + WebView 关键方法名（dex string pool）
+    b"com/l6/carmedia/BrowserActivity",
+    b"getCurrentWebViewPackage",
+    b"onShowFileChooser",
+    b"shouldOverrideUrlLoading",
+    b"onDownloadStart",
+    # ② 软件仓库分享页 URL（v2.0.37~39 曾列 NEG，本版用回，从 NEG 移回 POS）
+    b"https://share.fnnas.net/s/9d57d97236a04890bf",
+    b"9d57d97236a04890bf",
+    # ③ 本地 APK 安装入口（Ota 新增公开方法）
+    b"installLocalApk",
+    # ④ 滑动锁（Shell 接口方法名）
+    b"setSwipeLocked", b"isSwipeLocked",
+    # ⑤ 内嵌浏览器 / NAS 新文案
+    "内嵌浏览器".encode("utf-8"),
+    "已在内嵌浏览器打开 NAS 收集页".encode("utf-8"),
+    "日志已生成：".encode("utf-8"),
+    "车机无浏览器组件".encode("utf-8"),
+    # ⑥ 浏览器下载文件名前缀（filesDir/update/）
+    b"dl_", b"update",
     # ===== v2.0.38：车模上方灯状态带 + 下方 7 类行车信号卡 =====
     # ① 7 张卡文案 + 分区标题
     "车速".encode("utf-8"), "胎压".encode("utf-8"), "门窗".encode("utf-8"),
@@ -372,9 +404,11 @@ NEG = [
     b"postByTls13Socket", b"tls13Factory",  # v2.0.28：API 28 死代码，防回归
     b"http://192.168.24.10/api/l6/event",  # v2.0.25：旧 80 端口地址不得残留（会 302 到 fnOS Web 页）
     # v2.0.0 明确删掉的：HTML 页面 / SHIM 注入层 / WebView 桥注册
+    #   ★ v2.0.40 起 onShowFileChooser / shouldOverrideUrlLoading 被内嵌浏览器
+    #     （BrowserActivity）合法使用，从 NEG 移出（列 NEG 必假 FAIL）；
+    #     addJavascriptInterface / window.L6Native 仍未使用，保持零残留。
     b"assets/index.html", b"file:///android_asset/index.html",
     b"L6NativeRaw", b"addJavascriptInterface", b"window.L6Native",
-    b"onShowFileChooser", b"shouldOverrideUrlLoading",
     # 画中画（v1.5.17 已取消，防回归）
     b"PictureInPictureParams", b"isPipAvailable", b"navEnterPip", b"pipEnabled",
     # 随上报功能删除的类（防回归）
@@ -422,14 +456,12 @@ NEG = [
     # ===== v2.0.36：旧随机键写法必须零残留 =====
     # ★ 只断言 dex：源码注释里提到它是说明文字，不进 dex，不构成残留。
     b"identityHashCode",
-    # ===== v2.0.37→v2.0.39 防假绿：旧「飞牛网页 SPA 应用中心 + 无浏览器三级降级」已彻底移除 =====
-    #   飞牛分享页是网页 SPA 而非 API、车机无浏览器，旧方案只能复制链接/分享，是伪降级；
-    #   v2.0.39 改为应用内软件仓库（复用本 App GitHub Release），以下旧串必须零残留。
+    # ===== v2.0.37→v2.0.39 防假绿：旧「无浏览器三级降级（复制/分享链接）」保持零残留 =====
+    #   ★ v2.0.40 注：飞牛软件仓库分享页 URL（9d57d97236a04890bf）改回 POS（内嵌浏览器打开），
+    #     从本 NEG 移出；ClipboardManager 等降级链仍不得回包。
     #   ★ createChooser 仍在 MainActivity（壁纸/日志分享）使用，dex 里仍存在，不可列 NEG。
     "应用中心打开成功".encode("utf-8"), "应用中心上传成功".encode("utf-8"),
     "安装成功".encode("utf-8"), "下载成功".encode("utf-8"),
-    b"https://share.fnnas.net/s/9d57d97236a04890bf",
-    b"9d57d97236a04890bf",
     b"ClipboardManager", b"setPrimaryClip", b"newPlainText",
     b"ActivityNotFoundException",
     "分享运行日志".encode("utf-8"),

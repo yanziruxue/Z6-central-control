@@ -412,9 +412,20 @@ public class Ota {
         }, "L6OtaDownload").start();
     }
 
+    /**
+     * 安装一个本地 APK（v2.0.40，内嵌浏览器下载 .apk 后调用）。
+     *
+     * <p>复用 OTA 的同一条安装链路：有「安装未知应用」权限就直接拉系统安装器；
+     * 没有就记为 pending 并跳授权页，授权回来由 onResume 的 resumeInstallIfPending 续装。
+     * 文件必须落在 filesDir/update/ 下（OtaFileProvider 只暴露这个目录）。
+     */
+    public static void installLocalApk(Activity act, File apk) {
+        if (act == null || apk == null || !apk.exists()) return;
+        installOrAskPermission(act, apk, null);
+    }
+
     /** 有权限就直接装；没有就存起来 + 跳设置页，等 onResume 续装。 */
-    private static void installOrAskPermission(Activity act, File apk, EventCb cb) {
-        if (canInstall(act)) {
+    private static void installOrAskPermission(Activity act, File apk, EventCb cb) {        if (canInstall(act)) {
             doInstall(act, apk, cb);
             return;
         }

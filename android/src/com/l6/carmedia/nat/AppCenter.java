@@ -1,23 +1,48 @@
 package com.l6.carmedia.nat;
 
+import android.content.Context;
+import android.content.Intent;
+
+import com.l6.carmedia.BrowserActivity;
+
 /**
- * 应用中心（v2.0.39 重构）：右下角 📦 应用中心按钮入口。
+ * 应用中心（v2.0.40）：右下角 📦 应用中心按钮入口。
  *
- * <p>★ v2.0.37 曾用飞牛分享页（网页 SPA）承载「应用中心」，但车机常无浏览器，
- *   且 SPA 不是 API、App 读不出软件列表，只能三级降级去复制链接，本质是伪降级。
+ * <p>★ 数据源用回**用户指定的飞牛软件仓库分享页**
+ *   {@code https://share.fnnas.net/s/9d57d97236a04890bf} —— 由 {@link BrowserActivity}
+ *   内嵌浏览器打开（车机没有浏览器 App 也能用），页面里点下载 .apk 由内嵌浏览器
+ *   拦截下载后直接拉起安装。
  *
- * <p>★ v2.0.39 改为<b>应用内软件仓库</b>：数据源复用本 App 自己的 GitHub Release
- *   （车机已验证可直连 + gh-proxy 镜像回落），点一下即在原生面板里列出全部版本、直接装，
- *   全程不打开任何网页、不依赖浏览器。列表拉取与下载安装均走 {@link Ota} 复用链路。
+ * <p>★ 兜底：车机 ROM 若精简掉了 WebView 组件（内嵌浏览器起不来），回落
+ *   {@link AppCenterPane}（应用内 GitHub Release 列表，不依赖任何网页），
+ *   保证「软件仓库」在任何车机上都有一个能用的入口。
  *
- * <p>本类只做「入口转发」，所有 UI 与网络逻辑在 {@link AppCenterPane} / {@link Ota} 内。
+ * <p>本类只做「入口转发」，所有 UI 与网络逻辑在 {@link BrowserActivity} / {@link AppCenterPane} 内。
  */
 public final class AppCenter {
+
+    /** 用户指定的软件仓库分享页（飞牛文件分享，SPA 页面，由内嵌浏览器打开） */
+    public static final String STORE_URL = "https://share.fnnas.net/s/9d57d97236a04890bf";
+
     private AppCenter() {}
 
-    /** 打开应用内软件仓库面板（不依赖浏览器）。 */
+    /** 打开软件仓库：内嵌浏览器优先（用飞牛链接），WebView 缺失回落应用内 GitHub 面板。 */
     public static void open(Shell sh) {
         if (sh == null) return;
+        Context c = sh.ctx();
+        if (c == null) return;
+        if (BrowserActivity.webViewAvailable(c)) {
+            Intent i = new Intent(c, BrowserActivity.class);
+            i.putExtra(BrowserActivity.EXTRA_URL, STORE_URL);
+            i.putExtra(BrowserActivity.EXTRA_TITLE, "📦 软件仓库");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                c.startActivity(i);
+                return;
+            } catch (Throwable t) {
+                // 拉起失败（罕见）→ 落到下面的兜底面板
+            }
+        }
         new AppCenterPane(sh).open();
     }
 }

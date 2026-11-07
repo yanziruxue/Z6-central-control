@@ -69,6 +69,18 @@ public interface Shell {
     /** 轻提示（原生 Toast；浮层已在最上层，不必自绘） */
     void toast(String msg);
 
+    /**
+     * 弹窗锁定：任意浮层（抽屉 / 软件仓库 / 强制更新蒙层）打开期间置 true，
+     * 关闭时置 false。NatShell 用计数器实现，支持多层浮层叠加。
+     *
+     * ★ 用途：根容器的手势观察器只在「未锁定」时响应上下左右滑 / 翻页 / 手势启动，
+     *   锁定期间即便在弹窗内滑动也绝不触发主页手势（防误触「上滑回桌面 / 左右切应用」）。
+     */
+    void setSwipeLocked(boolean on);
+
+    /** 当前是否有浮层在锁定滑动手势。 */
+    boolean isSwipeLocked();
+
     /** OTA 事件转发给设置页 / 强制更新蒙层 */
     void onOta(String kind, JSONObject data);
 
