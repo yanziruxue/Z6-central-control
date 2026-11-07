@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""v2.0.35 产物反查：只保留 NAS 收集按钮、App 主动网络上报能力整体下线 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.36 产物反查：修复采集差分噪声（缺网络权限 + 随机键名）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+
+★ v2.0.36 断言口径：新增 ACCESS_NETWORK_STATE 权限（manifest AXML）、稳定组名键
+  probe:groupErr.<name>、isNoise() 前缀过滤、fullKey 落盘字段与 7 个噪声键列为 POS；
+  旧随机键写法 identityHashCode 改列 NEG 零残留。v2.0.35 下线网络上报的全部 NEG 继续保留。
 
 ★ v2.0.35 断言口径（防假绿铁律）：三个被删按钮 + L6Reporter 网络上报代码的所有端点 /
   token / 方法名 / 文案一律改为 **NEG 零残留**，不再作为 POS。注意若干短串在别的模块里
@@ -142,6 +146,22 @@
            注意若干短串在别的模块里仍存在（OTA 的 currentVersion、网易云的 csrf_token、
            CrashGuard 的日期格式、NAS 文件头的 voltage / 分隔线），既不能当 POS 证据，
            也不能误列进 NEG。
+★ v2.0.36 依据真机实采（l6-log-20261107-144753.txt + caiji-20261107-145817.json）审查结论：
+           ① manifest 补 ACCESS_NETWORK_STATE（normal，声明即授予）：缺它时
+              SysProbe.network() 的 getActiveNetworkInfo() 抛 SecurityException 被 group()
+              吞掉 ⇒ net:* 整组字段全丢、后半段本机 IPv4 枚举跳过。
+           ② SysProbe.group() 键名由 "probe:groupErr." + System.identityHashCode(r)
+              改为稳定的 "probe:groupErr." + 组名（13 处调用改具名）。旧写法 r 是每次
+              snapshot() 新建的匿名 Runnable ⇒ key 每轮都变 ⇒ SigDiff 稳定产出
+              ADDED + REMOVED 两条假变化；实测占运行日志 39.4%（305/775 行、154 个 key）、
+              占 changes1 37.2%（502/1349 条），全部混进「保留」组淹没车辆信号。
+           ③ SignalCapture 新增 isNoise() 前缀兜底（挡未来新增的同类伪键）+
+              ignoreKeys() 补 7 个每秒自变噪声键；刻意保留 prop:sys.tbox.uptime /
+              persist.sys.door_state 等已实证可读的车机信号，不按 src 一刀切。
+           ④ dump() 给 changes1/changes2 每条加 fullKey（"src:key" 全名），
+              与 ignoreKeys 同命名空间，外部复核覆盖率不必自己拼回。
+           产物级判据：权限在解压后的 AXML（UTF-8/UTF-16 都搜），稳定键 / isNoise /
+           fullKey / 7 个噪声键在 dex，identityHashCode 零残留。
 """
 import hashlib
 import io
@@ -149,7 +169,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.35.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.36.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -287,6 +307,15 @@ POS = [
     # v2.0.35 新代码锚点：崩溃堆栈只留本地、不外发（CrashGuard 新增运行日志留证分支）
     "崩溃堆栈（本地留证，未外发）".encode("utf-8"),
     "崩溃堆栈落盘失败（多级目录均不可写），文本保留在运行日志".encode("utf-8"),
+    # ===== v2.0.36：采集差分噪声修复（真机实采驱动）=====
+    # ① 稳定组名键前缀（旧写法拼 identityHashCode，运行时随机 → 每轮 2 条假变化）
+    b"probe:groupErr.",
+    # ② 前缀过滤方法 + 落盘全名字段（与 ignoreKeys 同命名空间）
+    b"isNoise", b"fullKey",
+    # ③ 补进 ignoreKeys 的 7 个每秒自变噪声键（字符串常量，dex 可见）
+    b"disk:vol.self.freeMB", b"disk:data.freeMB", b"disk:sdcard.freeMB",
+    b"disk:vol.emulated.freeMB", b"mem:swapFreeKB", b"pwr:bootMs",
+    b"prop:vendor.ril.nw.signalstrength.lte.1",
 ]
 # ★ v2.0.35：token 不再作为 POS 注入（App 已无凭据）；改为下方 NEG 零残留裁决。
 NEG = [
@@ -340,6 +369,9 @@ NEG = [
     b" | voltage=", b" | os=", b" | model=",
     # ④ 防假绿：网络能力下线后不得再出现任何「发送成功 / 上报成功」类反馈
     "云端上报成功".encode("utf-8"), "上报成功".encode("utf-8"),
+    # ===== v2.0.36：旧随机键写法必须零残留 =====
+    # ★ 只断言 dex：源码注释里提到它是说明文字，不进 dex，不构成残留。
+    b"identityHashCode",
 ]
 
 bad = 0
@@ -389,7 +421,8 @@ print("\n== manifest 断言（解压后的二进制 AXML，UTF-8/UTF-16 都搜�
 # ★ AndroidManifest.xml 在 APK zip 里是 deflate 压缩条目，对整个 APK 原始字节搜明文必然 x0；
 #   必须先 z.read() 解压再搜字符串池。
 axml = z.read("AndroidManifest.xml")
-for perm in ["android.permission.FOREGROUND_SERVICE"]:
+for perm in ["android.permission.FOREGROUND_SERVICE",
+             "android.permission.ACCESS_NETWORK_STATE"]:
     t8 = perm.encode("utf-8")
     t16 = perm.encode("utf-16-le")
     n = axml.count(t8) + axml.count(t16)

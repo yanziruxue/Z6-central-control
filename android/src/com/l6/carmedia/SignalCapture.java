@@ -200,9 +200,8 @@ public final class SignalCapture {
 
                 long t = System.currentTimeMillis() - t0;
                 int emitted = 0;
-                Set<String> ig = ignoreKeys();
                 for (SigDiff.Change ch : delta) {
-                    if (ig.contains(ch.key)) {
+                    if (isNoise(ch.key)) {
                         if (filteredChanges.size() < MAX_CHANGES) {
                             filteredChanges.add(ch);
                         }
@@ -369,8 +368,11 @@ public final class SignalCapture {
             // changes1 + changes2 = 本次采集的全部变化（changeTotal 仅作快速校验）。
             JSONArray c1 = new JSONArray();
             for (SigDiff.Change ch : changes) {
+                // v2.0.36：fullKey = "src:key" 全名，与 ignoreKeys 同一命名空间，
+                // 外部复核过滤覆盖率时不必自己把 src + key 拼回去。
                 c1.put(new JSONObject()
                         .put("src", ch.src()).put("key", ch.name())
+                        .put("fullKey", ch.key)
                         .put("from", ch.from == null ? JSONObject.NULL : ch.from)
                         .put("to", ch.to == null ? JSONObject.NULL : ch.to)
                         .put("kind", ch.kind));
@@ -379,6 +381,7 @@ public final class SignalCapture {
             for (SigDiff.Change ch : filteredChanges) {
                 c2.put(new JSONObject()
                         .put("src", ch.src()).put("key", ch.name())
+                        .put("fullKey", ch.key)
                         .put("from", ch.from == null ? JSONObject.NULL : ch.from)
                         .put("to", ch.to == null ? JSONObject.NULL : ch.to)
                         .put("kind", ch.kind));
@@ -412,6 +415,22 @@ public final class SignalCapture {
      * 不排掉的话，diff 每一轮都会被「运行时长 / 内存余量 / 播放进度」刷屏，
      * 真正的车门/车窗信号会被淹没。
      */
+    /**
+     * v2.0.36：噪声判定 = 精确枚举 + 前缀兜底。
+     * 旧写法只做 ignoreKeys().contains(key)，遇到「带随机后缀 / 新增的伪键」必然漏
+     * （真机实采 probe:groupErr.<随机数字> 每轮刷 2 条，占 changes1 的 37%）。
+     * 前缀判定能覆盖未来新增的同类伪键，是最小侵入的防御。
+     */
+    private static boolean isNoise(String fullKey) {
+        if (fullKey == null) {
+            return false;
+        }
+        if (fullKey.startsWith("probe:groupErr.")) {
+            return true;
+        }
+        return ignoreKeys().contains(fullKey);
+    }
+
     private static Set<String> ignoreKeys() {
         Set<String> s = ignoreCache;
         if (s != null) {
@@ -430,6 +449,16 @@ public final class SignalCapture {
         s.add("net:wifi.rssi");
         s.add("set.system:next_alarm_formatted");
         s.add("prop:__count");
+        // v2.0.36：真机实采补进来的每秒自变噪声（合计约占 changes1 的 48%）。
+        // ★ 刻意保留 prop:sys.tbox.uptime 与 persist.sys.door_state —— 二者是已实证
+        //   可读的车机信号，不能按 src 前缀一刀切，否则会把真信号一起误杀。
+        s.add("disk:vol.self.freeMB");
+        s.add("disk:data.freeMB");
+        s.add("disk:sdcard.freeMB");
+        s.add("disk:vol.emulated.freeMB");
+        s.add("mem:swapFreeKB");
+        s.add("pwr:bootMs");
+        s.add("prop:vendor.ril.nw.signalstrength.lte.1");
         for (int i = 0; i < 16; i++) {
             s.add("cpu:" + i + ".curKHz");
         }

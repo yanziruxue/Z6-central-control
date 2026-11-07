@@ -94,30 +94,34 @@ public final class SysProbe {
      */
     public static TreeMap<String, String> snapshot(Context c) {
         TreeMap<String, String> m = new TreeMap<>();
-        group(m, new Runnable() { public void run() { build(m); } });
-        group(m, new Runnable() { public void run() { proc(m); } });
-        group(m, new Runnable() { public void run() { mem(m, c); } });
-        group(m, new Runnable() { public void run() { cpu(m); } });
-        group(m, new Runnable() { public void run() { disk(m); } });
-        group(m, new Runnable() { public void run() { display(m, c); } });
-        group(m, new Runnable() { public void run() { network(m, c); } });
-        group(m, new Runnable() { public void run() { audio(m, c); } });
-        group(m, new Runnable() { public void run() { media(m, c); } });
-        group(m, new Runnable() { public void run() { apps(m, c); } });
-        group(m, new Runnable() { public void run() { power(m, c); } });
-        group(m, new Runnable() { public void run() { settings(m, c); } });
-        group(m, new Runnable() { public void run() { props(m); } });
+        group(m, "build",    new Runnable() { public void run() { build(m); } });
+        group(m, "proc",     new Runnable() { public void run() { proc(m); } });
+        group(m, "mem",      new Runnable() { public void run() { mem(m, c); } });
+        group(m, "cpu",      new Runnable() { public void run() { cpu(m); } });
+        group(m, "disk",     new Runnable() { public void run() { disk(m); } });
+        group(m, "display",  new Runnable() { public void run() { display(m, c); } });
+        group(m, "network",  new Runnable() { public void run() { network(m, c); } });
+        group(m, "audio",    new Runnable() { public void run() { audio(m, c); } });
+        group(m, "media",    new Runnable() { public void run() { media(m, c); } });
+        group(m, "apps",     new Runnable() { public void run() { apps(m, c); } });
+        group(m, "power",    new Runnable() { public void run() { power(m, c); } });
+        group(m, "settings", new Runnable() { public void run() { settings(m, c); } });
+        group(m, "props",    new Runnable() { public void run() { props(m); } });
         return m;
     }
 
-    /** 跑一组，异常吞掉但留一项标记，便于回看「哪一组在车上抛了」。 */
-    private static void group(TreeMap<String, String> m, Runnable r) {
+    /** 跑一组，异常吞掉但留一项稳定标记，便于回看「哪一组在车上抛了」。 */
+    private static void group(TreeMap<String, String> m, String name, Runnable r) {
         try {
             r.run();
         } catch (Throwable e) {
             // 组内已各自 try/catch，这里只兜底：不打断其余组
+            // ★ v2.0.36：键名必须稳定。旧写法用 System.identityHashCode(r)，而 r 是每次
+            //   snapshot() 新建的匿名 Runnable ⇒ 每轮 key 都不同 ⇒ SigDiff 稳定产出
+            //   ADDED + REMOVED 两条假变化（实测占运行日志 39%、changes1 37%），
+            //   真正的车辆信号被淹没。改用组名后，异常文本不变就不会再报变化。
             try {
-                m.put("probe:groupErr." + System.identityHashCode(r), errOf(e));
+                m.put("probe:groupErr." + name, errOf(e));
             } catch (Throwable ignored) {
             }
         }

@@ -13,6 +13,9 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- v2.0.36：getActiveNetworkInfo() 在 API 28 强校验本权限（normal，声明即授予）。
+         缺失时抛 SecurityException → network 探测组整组跳过（net:* 全丢）且每轮刷一条假变化。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- 枚举车机已装音乐/导航 App（API 30+ 包可见性） -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
