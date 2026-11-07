@@ -36,7 +36,8 @@ import java.util.List;
  * ① pick != null —— 选择模式（音乐源 / 导航源），点一项回调并关闭；
  * ② pick == null —— 纯浏览模式（dock 的 📋）：单击直接拉起，长按钉入 / 移除 dock 快捷方式。
  *
- * <p>交互一律保留：长按后的单击必须被吃掉、钉住状态实时刷新底栏、限高 605u 滚动。
+ * <p>交互一律保留：长按后的单击必须被吃掉、钉住状态实时刷新底栏；v2.0.42 起列表
+ * ScrollView 以 weight=1 占满抽屉剩余高度（不再限高 605u），溢出滚动。
  */
 public class AppDrawer {
 
@@ -132,22 +133,17 @@ public class AppDrawer {
         headLine.setBackgroundColor(U.LINE);
         panel.addView(headLine, new LinearLayout.LayoutParams(U.MP, Math.max(1, U.px(1))));
 
-        // 列表（放进可限高的 ScrollView）
-        scroll = new MaxScroll(c, U.px(605));
+        // 列表（ScrollView 用 weight=1 占满面板剩余高度 —— v2.0.42 修复：
+        // 旧实现限高 605u 再靠 panel.post 按 U.screenH 重算，第三方设备上 screenH
+        // 与窗口实际高度对不上时视口被截短，列表下方一大段面板空白（真机实测）。
+        // weight 布局不依赖任何屏幕尺寸换算，任何设备都严格填满、溢出滚动）。
+        scroll = new MaxScroll(c, 0);
         listBox = U.col(c);
         U.pad(listBox, 16, 12, 16, 16);
         scroll.addView(listBox, new FrameLayout.LayoutParams(U.MP, U.WC));
-        panel.addView(scroll, new LinearLayout.LayoutParams(U.MP, U.WC));
+        panel.addView(scroll, new LinearLayout.LayoutParams(U.MP, 0, 1f));
 
         fillList();
-        final LinearLayout pnl = panel;
-        final MaxScroll sc = scroll;
-        final View gripV = grip;
-        panel.post(() -> {                          // v2.0.40 右侧抽屉高满屏：列表限高 = 屏高 − 手柄 − 头部
-            int cap = U.screenH - gripV.getHeight() - head.getHeight() - Math.max(1, U.px(1));
-            if (cap > 0) sc.setMaxH(cap);
-            pnl.requestLayout();
-        });
 
         open = true;
         sh.setSwipeLocked(true);                   // v2.0.40：弹窗打开期间禁主页滑动手势
@@ -333,7 +329,7 @@ public class AppDrawer {
         return "📋 应用列表";
     }
 
-    /** 限高 ScrollView（面板 max-height 605u 的实现手段） */
+    /** 滚动容器（maxH>0 时按 AT_MOST 限高；AppDrawer 现传 0 = 跟随 weight 撑满） */
     private static class MaxScroll extends ScrollView {
         private int maxH;
 
