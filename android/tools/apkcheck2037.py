@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""v2.0.36 产物反查：修复采集差分噪声（缺网络权限 + 随机键名）—— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.37 产物反查：右下角 📋 右侧新增「应用中心」入口 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+
+★ v2.0.37 断言口径：AppCenter 类 / 飞牛分享页 URL 全文 / 无浏览器三级降级链
+  （ClipboardManager、setPrimaryClip、createChooser、ActivityNotFoundException）/ 按钮与
+  真实结果文案列为 POS；「应用中心打开成功 / 安装成功」类谎报文案列为 NEG 零残留。
+  ★ URL 常量被 javac 内联多份（实测 dex x5），只断言「全文存在」，不断言出现次数。
+  ★ 方法名在 dex 里不带括号、CLIPBOARD_SERVICE 编译后是服务名字符串，均不可当 POS。
 
 ★ v2.0.36 断言口径：新增 ACCESS_NETWORK_STATE 权限（manifest AXML）、稳定组名键
   probe:groupErr.<name>、isNoise() 前缀过滤、fullKey 落盘字段与 7 个噪声键列为 POS；
@@ -169,7 +175,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.36.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.37.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -316,6 +322,21 @@ POS = [
     b"disk:vol.self.freeMB", b"disk:data.freeMB", b"disk:sdcard.freeMB",
     b"disk:vol.emulated.freeMB", b"mem:swapFreeKB", b"pwr:bootMs",
     b"prop:vendor.ril.nw.signalstrength.lte.1",
+    # ===== v2.0.37：右下角应用中心入口（📋 右侧固定按钮）=====
+    # ① 类与地址全文（单一真源；javac 内联致 dex 多份，只判存在）
+    b"com/l6/carmedia/nat/AppCenter",
+    b"https://share.fnnas.net/s/9d57d97236a04890bf",
+    b"9d57d97236a04890bf",
+    # ② 无浏览器三级降级链的实现锚点（每个都必须是真实进包的代码）
+    b"ClipboardManager", b"setPrimaryClip", b"newPlainText",
+    b"ActivityNotFoundException", b"createChooser",
+    # ③ 按钮可访问名 / 真实结果文案（不谎报成功）
+    "应用中心".encode("utf-8"), "打开应用列表".encode("utf-8"),
+    "已打开应用中心".encode("utf-8"),
+    "设备无浏览器，应用中心链接已复制".encode("utf-8"),
+    "设备无浏览器，已打开分享".encode("utf-8"),
+    "请手动打开应用中心".encode("utf-8"),
+    "分享应用中心链接".encode("utf-8"),
 ]
 # ★ v2.0.35：token 不再作为 POS 注入（App 已无凭据）；改为下方 NEG 零残留裁决。
 NEG = [
@@ -372,6 +393,13 @@ NEG = [
     # ===== v2.0.36：旧随机键写法必须零残留 =====
     # ★ 只断言 dex：源码注释里提到它是说明文字，不进 dex，不构成残留。
     b"identityHashCode",
+    # ===== v2.0.37 防假绿：网页 SPA 只负责打开，绝不谎报成功 =====
+    "应用中心打开成功".encode("utf-8"), "应用中心上传成功".encode("utf-8"),
+    "安装成功".encode("utf-8"), "下载成功".encode("utf-8"),
+    # 该入口只打开网页，绝不越界去直装 APK（飞牛分享页不是安装包直链）。
+    # ★ application/vnd.android.package-archive 是 OTA 安装 APK 的正常 MIME（dex x1），
+    #   属于别的模块，列进 NEG 只会造成假 FAIL，故不断言它。
+    b"ACTION_INSTALL_PACKAGE",
 ]
 
 bad = 0
