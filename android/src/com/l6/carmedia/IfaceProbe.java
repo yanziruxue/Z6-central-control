@@ -1063,7 +1063,10 @@ public final class IfaceProbe {
             if (b != null) {
                 int n = 0;
                 for (String k : b.keySet()) {
-                    if (n++ > 40) {
+                    // ★ v2.0.38：原上限 40 会把高德 10001 引导广播的关键字段（含 KEY_TYPE、
+                    //   CUR_SPEED 之后的字段）截掉 —— 2026-11-07 实采 183 条恰好都是 41 键，
+                    //   导致误判「这批广播不带 KEY_TYPE」。放宽到 120 以完整落盘复采证据。
+                    if (n++ > 120) {
                         break;
                     }
                     Object v = b.get(k);

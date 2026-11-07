@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""v2.0.37 产物反查：右下角 📋 右侧新增「应用中心」入口 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.38 产物反查：车模上方灯状态带 + 下方 7 类行车信号卡 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+
+★ v2.0.38 断言口径：7 张卡文案（车速/胎压/门窗/转速/温度/空调/挡位）、6 个灯状态名、
+  行车信号 sectionLabel、SystemProperties 反射与 door_state 属性名、setLamp/setNumCard/
+  doorText/sysProp/buildLampStrip 方法名、NavBcastProbe 引导字段兜底的一次性日志锚点列为 POS；
+  下线的旧卡片文案（油表/里程/负载/延时/门锁/动力·服务端）与旧辅助方法名列 NEG 零残留。
+  ★ 「电瓶」仍被 L6Log.batteryVoltageV 的中文日志占用，「大灯/双闪/空调」在新 UI 里仍在，
+    都不可列 NEG（会假 FAIL）；guideLike 是局部变量不进 dex，故用一次性日志串做唯一锚点。
 
 ★ v2.0.37 断言口径：AppCenter 类 / 飞牛分享页 URL 全文 / 无浏览器三级降级链
   （ClipboardManager、setPrimaryClip、createChooser、ActivityNotFoundException）/ 按钮与
@@ -175,7 +182,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.37.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.38.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -337,6 +344,22 @@ POS = [
     "设备无浏览器，已打开分享".encode("utf-8"),
     "请手动打开应用中心".encode("utf-8"),
     "分享应用中心链接".encode("utf-8"),
+    # ===== v2.0.38：车模上方灯状态带 + 下方 7 类行车信号卡 =====
+    # ① 7 张卡文案 + 分区标题
+    "车速".encode("utf-8"), "胎压".encode("utf-8"), "门窗".encode("utf-8"),
+    "转速".encode("utf-8"), "温度".encode("utf-8"), "空调".encode("utf-8"),
+    "挡位".encode("utf-8"), "行车信号".encode("utf-8"),
+    # ② 6 个灯状态胶囊名
+    "大灯".encode("utf-8"), "示廓".encode("utf-8"), "近光".encode("utf-8"),
+    "远光".encode("utf-8"), "双闪".encode("utf-8"), "转向".encode("utf-8"),
+    # ③ 真值链路：车速走高德广播、门窗读系统属性、无值如实占位
+    b"CARD_KEYS", b"LAMP_KEYS", b"buildLampStrip", b"setLamp",
+    b"setNumCard", b"doorText", b"sysProp",
+    b"android.os.SystemProperties", b"persist.sys.door_state",
+    b"tireAvg", b"km/h", b"rpm",
+    # ④ NavBcastProbe 引导字段兜底（部分 ROM 引导广播不带 KEY_TYPE）
+    b"CUR_SPEED", b"ROUTE_REMAIN_DIS",
+    "高德引导广播无 KEY_TYPE，按 CUR_SPEED/ROUTE_REMAIN_DIS 字段兜底".encode("utf-8"),
 ]
 # ★ v2.0.35：token 不再作为 POS 注入（App 已无凭据）；改为下方 NEG 零残留裁决。
 NEG = [
@@ -396,10 +419,18 @@ NEG = [
     # ===== v2.0.37 防假绿：网页 SPA 只负责打开，绝不谎报成功 =====
     "应用中心打开成功".encode("utf-8"), "应用中心上传成功".encode("utf-8"),
     "安装成功".encode("utf-8"), "下载成功".encode("utf-8"),
-    # 该入口只打开网页，绝不越界去直装 APK（飞牛分享页不是安装包直链）。
-    # ★ application/vnd.android.package-archive 是 OTA 安装 APK 的正常 MIME（dex x1），
-    #   属于别的模块，列进 NEG 只会造成假 FAIL，故不断言它。
+    #   ★ application/vnd.android.package-archive 是 OTA 安装 APK 的正常 MIME（dex x1），
+    #     属于别的模块，列进 NEG 只会造成假 FAIL，故不断言它。
     b"ACTION_INSTALL_PACKAGE",
+    # ===== v2.0.38：下线的旧 10 卡体系（油表/电瓶/里程/负载/温度/延时 + 大灯/双闪/空调/门锁）=====
+    # ★ 只列实测零命中的：「电瓶」仍被 L6Log 的中文日志占用，「大灯/双闪/空调/温度」
+    #   在新 UI 里仍在，列进 NEG 会假 FAIL。
+    "油表".encode("utf-8"), "里程".encode("utf-8"), "负载".encode("utf-8"),
+    "延时".encode("utf-8"), "门锁".encode("utf-8"),
+    "动力 · 服务端".encode("utf-8"),
+    b"numCard", b"numCardLow", b"boolCard", b"acCard",
+    # ★ 防假绿：卡片不得把「读不到」写成 0 / 关 / 成功
+    "已锁".encode("utf-8"), "未锁".encode("utf-8"),
 ]
 
 bad = 0

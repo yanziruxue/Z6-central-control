@@ -70,6 +70,8 @@ public final class NavBcastProbe {
     private static boolean active;
     /** 已推送的导航 JSON（内容没变就不重复推）。 */
     private static String lastNavJson = "";
+    /** v2.0.38：无 KEY_TYPE 的引导广播兜底日志只留一条，避免每秒刷屏。 */
+    private static boolean sFallbackLogged;
 
     private NavBcastProbe() {
     }
@@ -207,7 +209,19 @@ public final class NavBcastProbe {
         last = "[" + count + "] " + NavBcastFmt.summarize(kt, m);
         L6Log.i("L6Nav", "高德广播 " + last);
 
+        // ★ v2.0.38：兼容「不带 KEY_TYPE 的引导广播」。2026-11-07 实采中 183 条带 CUR_SPEED
+        //   的广播被 IfaceProbe 的 40 键上限截断，无法证明生产侧一定收到 KEY_TYPE=10001；
+        //   生产读原始 Bundle 不受截断，但部分 ROM 确实省略 KEY_TYPE ⇒ 用引导字段兜底，
+        //   否则 sys.nav.speed 会因 kt=-1 永远拿不到，车速卡变成「接了真值却恒显 —」的假绿。
+        boolean guideLike = ex != null && (ex.containsKey("CUR_SPEED") || ex.containsKey("ROUTE_REMAIN_DIS"));
         if (kt == NavBcastFmt.KT_GUIDE) {
+            pushGuide(m);
+        } else if (kt < 0 && guideLike) {
+            // 首次触发留一条诊断日志（产物反查的唯一锚点），之后静默，避免每秒刷屏
+            if (!sFallbackLogged) {
+                sFallbackLogged = true;
+                L6Log.i("L6Nav", "高德引导广播无 KEY_TYPE，按 CUR_SPEED/ROUTE_REMAIN_DIS 字段兜底");
+            }
             pushGuide(m);
         } else if (kt == NavBcastFmt.KT_STATE) {
             checkStateEnd(m);

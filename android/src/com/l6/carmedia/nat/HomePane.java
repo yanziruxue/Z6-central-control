@@ -66,11 +66,16 @@ public class HomePane {
     private Drawable tpcBgN, tpcBgLow, dlBgN, dlBgOpen;
     private static final int TPC_LOW_TXT = 0xFFFF9A9A;
 
-    /** 车况小卡片：10 张固定卡（6 数值 + 4 车身），只改文本不动结构 */
-    private final TextView[] cardVal = new TextView[10];
-    private final TextView[] cardUnit = new TextView[10];
-    private final LinearLayout[] cardBox = new LinearLayout[10];
-    private Drawable cardBgN, cardBgW;
+    /** v2.0.38：车模下方 7 张行车信号卡，只改文本不动结构 */
+    private static final String[] CARD_KEYS = {"车速", "胎压", "门窗", "转速", "温度", "空调", "挡位"};
+    /** v2.0.38：车模上方 6 个灯状态胶囊，build 期建好，onSys 只 setText / 改色 */
+    private static final String[] LAMP_KEYS = {"大灯", "示廓", "近光", "远光", "双闪", "转向"};
+    private static final String[] LAMP_FIELDS = {"lights", "width", "lowBeam", "highBeam", "hazard", "turn"};
+    private final TextView[] cardVal = new TextView[CARD_KEYS.length];
+    private final TextView[] cardUnit = new TextView[CARD_KEYS.length];
+    private final LinearLayout[] cardBox = new LinearLayout[CARD_KEYS.length];
+    private final TextView[] lampVal = new TextView[LAMP_KEYS.length];
+    private Drawable cardBgN, cardBgW, lampBgN, lampBgOn;
 
     // ------------------------------------------------------------------ 栏 3：歌词
 
@@ -107,7 +112,7 @@ public class HomePane {
 
         refresh();          // 按 homeState() 摆位 + 可见性
         // 先铺一遍占位（真实数据由每秒 onSys 覆盖）
-        updateCar(null);
+        updateCar(null, null);
         updateMedia(null, null);
 
         return root;
@@ -167,6 +172,8 @@ public class HomePane {
         // 复用背景 Drawable，避免每秒 new（onSys 每秒一次）
         cardBgN = U.bg(U.PANEL2, 8, U.LINE, 1);
         cardBgW = U.bg(U.PANEL2, 8, U.WARN, 1);
+        lampBgN = U.bg(U.PANEL2, 7, U.LINE, 1);
+        lampBgOn = U.bg(0x33FBBF24, 7, U.WARN, 1);
         tpcBgN = U.bg(0x80060A10, 7, U.LINE, 1);
         tpcBgLow = U.bg(0x33FF6B6B, 7, U.WARN, 1);
         dlBgN = U.bg(0x8C060A10, 8, U.LINE, 1);
@@ -178,6 +185,13 @@ public class HomePane {
         TextView head = U.text(ctx, "车辆状态", 13, U.TXT);   // .cp-head 13u / weight 600
         U.bold(head);
         col.addView(head, U.lp(U.MP, U.WC));
+
+        // ★ v2.0.38：灯状态带放在车模「上方」（标题与车模之间），6 个等宽胶囊。
+        //   名称与状态同格显示；无数据灰显「—」，绝不编造灯状态。
+        LinearLayout lamps = buildLampStrip();
+        LinearLayout.LayoutParams lampP = U.lp(U.MP, U.WC);
+        lampP.topMargin = U.px(6);
+        col.addView(lamps, lampP);
 
         LinearLayout model = U.col(ctx);         // .car-model：flex 1.32、纵向居中、gap 4u
         model.setGravity(Gravity.CENTER);
@@ -209,30 +223,24 @@ public class HomePane {
         sp.topMargin = U.px(10);
         col.addView(sc, sp);
 
-        // 动力 · 服务端（3 列网格，6 项 → 2 行）
-        status.addView(sectionLabel("动力 · 服务端"), U.lp(U.MP, U.WC));
-        String[] nk = {"油表", "电瓶", "里程", "负载", "温度", "延时"};
+        // ★ v2.0.38：车模「下方」= 用户点名的 7 类行车信号（4 + 3 两行）。
+        //   车灯已上移到灯状态带，原来的油表/电瓶/里程/负载/延时/门锁下线。
+        status.addView(sectionLabel("行车信号"), U.lp(U.MP, U.WC));
         for (int r = 0; r < 2; r++) {
             LinearLayout row = U.row(ctx);
-            for (int c = 0; c < 3; c++) {
-                int i = r * 3 + c;
-                row.addView(buildCard(i, nk[i]), cardLP(c));
+            int n = r == 0 ? 4 : 3;
+            for (int c = 0; c < 4; c++) {
+                if (c < n) {
+                    row.addView(buildCard(r * 4 + c, CARD_KEYS[r * 4 + c]), cardLP(c));
+                } else {
+                    // 第二行补一个等宽空位，保证 7 张卡与前一行 4 张严格对齐
+                    row.addView(new View(ctx), cardLP(c));
+                }
             }
             LinearLayout.LayoutParams rp = U.lp(U.MP, U.WC);
             if (r > 0) rp.topMargin = U.px(5);
             status.addView(row, rp);
         }
-        // 车身（4 列网格）
-        LinearLayout sec2 = sectionLabel("车身");
-        LinearLayout.LayoutParams s2p = U.lp(U.MP, U.WC);
-        s2p.topMargin = U.px(9);
-        status.addView(sec2, s2p);
-        LinearLayout row2 = U.row(ctx);
-        String[] bk = {"大灯", "双闪", "空调", "门锁"};
-        for (int c = 0; c < 4; c++) row2.addView(buildCard(6 + c, bk[c]), cardLP(c));
-        LinearLayout.LayoutParams r2p = U.lp(U.MP, U.WC);
-        r2p.topMargin = U.px(5);
-        status.addView(row2, r2p);
 
         return col;
     }
@@ -260,6 +268,27 @@ public class HomePane {
         LinearLayout.LayoutParams p = U.lp(U.WC, U.WC);
         p.leftMargin = U.px(6);
         r.addView(t, p);
+        return r;
+    }
+
+    /**
+     * v2.0.38：车模上方横排 6 个灯状态胶囊。
+     * ★ 只在 build 阶段建一次；{@link #updateCar} 每秒只 setText / setTextColor / setBackground，
+     *   绝不重建视图树（v2.0.10 的 P0 红线）。
+     */
+    private LinearLayout buildLampStrip() {
+        LinearLayout r = U.row(ctx);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        for (int i = 0; i < LAMP_KEYS.length; i++) {
+            TextView t = U.text(ctx, LAMP_KEYS[i] + " " + PH, 10, U.SUB);
+            t.setGravity(Gravity.CENTER);
+            t.setBackground(lampBgN);
+            U.pad(t, 2, 3, 2, 3);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, U.WC, 1f);
+            if (i > 0) p.leftMargin = U.px(4);
+            r.addView(t, p);
+            lampVal[i] = t;
+        }
         return r;
     }
 
@@ -434,7 +463,7 @@ public class HomePane {
         // ★ v2.0.10（P0 修复）：以前这两处静默吞异常。虽然 updateCar/updateMedia 目前
         //   只做 setText/setFrac（不增删视图），但一旦未来谁在这里加了重建逻辑，
         //   半成品树就会留屏成帧（2026-10-24 车机连崩两次的根因模型）——留日志。
-        try { updateCar(sys.optJSONObject("car")); } catch (Throwable t) {
+        try { updateCar(sys.optJSONObject("car"), sys.optJSONObject("nav")); } catch (Throwable t) {
             L6Log.e("L6", "onSys updateCar 失败: " + t);
         }
         try { updateMedia(sys.optJSONObject("media"), sys.optJSONObject("lyrics")); } catch (Throwable t) {
@@ -444,7 +473,7 @@ public class HomePane {
 
     // ------------------------------------------------------------------ 车况
 
-    private void updateCar(JSONObject car) {
+    private void updateCar(JSONObject car, JSONObject nav) {
         JSONObject doors = obj(car, "doors");
         JSONObject wins = obj(car, "windows");
         JSONObject tire = obj(car, "tire");
@@ -452,6 +481,7 @@ public class HomePane {
 
         boolean trunk = car != null && car.optBoolean("trunk", false);
 
+        // 车模本身的门 / 窗 / 胎压 / 后备箱标注继续走 car 协议；无数据即不显示，绝不造数
         setOv(ovFl, doors, "fl"); setDot(dotFl, wins, "fl");
         setOv(ovFr, doors, "fr"); setDot(dotFr, wins, "fr");
         setOv(ovRl, doors, "rl"); setDot(dotRl, wins, "rl");
@@ -464,19 +494,30 @@ public class HomePane {
         setTp(tpRl, tire, "rl");
         setTp(tpRr, tire, "rr");
 
-        // 动力 · 服务端（数值卡）
-        numCard(0, car, "fuel", "%");
-        numCardLow(1, car, "batt", "V", 12.0);
-        numCard(2, car, "odo", "km");
-        numCard(3, car, "load", "%");
-        numCard(4, car, "temp", "°C");
-        numCard(5, car, "lat", "ms");
+        // ★ v2.0.38：车模「上方」6 灯状态
+        for (int i = 0; i < LAMP_FIELDS.length; i++) setLamp(i, car, LAMP_FIELDS[i]);
 
-        // 车身（布尔 / 空调卡）
-        boolCard(6, car, "lights", "近光", "关", false);
-        boolCard(7, car, "hazard", "开", "关", true);
-        acCard(8, ac);
-        boolCard(9, car, "lock", "已锁", "未锁", true);
+        // ★ v2.0.38：车模「下方」7 张行车信号卡
+        // ① 车速：优先服务端下发 car.speed，否则高德广播 nav.speed（2026-11-07 实采 13–47 km/h）。
+        //   导航结束（active=false）时不再沿用旧值，避免显示过期车速。
+        int speed = -1;
+        if (car != null && !missing(car, "speed")) speed = car.optInt("speed", -1);
+        if (speed < 0 && nav != null && nav.optBoolean("active", false)) speed = nav.optInt("speed", -1);
+        setCard(0, speed >= 0 ? String.valueOf(speed) : PH, speed >= 0 ? "km/h" : "", speed >= 0 ? 2 : 0);
+
+        // ② 胎压：目前无数据源，仅服务端下发 car.tireAvg 时显示，否则如实占位
+        setNumCard(1, car, "tireAvg", "bar");
+        // ③ 门窗：优先 car.door，否则读 persist.sys.door_state（10-24 实采 0→1→0）
+        String door = doorText(car);
+        setCard(2, door, "", "开".equals(door) ? 1 : 0);
+        // ④ 转速 / ⑤ 温度：仅服务端下发才显示，否则占位
+        setNumCard(3, car, "rpm", "rpm");
+        setNumCard(4, car, "temp", "°C");
+        // ⑥ 空调：沿用 ac 协议（on/mode/temp/fan/circulate），无 on 字段即占位
+        setCard(5, (ac == null || missing(ac, "on")) ? PH : acText(ac), "", 0);
+        // ⑦ 挡位：car.gear 字符串（P/R/N/D…），无即占位
+        String gear = s(car, "gear", "");
+        setCard(6, gear.isEmpty() ? PH : gear, "", 0);
     }
 
     private void setOv(ImageView ov, JSONObject doors, String k) {
@@ -516,28 +557,62 @@ public class HomePane {
         tp.setTextColor(low ? TPC_LOW_TXT : U.TXT);
     }
 
-    private void numCard(int i, JSONObject o, String k, String unit) {
-        boolean miss = missing(o, k);
-        setCard(i, miss ? PH : numStr(o, k), miss ? "" : unit, 0);
+    /** v2.0.38：数值卡 —— 无值或非数值都如实显示「—」，绝不填 0 冒充数据。 */
+    private void setNumCard(int i, JSONObject o, String k, String unit) {
+        boolean has = o != null && !missing(o, k) && !Double.isNaN(o.optDouble(k, Double.NaN));
+        setCard(i, has ? numStr(o, k) : PH, has ? unit : "", 0);
     }
 
-    /** 数值卡 + 低阈值告警：值存在且 < low 时红色文字 + 警告背景 */
-    private void numCardLow(int i, JSONObject o, String k, String unit, double low) {
-        boolean miss = missing(o, k);
-        double v = miss ? Double.NaN : o.optDouble(k, Double.NaN);
-        boolean lowWarn = !Double.isNaN(v) && v < low;
-        setCard(i, miss ? PH : numStr(o, k), miss ? "" : unit, lowWarn ? 1 : 0);
+    /**
+     * v2.0.38：门窗状态。优先服务端 car.door（布尔 / 数字 / 字符串都兼容），
+     * 否则反射读 persist.sys.door_state（0=关 / 1=开，10-24 实采 0→1→0）。
+     * ★ 读不到一律「—」，绝不把「读不到」显示成「关」。
+     */
+    private static String doorText(JSONObject car) {
+        if (car != null && !missing(car, "door")) {
+            Object v = car.opt("door");
+            if (v instanceof Boolean) return ((Boolean) v) ? "开" : "关";
+            if (v instanceof Number) return ((Number) v).intValue() != 0 ? "开" : "关";
+            String t = String.valueOf(v);
+            if (!t.isEmpty() && !"null".equals(t)) return t;
+        }
+        String p = sysProp("persist.sys.door_state");
+        if ("1".equals(p)) return "开";
+        if ("0".equals(p)) return "关";
+        return PH;
     }
 
-    private void boolCard(int i, JSONObject o, String k, String t, String f, boolean warnOn) {
-        boolean miss = missing(o, k);
-        boolean on = !miss && o.optBoolean(k, false);
-        setCard(i, miss ? PH : (on ? t : f), "", (!miss && on && warnOn) ? 1 : 0);
+    /** v2.0.38：单个灯状态胶囊。无该字段灰显「—」；布尔 / 1 / "开" 都算亮。 */
+    private void setLamp(int i, JSONObject car, String field) {
+        boolean known = car != null && !missing(car, field);
+        String raw = known ? String.valueOf(car.opt(field)) : "";
+        boolean on = known && (car.optBoolean(field, false) || "1".equals(raw)
+                || "开".equals(raw) || "true".equalsIgnoreCase(raw));
+        TextView t = lampVal[i];
+        t.setText(LAMP_KEYS[i] + " " + (known ? (on ? "开" : "关") : PH));
+        t.setTextColor(known ? (on ? U.WARN : U.TXT) : U.SUB);
+        t.setBackground(known && on ? lampBgOn : lampBgN);
     }
 
-    private void acCard(int i, JSONObject ac) {
-        boolean miss = ac == null || missing(ac, "on");
-        setCard(i, miss ? PH : acText(ac), "", miss ? 0 : 2);
+    /**
+     * v2.0.38：读系统属性。反射 android.os.SystemProperties.get(String)，失败返回空串。
+     * ★ Method 静态缓存，onSys 每秒只做一次轻量反射调用；绝不 fork getprop 进程。
+     */
+    private static java.lang.reflect.Method sPropGet;
+    private static boolean sPropInit;
+
+    private static String sysProp(String key) {
+        try {
+            if (!sPropInit) {
+                sPropInit = true;
+                sPropGet = Class.forName("android.os.SystemProperties").getMethod("get", String.class);
+            }
+            if (sPropGet == null) return "";
+            Object v = sPropGet.invoke(null, key);
+            return v == null ? "" : String.valueOf(v);
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
     /** mode：0=常规 1=warn 2=ok */
