@@ -1018,9 +1018,10 @@ public class SetPane {
         nasRow.addView(sendNasBtn);
         card.addView(nasRow);
         U.gapV(card, 8);
-        card.addView(U.text(c, "「上传到 NAS」会生成 .txt 并打开飞牛收集页，请在页面中选择该文件；"
+        card.addView(U.text(c, "「上传到 NAS」会生成日志 .txt 到本地；车机无浏览器，"
+                + "请到其他设备打开该文件并上传到飞牛收集页；"
                 + "优先存 Download/L6/upload/，公共目录不可写时自动回落到应用私有目录，"
-                + "以点按钮后提示里的实际路径为准。", 12, U.SUB));
+                + "以提示里的实际路径为准。", 12, U.SUB));
         U.gapV(card, 8);
         s.addView(card);
         U.gapV(s, 8);
@@ -1087,36 +1088,35 @@ public class SetPane {
         final String name = f.getName();
         final String path = f.getAbsolutePath();
         final String size = (f.length() / 1024) + " KB";
+        // v2.0.39：飞牛收集页是网页 SPA，车机常无浏览器。先探明设备是否有能处理该 URL 的浏览器，
+        // 有则打开页面（诚实「已生成 + 已打开页面，请在页面选文件」）；无浏览器则只诚实告知
+        // 文件已生成在 XX 路径、请到其他设备上传——绝不谎报「已复制 / 已分享 / 已上传」。
+        boolean hasBrowser = false;
         try {
-            android.content.Intent view = new android.content.Intent(
+            android.content.Intent probe = new android.content.Intent(
                     android.content.Intent.ACTION_VIEW,
                     android.net.Uri.parse(L6Reporter.NAS_COLLECT_URL));
-            view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            c.startActivity(view);
-            sh.host().toast("✅ 已生成 " + name + "（" + size + "）\n"
-                    + "路径：" + path + "\n"
-                    + "已打开 NAS 收集页，请在页面中选择该文件上传");
-            return;
-        } catch (android.content.ActivityNotFoundException noBrowser) {
-            L6Log.w("SetPane", "设备无浏览器，NAS 收集页降级为文本分享");
-        } catch (Throwable t) {
-            L6Log.e("SetPane", "打开 NAS 收集页失败");
+            hasBrowser = !c.getPackageManager().queryIntentActivities(probe, 0).isEmpty();
+        } catch (Throwable ignored) {
         }
-        try {
-            String body = gatherRunLog();
-            if (body.length() > 30000) body = body.substring(0, 30000);
-            android.content.Intent send = new android.content.Intent(android.content.Intent.ACTION_SEND);
-            send.setType("text/plain");
-            send.putExtra(android.content.Intent.EXTRA_SUBJECT, name);
-            send.putExtra(android.content.Intent.EXTRA_TEXT, body);
-            android.content.Intent chooser = android.content.Intent.createChooser(send, "分享运行日志");
-            chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-            c.startActivity(chooser);
-            sh.host().toast("⚠️ 无浏览器：日志已存 " + path + "\n已打开分享，可手动发到 NAS");
-        } catch (Throwable t) {
-            sh.host().toast("⚠️ 日志已存 " + path + "\n请手动打开 "
-                    + L6Reporter.NAS_COLLECT_URL + " 上传");
+        if (hasBrowser) {
+            try {
+                android.content.Intent view = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(L6Reporter.NAS_COLLECT_URL));
+                view.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                c.startActivity(view);
+                sh.host().toast("✅ 已生成 " + name + "（" + size + "）\n"
+                        + "路径：" + path + "\n"
+                        + "已打开 NAS 收集页，请在页面中选择该文件上传");
+                return;
+            } catch (Throwable t) {
+                L6Log.e("SetPane", "打开 NAS 收集页失败：" + t);
+            }
         }
+        // 无浏览器（或打开失败）：诚实告知文件已生成、请到其他设备上传，不假报任何成功。
+        sh.host().toast("📤 日志文件已生成\n" + name + "（" + size + "）\n路径：" + path
+                + "\n车机无浏览器，请到其他设备打开该文件并上传到 NAS");
     }
 
     /** 收集当前运行日志文本：优先读当天日志文件（截断 100KB），空则退回内存缓冲。 */

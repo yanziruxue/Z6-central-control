@@ -50,6 +50,11 @@ public class Ota {
         void emit(String json);
     }
 
+    /** 软件仓库列表回调：items 为已归一化的 release（含 .apk 的），error 非空表示拉取失败。 */
+    public interface ReleasesCb {
+        void onResult(List<JSONObject> items, String error);
+    }
+
     /** 配置：从 assets/ota.properties + 环境变量 UPDATE_MIRROR 解析。 */
     public static class Config {
         public String repoOwner = "";
@@ -289,6 +294,53 @@ public class Ota {
     public static boolean isSkipped(Activity act, int versionCode) {
         int s = skippedVersionCode(act);
         return s > 0 && s == versionCode;
+    }
+
+    /**
+     * 软件仓库：列出本 App 在 GitHub 的全部 Release（仅含 .apk 的版本）。
+     *
+     * <p>★ 数据源复用本 App 自己的 GitHub Release（车机已验证可直连 + gh-proxy 镜像回落），
+     *   不走飞牛网页 SPA（车机常无浏览器、且 SPA 不是 API 读不出列表）。
+     *   每个 release 复用 {@link #normalizeGithubRelease} 归一化为 {versionName, versionCode,
+     *   downloadUrl, size, sha256, publishedAt, changelog}。
+     */
+    public static void listReleases(Activity act, ReleasesCb cb) {
+        new Thread(() -> {
+            List<JSONObject> items = new ArrayList<>();
+            String err = "";
+            try {
+                Config cfg = loadConfig(act);
+                if (cfg.repoOwner.isEmpty() || cfg.repoName.isEmpty()) {
+                    err = "未配置发布仓库（ota.properties 缺 REPO_OWNER/REPO_NAME）";
+                } else {
+                    String ghApi = "https://api.github.com/repos/" + cfg.repoOwner + "/"
+                            + cfg.repoName + "/releases?per_page=20";
+                    JSONArray arr = safeFetchArray(ghApi, cfg.mirror);
+                    if (arr == null || arr.length() == 0) {
+                        err = "未读到发布列表（GitHub 无响应、未发版或超出 API 频率限制）";
+                    } else {
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject rel = arr.optJSONObject(i);
+                            if (rel == null) continue;
+                            try {
+                                JSONObject n = normalizeGithubRelease(rel);
+                                if (!n.optString("downloadUrl", "").isEmpty()) items.add(n);
+                            } catch (Throwable ignored) {
+                            }
+                        }
+                        if (items.isEmpty()) err = "发布列表中没有包含 .apk 的安装包";
+                    }
+                }
+            } catch (Throwable e) {
+                err = e.getMessage() == null ? "读取软件仓库失败" : e.getMessage();
+            }
+            final List<JSONObject> out = items;
+            final String ferr = err;
+            try {
+                act.runOnUiThread(() -> cb.onResult(out, ferr));
+            } catch (Throwable ignored) {
+            }
+        }, "L6OtaReleases").start();
     }
 
     public static void downloadAndInstall(Activity act, String url, String sha256, EventCb cb) {
@@ -558,6 +610,59 @@ public class Ota {
         }
     }
 
+    /** fetchAny 的数组版：/releases?per_page=N 返回的是 JSONArray，单独解析。 */
+    private static JSONArray safeFetchArray(String url, String mirror) {
+        try {
+            return fetchAnyArray(url, mirror);
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static JSONArray fetchAnyArray(String urlStr, String mirror) {
+        String[] urls = (mirror != null && !mirror.isEmpty())
+                ? new String[]{urlStr, applyMirror(urlStr, mirror)}
+                : new String[]{urlStr};
+        for (String u : urls) {
+            JSONArray r = httpGetJsonArray(u);
+            if (r != null) return r;
+        }
+        return null;
+    }
+
+    /** 同 httpGetJson，但把响应体当 JSONArray 解析（releases 列表接口）。 */
+    private static JSONArray httpGetJsonArray(String urlStr) {
+        HttpURLConnection c = null;
+        InputStream is = null;
+        try {
+            URL u = new URL(urlStr);
+            c = (HttpURLConnection) u.openConnection();
+            c.setRequestMethod("GET");
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(20000);
+            c.setRequestProperty("Accept", "application/vnd.github+json, application/json;q=0.9, */*;q=0.5");
+            c.setRequestProperty("User-Agent", "L6CarMedia-OTA/1.0");
+            int code = c.getResponseCode();
+            if (code != 200) return null;
+            is = c.getInputStream();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) > 0) baos.write(buf, 0, n);
+            String text = baos.toString("UTF-8");
+            try {
+                return new JSONArray(text);
+            } catch (Throwable e) {
+                return null;
+            }
+        } catch (Throwable e) {
+            return null;
+        } finally {
+            try { if (is != null) is.close(); } catch (Throwable ignored) {}
+            if (c != null) c.disconnect();
+        }
+    }
+
     private static JSONObject normalizeGithubRelease(JSONObject gh) throws Exception {
         JSONObject out = new JSONObject();
         String tag = gh.optString("tag_name", "v0");
@@ -594,6 +699,8 @@ public class Ota {
         if (sm.find()) sha = sm.group(1);
         out.put("force", force);
         out.put("sha256", sha);
+        // 发布时间（ISO 8601，如 2026-11-08T12:34:56Z），软件仓库列表展示用
+        out.put("publishedAt", gh.optString("published_at", ""));
         return out;
     }
 

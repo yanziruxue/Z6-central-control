@@ -398,14 +398,14 @@ public class Dock {
         more.setOnClickListener(v -> sh.openDrawer(null, "\uD83D\uDCCB 应用列表", null));
         appsRow.addView(more, U.lp(68, 68));
 
-        // v2.0.37：应用中心固定按钮，位于 📋 应用列表右侧（右下角最右端）。
+        // v2.0.39：应用中心改为「应用内软件仓库」固定按钮，位于 📋 应用列表右侧（右下角最右端）。
         // ★ 与 🏠 / 📋 一样**不设 tag**：pinnedViews() 只收带 pkg tag 的格子，
         //   因此本按钮永不参与拖动换位，也不会被 dragEnd() 当成已钉应用处理。
-        // ★ 飞牛分享页是网页 SPA，打开与「无浏览器」降级统一交给 AppCenter.open()；
-        //   这里只回显真实结果，不谎报打开成功。
+        // ★ 数据源走本 App 自己的 GitHub Release（车机已验证可直连 + gh-proxy 回落），
+        //   点一下即在原生面板里列出全部版本、直接装，全程不打开网页、不依赖浏览器。
         TextView center = appGlyph("\uD83D\uDCE6", "应用中心");
         center.setBackground(U.bg(0x1AFFFFFF, 33));
-        center.setOnClickListener(v -> sh.toast(AppCenter.open(sh.ctx())));
+        center.setOnClickListener(v -> AppCenter.open(sh));
         appsRow.addView(center, U.lp(68, 68));
     }
 

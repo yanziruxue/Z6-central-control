@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
-"""v2.0.38 产物反查：车模上方灯状态带 + 下方 7 类行车信号卡 —— 断言 dex / assets / manifest 的「该有的在、不该有的没了」。
+"""v2.0.39 产物反查：应用中心改为应用内软件仓库（脱离浏览器，复用本 App GitHub Release）+ NAS 无浏览器诚实文案。
+
+★ v2.0.39 断言口径：AppCenterPane 类 / listReleases / /releases?per_page=20 / published_at /
+   面板文案（软件仓库 / 读取软件仓库中… / 下载安装）/ NAS 诚实文案（请到其他设备打开该文件并上传到 NAS）
+   列为 POS；旧「飞牛网页 SPA 应用中心 + 无浏览器三级降级」的全部锚点（飞牛分享 URL+ID、
+   ClipboardManager / setPrimaryClip / newPlainText / ActivityNotFoundException / 旧结果文案）改 NEG 零残留。
+   ★ 注意 createChooser 仍在 MainActivity（壁纸/日志分享）使用，dex 里仍存在，不可列 NEG。
+   ★ URL 常量被 javac 内联多份，只断言「全文存在」，不断言出现次数。
+   ★ 同尺寸包（451958B，与 v2.0.32~.34 同字节数）判版本唯一看 sha256，不靠大小。
 
 ★ v2.0.38 断言口径：7 张卡文案（车速/胎压/门窗/转速/温度/空调/挡位）、6 个灯状态名、
   行车信号 sectionLabel、SystemProperties 反射与 door_state 属性名、setLamp/setNumCard/
@@ -182,7 +190,7 @@ import os
 import sys
 import zipfile
 
-APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.38.apk"
+APK = sys.argv[1] if len(sys.argv) > 1 else r"D:/AI/WorkBuddy/老六/dist/Z6CC-2.0.39.apk"
 
 z = zipfile.ZipFile(APK)
 names = z.namelist()
@@ -296,13 +304,13 @@ POS = [
     "上传到 NAS".encode("utf-8"), "NAS 收集".encode("utf-8"),
     "已生成".encode("utf-8"), "已打开 NAS 收集页".encode("utf-8"),
     "无浏览器".encode("utf-8"), "无法写入日志文件".encode("utf-8"),
-    "NAS 日志文件生成失败".encode("utf-8"), "分享运行日志".encode("utf-8"),
+    "NAS 日志文件生成失败".encode("utf-8"),
     # v2.0.30：修复写盘失败 —— 多候选目录 + 真实试写 + 字节数校验 + 失败原因可回显
     b"lastNasError", b"nasUploadDirs", b"appContext",
     b"getExternalFilesDir", b"getFilesDir", b"getCacheDir",
     b"mkdirs=false", b"expect=", b"size=",
     "无可用存储目录".encode("utf-8"), "路径：".encode("utf-8"),
-    "以点按钮后提示里的实际路径为准".encode("utf-8"),
+    "以提示里的实际路径为准".encode("utf-8"),
     # v2.0.31：L6Log 可写基址探测 + 崩溃证据链 + 采集/服务进程级防线
     b"writableBase", b"baseCandidates", b"probeWritable", b"logDir", b".wtest",
     b"crashDirs",
@@ -329,21 +337,19 @@ POS = [
     b"disk:vol.self.freeMB", b"disk:data.freeMB", b"disk:sdcard.freeMB",
     b"disk:vol.emulated.freeMB", b"mem:swapFreeKB", b"pwr:bootMs",
     b"prop:vendor.ril.nw.signalstrength.lte.1",
-    # ===== v2.0.37：右下角应用中心入口（📋 右侧固定按钮）=====
-    # ① 类与地址全文（单一真源；javac 内联致 dex 多份，只判存在）
+    # ===== v2.0.39：应用中心改为应用内软件仓库（脱离浏览器，复用本 App GitHub Release）=====
+    # ① 面板类 + 入口类 + 列表拉取链路（dex 可见）
     b"com/l6/carmedia/nat/AppCenter",
-    b"https://share.fnnas.net/s/9d57d97236a04890bf",
-    b"9d57d97236a04890bf",
-    # ② 无浏览器三级降级链的实现锚点（每个都必须是真实进包的代码）
-    b"ClipboardManager", b"setPrimaryClip", b"newPlainText",
-    b"ActivityNotFoundException", b"createChooser",
-    # ③ 按钮可访问名 / 真实结果文案（不谎报成功）
+    b"com/l6/carmedia/nat/AppCenterPane",
+    b"listReleases",
+    b"/releases?per_page=20",
+    b"published_at",
+    # ② 面板文案（不打开网页、不依赖浏览器）
+    "软件仓库".encode("utf-8"), "读取软件仓库中…".encode("utf-8"),
+    "下载安装".encode("utf-8"),
     "应用中心".encode("utf-8"), "打开应用列表".encode("utf-8"),
-    "已打开应用中心".encode("utf-8"),
-    "设备无浏览器，应用中心链接已复制".encode("utf-8"),
-    "设备无浏览器，已打开分享".encode("utf-8"),
-    "请手动打开应用中心".encode("utf-8"),
-    "分享应用中心链接".encode("utf-8"),
+    # ③ NAS 无浏览器诚实文案（不谎报复制/分享/上传成功）
+    "请到其他设备打开该文件并上传到 NAS".encode("utf-8"),
     # ===== v2.0.38：车模上方灯状态带 + 下方 7 类行车信号卡 =====
     # ① 7 张卡文案 + 分区标题
     "车速".encode("utf-8"), "胎压".encode("utf-8"), "门窗".encode("utf-8"),
@@ -416,9 +422,22 @@ NEG = [
     # ===== v2.0.36：旧随机键写法必须零残留 =====
     # ★ 只断言 dex：源码注释里提到它是说明文字，不进 dex，不构成残留。
     b"identityHashCode",
-    # ===== v2.0.37 防假绿：网页 SPA 只负责打开，绝不谎报成功 =====
+    # ===== v2.0.37→v2.0.39 防假绿：旧「飞牛网页 SPA 应用中心 + 无浏览器三级降级」已彻底移除 =====
+    #   飞牛分享页是网页 SPA 而非 API、车机无浏览器，旧方案只能复制链接/分享，是伪降级；
+    #   v2.0.39 改为应用内软件仓库（复用本 App GitHub Release），以下旧串必须零残留。
+    #   ★ createChooser 仍在 MainActivity（壁纸/日志分享）使用，dex 里仍存在，不可列 NEG。
     "应用中心打开成功".encode("utf-8"), "应用中心上传成功".encode("utf-8"),
     "安装成功".encode("utf-8"), "下载成功".encode("utf-8"),
+    b"https://share.fnnas.net/s/9d57d97236a04890bf",
+    b"9d57d97236a04890bf",
+    b"ClipboardManager", b"setPrimaryClip", b"newPlainText",
+    b"ActivityNotFoundException",
+    "分享运行日志".encode("utf-8"),
+    "已打开应用中心".encode("utf-8"),
+    "设备无浏览器，应用中心链接已复制".encode("utf-8"),
+    "设备无浏览器，已打开分享".encode("utf-8"),
+    "请手动打开应用中心".encode("utf-8"),
+    "分享应用中心链接".encode("utf-8"),
     #   ★ application/vnd.android.package-archive 是 OTA 安装 APK 的正常 MIME（dex x1），
     #     属于别的模块，列进 NEG 只会造成假 FAIL，故不断言它。
     b"ACTION_INSTALL_PACKAGE",
